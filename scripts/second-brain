@@ -1,0 +1,502 @@
+#!/bin/zsh
+
+set -eu
+
+SCRIPT_DIR=${0:A:h}
+PROJECT_ROOT=${SCRIPT_DIR:h}
+FRONTEND_LABEL="com.bryancruz.second-brain.frontend"
+BACKEND_LABEL="com.bryancruz.second-brain.backend"
+DOMAIN="gui/$(/usr/bin/id -u)"
+LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+LOG_DIR="$HOME/Library/Logs/SecondBrain"
+APP_DIR="$HOME/Applications/Second Brain.app"
+APP_BUNDLE_ID="com.bryancruz.secondbrain.launcher"
+INSTALL_VERSION="2"
+FRONTEND_PLIST="$LAUNCH_AGENTS_DIR/$FRONTEND_LABEL.plist"
+BACKEND_PLIST="$LAUNCH_AGENTS_DIR/$BACKEND_LABEL.plist"
+FRONTEND_URL="http://localhost:3000"
+BACKEND_URL="http://127.0.0.1:8000/api/health"
+FRONTEND_MARKER="<title>Second Brain"
+BACKEND_MARKER='"total_notes"'
+RENDERER="$SCRIPT_DIR/render_macos_config.py"
+INSTALL_ROLLBACK_ARMED=false
+INSTALL_ROLLBACK_BACKUP_DIR=""
+INSTALL_ROLLBACK_STAGING=""
+INSTALL_ROLLBACK_BACKEND_WAS_LOADED=false
+INSTALL_ROLLBACK_FRONTEND_WAS_LOADED=false
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/second-brain <command> [--open]
+
+Commands:
+  install    Install and start the login-time background services and launcher app
+  start      Start the background services, installing them first when needed
+  stop       Stop both background services without uninstalling them
+  restart    Restart both background services
+  status     Show service and website status
+  open       Open the website in Google Chrome
+  logs       Follow frontend and backend logs
+  uninstall  Remove the background services and launcher app
+USAGE
+}
+
+is_loaded() {
+  /bin/launchctl print "$DOMAIN/$1" >/dev/null 2>&1
+}
+
+is_running() {
+  /bin/launchctl print "$DOMAIN/$1" 2>/dev/null | \
+    /usr/bin/grep -q 'state = running'
+}
+
+is_responding() {
+  local response
+  response=$(/usr/bin/curl --fail --silent --show-error --max-time 2 "$1" 2>/dev/null) || return 1
+  [[ "$response" == *"$2"* ]]
+}
+
+wait_for_url() {
+  local name=$1
+  local label=$2
+  local url=$3
+  local marker=$4
+  local attempts=${5:-90}
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    if is_running "$label" && is_responding "$url" "$marker"; then
+      print "✓ $name is ready"
+      return 0
+    fi
+    sleep 1
+  done
+
+  print -u2 "✗ $name did not become ready. Run 'scripts/second-brain logs' for details."
+  return 1
+}
+
+plist_value() {
+  /usr/bin/plutil -extract "$2" raw -o - "$1" 2>/dev/null
+}
+
+installed_for_current_project() {
+  local wrapper="$PROJECT_ROOT/scripts/run-second-brain-service"
+  local configured_node
+
+  [[ -f "$BACKEND_PLIST" && -f "$FRONTEND_PLIST" ]] || return 1
+  [[ -x "$APP_DIR/Contents/MacOS/second-brain-launcher" ]] || return 1
+  [[ "$(plist_value "$BACKEND_PLIST" EnvironmentVariables.SECOND_BRAIN_INSTALL_VERSION)" == "$INSTALL_VERSION" ]] || return 1
+  [[ "$(plist_value "$FRONTEND_PLIST" EnvironmentVariables.SECOND_BRAIN_INSTALL_VERSION)" == "$INSTALL_VERSION" ]] || return 1
+  [[ "$(plist_value "$BACKEND_PLIST" WorkingDirectory)" == "$PROJECT_ROOT/backend" ]] || return 1
+  [[ "$(plist_value "$FRONTEND_PLIST" WorkingDirectory)" == "$PROJECT_ROOT/frontend" ]] || return 1
+  [[ "$(plist_value "$BACKEND_PLIST" ProgramArguments.0)" == "$wrapper" ]] || return 1
+  [[ "$(plist_value "$BACKEND_PLIST" ProgramArguments.1)" == "backend" ]] || return 1
+  [[ "$(plist_value "$FRONTEND_PLIST" ProgramArguments.0)" == "$wrapper" ]] || return 1
+  [[ "$(plist_value "$FRONTEND_PLIST" ProgramArguments.1)" == "frontend" ]] || return 1
+  configured_node=$(plist_value "$FRONTEND_PLIST" ProgramArguments.2)
+  [[ -x "$configured_node" ]] || return 1
+  [[ "$(plist_value "$APP_DIR/Contents/Info.plist" CFBundleIdentifier)" == "$APP_BUNDLE_ID" ]] || return 1
+}
+
+find_node() {
+  local discovered candidate
+  discovered=$(command -v node 2>/dev/null || true)
+
+  for candidate in "$discovered" /opt/homebrew/bin/node /usr/local/bin/node; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      print "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+verify_owned_artifacts() {
+  if [[ -f "$BACKEND_PLIST" ]] && \
+    [[ "$(plist_value "$BACKEND_PLIST" Label)" != "$BACKEND_LABEL" ]]; then
+    print -u2 "Refusing to replace an unrelated launch agent at $BACKEND_PLIST"
+    return 1
+  fi
+  if [[ -f "$FRONTEND_PLIST" ]] && \
+    [[ "$(plist_value "$FRONTEND_PLIST" Label)" != "$FRONTEND_LABEL" ]]; then
+    print -u2 "Refusing to replace an unrelated launch agent at $FRONTEND_PLIST"
+    return 1
+  fi
+  if [[ -d "$APP_DIR" ]] && \
+    [[ "$(plist_value "$APP_DIR/Contents/Info.plist" CFBundleIdentifier)" != "$APP_BUNDLE_ID" ]]; then
+    print -u2 "Refusing to replace an unrelated application at $APP_DIR"
+    return 1
+  fi
+}
+
+render_plist() {
+  local python_path=$1
+  local source=$2
+  local destination=$3
+  local node_path=$4
+
+  "$python_path" "$RENDERER" plist "$source" "$destination" \
+    --project-root "$PROJECT_ROOT" \
+    --user-home "$HOME" \
+    --node-path "$node_path"
+}
+
+render_launcher() {
+  local python_path=$1
+  local source=$2
+  local destination=$3
+
+  "$python_path" "$RENDERER" launcher "$source" "$destination" \
+    --project-root "$PROJECT_ROOT"
+}
+
+bootstrap_agent() {
+  local label=$1
+  local plist=$2
+
+  if is_loaded "$label"; then
+    /bin/launchctl kickstart -k "$DOMAIN/$label"
+  else
+    /bin/launchctl bootstrap "$DOMAIN" "$plist"
+  fi
+}
+
+unload_agent() {
+  local label=$1
+  is_loaded "$label" || return 0
+
+  if ! /bin/launchctl bootout "$DOMAIN/$label"; then
+    print -u2 "Could not stop $label. Its installed files were left untouched."
+    return 1
+  fi
+
+  for (( attempt = 1; attempt <= 20; attempt++ )); do
+    is_loaded "$label" || return 0
+    sleep 0.1
+  done
+
+  print -u2 "$label still appears loaded after launchctl bootout."
+  return 1
+}
+
+restore_previous_install() {
+  local backup_dir=$1
+  local backend_was_loaded=$2
+  local frontend_was_loaded=$3
+  local failed=0
+
+  print -u2 "Restoring the previous Second Brain background setup..."
+  if is_loaded "$FRONTEND_LABEL"; then
+    /bin/launchctl bootout "$DOMAIN/$FRONTEND_LABEL" >/dev/null 2>&1 || failed=1
+  fi
+  if is_loaded "$BACKEND_LABEL"; then
+    /bin/launchctl bootout "$DOMAIN/$BACKEND_LABEL" >/dev/null 2>&1 || failed=1
+  fi
+
+  if [[ -f "$backup_dir/backend.plist" ]]; then
+    /bin/cp "$backup_dir/backend.plist" "$BACKEND_PLIST" || failed=1
+  else
+    /bin/rm -f "$BACKEND_PLIST" || failed=1
+  fi
+  if [[ -f "$backup_dir/frontend.plist" ]]; then
+    /bin/cp "$backup_dir/frontend.plist" "$FRONTEND_PLIST" || failed=1
+  else
+    /bin/rm -f "$FRONTEND_PLIST" || failed=1
+  fi
+
+  /bin/rm -rf "$APP_DIR" || failed=1
+  if [[ -d "$backup_dir/Second Brain.app" ]]; then
+    /usr/bin/ditto "$backup_dir/Second Brain.app" "$APP_DIR" || failed=1
+  fi
+
+  if [[ "$backend_was_loaded" == true && -f "$BACKEND_PLIST" ]]; then
+    /bin/launchctl bootstrap "$DOMAIN" "$BACKEND_PLIST" || failed=1
+  fi
+  if [[ "$frontend_was_loaded" == true && -f "$FRONTEND_PLIST" ]]; then
+    /bin/launchctl bootstrap "$DOMAIN" "$FRONTEND_PLIST" || failed=1
+  fi
+
+  return $failed
+}
+
+rollback_interrupted_install() {
+  local original_status=$?
+  trap - EXIT INT TERM
+
+  if [[ "$INSTALL_ROLLBACK_ARMED" == true ]]; then
+    print -u2 "The install was interrupted; rolling back safely..."
+    restore_previous_install \
+      "$INSTALL_ROLLBACK_BACKUP_DIR" \
+      "$INSTALL_ROLLBACK_BACKEND_WAS_LOADED" \
+      "$INSTALL_ROLLBACK_FRONTEND_WAS_LOADED" || \
+      print -u2 "Warning: the previous background setup could not be fully restored."
+    /bin/rm -rf \
+      "$INSTALL_ROLLBACK_STAGING" \
+      "$FRONTEND_PLIST.installing" \
+      "$BACKEND_PLIST.installing" \
+      "$HOME/Applications/.Second Brain.app.installing" || true
+  fi
+
+  INSTALL_ROLLBACK_ARMED=false
+  return $original_status
+}
+
+activate_staged_install() {
+  local staged_frontend=$1
+  local staged_backend=$2
+  local staged_app=$3
+  local frontend_installing="$FRONTEND_PLIST.installing"
+  local backend_installing="$BACKEND_PLIST.installing"
+  local app_installing="$HOME/Applications/.Second Brain.app.installing"
+
+  /bin/rm -f "$frontend_installing" "$backend_installing" &&
+    /bin/rm -rf "$app_installing" &&
+    /bin/cp "$staged_frontend" "$frontend_installing" &&
+    /bin/cp "$staged_backend" "$backend_installing" &&
+    /usr/bin/ditto "$staged_app" "$app_installing" &&
+    /bin/mv -f "$frontend_installing" "$FRONTEND_PLIST" &&
+    /bin/mv -f "$backend_installing" "$BACKEND_PLIST" &&
+    /bin/rm -rf "$APP_DIR" &&
+    /bin/mv "$app_installing" "$APP_DIR" &&
+    /bin/launchctl bootstrap "$DOMAIN" "$BACKEND_PLIST" &&
+    /bin/launchctl bootstrap "$DOMAIN" "$FRONTEND_PLIST"
+}
+
+install_services() {
+  setopt localtraps
+  local node_path python_path
+  node_path=$(find_node || true)
+  python_path="$PROJECT_ROOT/backend/venv/bin/python"
+
+  if [[ -z "$node_path" ]]; then
+    print -u2 "Node.js was not found. Install Node.js before starting Second Brain."
+    exit 1
+  fi
+  if [[ ! -x "$python_path" ]]; then
+    print -u2 "The backend virtual environment is missing at backend/venv."
+    exit 1
+  fi
+  if [[ ! -f "$PROJECT_ROOT/frontend/node_modules/next/dist/bin/next" ]]; then
+    print -u2 "Frontend dependencies are missing. Run 'npm install' in frontend first."
+    exit 1
+  fi
+  if [[ ! -x "$PROJECT_ROOT/scripts/run-second-brain-service" ]]; then
+    print -u2 "The background service runner is missing or is not executable."
+    exit 1
+  fi
+
+  verify_owned_artifacts || return 1
+  /bin/mkdir -p "$LAUNCH_AGENTS_DIR" "$LOG_DIR" "$HOME/Applications"
+
+  local staging backup_dir staged_app staged_backend staged_frontend
+  local backend_was_loaded=false frontend_was_loaded=false
+  is_loaded "$BACKEND_LABEL" && backend_was_loaded=true
+  is_loaded "$FRONTEND_LABEL" && frontend_was_loaded=true
+
+  staging=$(mktemp -d "$LOG_DIR/install.XXXXXX")
+  backup_dir="$staging/backup"
+  staged_app="$staging/Second Brain.app"
+  staged_backend="$staging/backend.plist"
+  staged_frontend="$staging/frontend.plist"
+  /bin/mkdir -p "$backup_dir"
+
+  if ! render_plist "$python_path" "$PROJECT_ROOT/scripts/macos/$FRONTEND_LABEL.plist" "$staged_frontend" "$node_path" || \
+    ! render_plist "$python_path" "$PROJECT_ROOT/scripts/macos/$BACKEND_LABEL.plist" "$staged_backend" "$node_path" || \
+    ! /usr/bin/ditto "$PROJECT_ROOT/scripts/macos/Second Brain.app" "$staged_app" || \
+    ! render_launcher "$python_path" \
+      "$PROJECT_ROOT/scripts/macos/Second Brain.app/Contents/MacOS/second-brain-launcher" \
+      "$staged_app/Contents/MacOS/second-brain-launcher" || \
+    ! /usr/bin/plutil -lint "$staged_frontend" >/dev/null || \
+    ! /usr/bin/plutil -lint "$staged_backend" >/dev/null || \
+    ! /usr/bin/plutil -lint "$staged_app/Contents/Info.plist" >/dev/null; then
+    /bin/rm -rf "$staging"
+    print -u2 "Could not render a valid Second Brain background configuration."
+    return 1
+  fi
+
+  if [[ -f "$BACKEND_PLIST" ]] && \
+    ! /bin/cp "$BACKEND_PLIST" "$backup_dir/backend.plist"; then
+    /bin/rm -rf "$staging"
+    return 1
+  fi
+  if [[ -f "$FRONTEND_PLIST" ]] && \
+    ! /bin/cp "$FRONTEND_PLIST" "$backup_dir/frontend.plist"; then
+    /bin/rm -rf "$staging"
+    return 1
+  fi
+  if [[ -d "$APP_DIR" ]] && \
+    ! /usr/bin/ditto "$APP_DIR" "$backup_dir/Second Brain.app"; then
+    /bin/rm -rf "$staging"
+    return 1
+  fi
+
+  INSTALL_ROLLBACK_BACKUP_DIR="$backup_dir"
+  INSTALL_ROLLBACK_STAGING="$staging"
+  INSTALL_ROLLBACK_BACKEND_WAS_LOADED="$backend_was_loaded"
+  INSTALL_ROLLBACK_FRONTEND_WAS_LOADED="$frontend_was_loaded"
+  INSTALL_ROLLBACK_ARMED=true
+  trap rollback_interrupted_install EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  if ! unload_agent "$FRONTEND_LABEL"; then
+    return 1
+  fi
+  if ! unload_agent "$BACKEND_LABEL"; then
+    return 1
+  fi
+
+  if ! activate_staged_install "$staged_frontend" "$staged_backend" "$staged_app"; then
+    return 1
+  fi
+  if ! wait_for_url "Backend" "$BACKEND_LABEL" "$BACKEND_URL" "$BACKEND_MARKER" || \
+    ! wait_for_url "Frontend" "$FRONTEND_LABEL" "$FRONTEND_URL" "$FRONTEND_MARKER"; then
+    return 1
+  fi
+
+  INSTALL_ROLLBACK_ARMED=false
+  trap - EXIT INT TERM
+  /bin/rm -rf "$staging" || print -u2 "Warning: could not remove install staging files at $staging"
+  print "✓ Login-time background services installed"
+  print "✓ One-click launcher installed at $APP_DIR"
+}
+
+start_services() {
+  if ! installed_for_current_project; then
+    install_services
+  elif is_running "$BACKEND_LABEL" && is_running "$FRONTEND_LABEL" && \
+    is_responding "$BACKEND_URL" "$BACKEND_MARKER" && \
+    is_responding "$FRONTEND_URL" "$FRONTEND_MARKER"; then
+    print "✓ Backend is already ready"
+    print "✓ Frontend is already ready"
+  else
+    bootstrap_agent "$BACKEND_LABEL" "$BACKEND_PLIST"
+    bootstrap_agent "$FRONTEND_LABEL" "$FRONTEND_PLIST"
+  fi
+
+  local ready=0
+  wait_for_url "Backend" "$BACKEND_LABEL" "$BACKEND_URL" "$BACKEND_MARKER" || ready=1
+  wait_for_url "Frontend" "$FRONTEND_LABEL" "$FRONTEND_URL" "$FRONTEND_MARKER" || ready=1
+  return $ready
+}
+
+stop_services() {
+  local failed=0
+  unload_agent "$FRONTEND_LABEL" || failed=1
+  unload_agent "$BACKEND_LABEL" || failed=1
+  (( failed == 0 )) || return 1
+  print "✓ Second Brain services stopped"
+}
+
+open_site() {
+  if [[ -d "/Applications/Google Chrome.app" ]]; then
+    /usr/bin/open -a "Google Chrome" "$FRONTEND_URL"
+  else
+    /usr/bin/open "$FRONTEND_URL"
+  fi
+  print "✓ Opened $FRONTEND_URL"
+}
+
+show_status() {
+  local failed=0
+
+  if is_running "$BACKEND_LABEL"; then
+    print "✓ Backend background service is running"
+  elif is_loaded "$BACKEND_LABEL"; then
+    print "✗ Backend background service is loaded but not running"
+    failed=1
+  else
+    print "○ Backend background service is stopped"
+    failed=1
+  fi
+  if is_responding "$BACKEND_URL" "$BACKEND_MARKER"; then
+    print "✓ Backend is responding at $BACKEND_URL"
+  else
+    print "✗ Backend is not responding"
+    failed=1
+  fi
+  if is_running "$FRONTEND_LABEL"; then
+    print "✓ Frontend background service is running"
+  elif is_loaded "$FRONTEND_LABEL"; then
+    print "✗ Frontend background service is loaded but not running"
+    failed=1
+  else
+    print "○ Frontend background service is stopped"
+    failed=1
+  fi
+  if is_responding "$FRONTEND_URL" "$FRONTEND_MARKER"; then
+    print "✓ Frontend is responding at $FRONTEND_URL"
+  else
+    print "✗ Frontend is not responding"
+    failed=1
+  fi
+
+  return $failed
+}
+
+follow_logs() {
+  local logs=(
+    "$LOG_DIR/frontend.log"
+    "$LOG_DIR/frontend-error.log"
+    "$LOG_DIR/frontend-supervisor-error.log"
+    "$LOG_DIR/backend.log"
+    "$LOG_DIR/backend-error.log"
+    "$LOG_DIR/backend-supervisor-error.log"
+    "$LOG_DIR/launcher.log"
+  )
+  /bin/mkdir -p "$LOG_DIR"
+  /usr/bin/touch "${logs[@]}"
+  /usr/bin/tail -n 80 -F "${logs[@]}"
+}
+
+uninstall_services() {
+  verify_owned_artifacts || return 1
+  stop_services
+  /bin/rm -f "$FRONTEND_PLIST" "$BACKEND_PLIST"
+  /bin/rm -rf "$APP_DIR"
+  print "✓ Second Brain auto-start and launcher app removed"
+  print "  Logs were kept at $LOG_DIR"
+}
+
+command=${1:-}
+open_after=false
+if [[ ${2:-} == "--open" || ${1:-} == "--open" ]]; then
+  open_after=true
+fi
+
+case "$command" in
+  install)
+    install_services
+    ;;
+  start)
+    start_services
+    ;;
+  stop)
+    stop_services
+    ;;
+  restart)
+    stop_services
+    start_services
+    ;;
+  status)
+    show_status
+    ;;
+  open)
+    open_site
+    ;;
+  logs)
+    follow_logs
+    ;;
+  uninstall)
+    uninstall_services
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+if [[ "$open_after" == true ]]; then
+  open_site
+fi

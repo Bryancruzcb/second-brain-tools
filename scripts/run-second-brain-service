@@ -1,0 +1,61 @@
+#!/bin/zsh
+
+set -eu
+
+SCRIPT_DIR=${0:A:h}
+PROJECT_ROOT=${SCRIPT_DIR:h}
+LOG_DIR="$HOME/Library/Logs/SecondBrain"
+MAX_LOG_BYTES=$((10 * 1024 * 1024))
+
+rotate_log() {
+  local log_file=$1
+  [[ -f "$log_file" ]] || return 0
+
+  local size
+  size=$(/usr/bin/stat -f '%z' "$log_file" 2>/dev/null || print 0)
+  (( size >= MAX_LOG_BYTES )) || return 0
+
+  /bin/rm -f "$log_file.2"
+  [[ ! -f "$log_file.1" ]] || /bin/mv "$log_file.1" "$log_file.2"
+  /bin/mv "$log_file" "$log_file.1"
+}
+
+service=${1:-}
+/bin/mkdir -p "$LOG_DIR"
+
+case "$service" in
+  backend)
+    stdout_log="$LOG_DIR/backend.log"
+    stderr_log="$LOG_DIR/backend-error.log"
+    ;;
+  frontend)
+    node_path=${2:-}
+    stdout_log="$LOG_DIR/frontend.log"
+    stderr_log="$LOG_DIR/frontend-error.log"
+    ;;
+  *)
+    print -u2 "Usage: scripts/run-second-brain-service <backend|frontend> [node-path]"
+    exit 2
+    ;;
+esac
+
+rotate_log "$stdout_log"
+rotate_log "$stderr_log"
+exec >> "$stdout_log" 2>> "$stderr_log"
+
+case "$service" in
+  backend)
+    cd "$PROJECT_ROOT/backend"
+    exec "$PROJECT_ROOT/backend/venv/bin/python" -m uvicorn main:app \
+      --reload --host 127.0.0.1 --port 8000
+    ;;
+  frontend)
+    if [[ -z "$node_path" || ! -x "$node_path" ]]; then
+      print -u2 "The configured Node.js executable is unavailable: $node_path"
+      exit 1
+    fi
+    cd "$PROJECT_ROOT/frontend"
+    exec "$node_path" "$PROJECT_ROOT/frontend/node_modules/next/dist/bin/next" \
+      dev --hostname 127.0.0.1 --port 3000
+    ;;
+esac

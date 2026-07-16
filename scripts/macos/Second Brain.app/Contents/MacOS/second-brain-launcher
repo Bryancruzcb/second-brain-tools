@@ -1,0 +1,11 @@
+#!/bin/zsh
+
+/bin/mkdir -p "$HOME/Library/Logs/SecondBrain"
+launcher_log="$HOME/Library/Logs/SecondBrain/launcher.log"
+launcher_size=$(/usr/bin/stat -f '%z' "$launcher_log" 2>/dev/null || print 0)
+if (( launcher_size >= 10 * 1024 * 1024 )); then
+  /bin/rm -f "$launcher_log.2"
+  [[ ! -f "$launcher_log.1" ]] || /bin/mv "$launcher_log.1" "$launcher_log.2"
+  /bin/mv "$launcher_log" "$launcher_log.1"
+fi
+exec __SECOND_BRAIN_COMMAND__ start --open >> "$launcher_log" 2>&1

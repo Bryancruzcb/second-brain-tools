@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Second Brain: Start & Open",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "\"${workspaceFolder}/scripts/second-brain\" start --open",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

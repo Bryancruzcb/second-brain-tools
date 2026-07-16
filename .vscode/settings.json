@@ -1,4 +1,6 @@
 {
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python",
+  "python.terminal.activateEnvironment": true,
   "files.exclude": {
     "**/.git": true,
     "**/.DS_Store": true,

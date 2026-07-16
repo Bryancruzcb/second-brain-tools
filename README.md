@@ -68,6 +68,32 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+### One-click macOS setup
+
+To keep the frontend and backend running in the background at login, install the
+included launch services once:
+
+```bash
+./scripts/second-brain install
+```
+
+This also installs `Second Brain.app` in `~/Applications`. Open that app or use
+the **Second Brain: Start & Open** Run configuration in VS Code to start the
+services and open Chrome without managing terminals. The site can then stay
+pinned at [http://localhost:3000](http://localhost:3000): right-click its Chrome
+tab once and choose **Pin**. The background services continue running when VS
+Code and Terminal are closed.
+
+Useful commands:
+
+```bash
+./scripts/second-brain status
+./scripts/second-brain restart --open
+./scripts/second-brain stop
+./scripts/second-brain logs
+./scripts/second-brain uninstall
+```
+
 ## Daily workflow
 
 1. Use **Refresh vault** to re-parse notes and update graph/health data.

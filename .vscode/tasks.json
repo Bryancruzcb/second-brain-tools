@@ -1,0 +1,54 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Second Brain: Start & Open",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/second-brain",
+      "args": ["start", "--open"],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Second Brain: Restart",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/second-brain",
+      "args": ["restart", "--open"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Second Brain: Stop",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/second-brain",
+      "args": ["stop"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Second Brain: Status",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/second-brain",
+      "args": ["status"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Second Brain: Follow Logs",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/second-brain",
+      "args": ["logs"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ]
+}

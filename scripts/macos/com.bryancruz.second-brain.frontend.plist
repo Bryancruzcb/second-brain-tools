@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bryancruz.second-brain.frontend</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PROJECT_ROOT__/scripts/run-second-brain-service</string>
+    <string>frontend</string>
+    <string>__NODE_PATH__</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_ROOT__/frontend</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__USER_HOME__</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SECOND_BRAIN_INSTALL_VERSION</key>
+    <string>2</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>__USER_HOME__/Library/Logs/SecondBrain/frontend-supervisor.log</string>
+  <key>StandardErrorPath</key>
+  <string>__USER_HOME__/Library/Logs/SecondBrain/frontend-supervisor-error.log</string>
+</dict>
+</plist>
