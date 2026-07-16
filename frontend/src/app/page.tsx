@@ -4,7 +4,6 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Brain,
-  ChevronLeft,
   ChevronRight,
   FilePlus2,
   Maximize2,
@@ -79,6 +78,21 @@ export default function Home() {
   const [isLeftOpen, setIsLeftOpen] = useState(true);
   const [isRightOpen, setIsRightOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const workspaceMainRef = useRef<HTMLElement | null>(null);
+  const overviewSectionRef = useRef<HTMLElement | null>(null);
+  const graphSectionRef = useRef<HTMLElement | null>(null);
+  const chatSectionRef = useRef<HTMLElement | null>(null);
+
+  const scrollToView = useCallback((view: ViewMode) => {
+    const target = view === 'dashboard'
+      ? overviewSectionRef.current
+      : view === 'graph'
+        ? graphSectionRef.current
+        : chatSectionRef.current;
+    setActiveView(view);
+    setIsMobileMenuOpen(false);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const showNotice = useCallback((message: string, tone: Notice['tone'] = 'info') => {
     setNotice({ message, tone });
@@ -155,6 +169,38 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleShortcut);
   }, []);
 
+  useEffect(() => {
+    const root = workspaceMainRef.current;
+    const sections: Array<{ view: ViewMode; element: HTMLElement | null }> = [
+      { view: 'dashboard', element: overviewSectionRef.current },
+      { view: 'graph', element: graphSectionRef.current },
+      { view: 'chat', element: chatSectionRef.current },
+    ];
+    if (!root || sections.some(({ element }) => !element)) return;
+
+    let frame = 0;
+    const updateActiveSection = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const activeLine = root.getBoundingClientRect().top + Math.min(180, root.clientHeight * 0.25);
+        let nextView: ViewMode = 'dashboard';
+        sections.forEach(({ view, element }) => {
+          if (element && element.getBoundingClientRect().top <= activeLine) nextView = view;
+        });
+        setActiveView(nextView);
+      });
+    };
+
+    updateActiveSection();
+    root.addEventListener('scroll', updateActiveSection, { passive: true });
+    window.addEventListener('resize', updateActiveSection);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      root.removeEventListener('scroll', updateActiveSection);
+      window.removeEventListener('resize', updateActiveSection);
+    };
+  }, []);
+
   const triggerScan = async () => {
     setIsScanning(true);
     try {
@@ -189,7 +235,7 @@ export default function Home() {
     setNoteContent('');
     setEditContent('');
     setIsNoteReadOnly(false);
-    if (moveToGraph) setActiveView('graph');
+    if (moveToGraph) scrollToView('graph');
 
     try {
       const response = await fetch(`${API_BASE}/api/note/${node.id.split('/').map(encodeURIComponent).join('/')}`);
@@ -208,7 +254,7 @@ export default function Home() {
     } finally {
       if (requestId === noteRequestId.current) setIsLoadingNote(false);
     }
-  }, [showNotice]);
+  }, [scrollToView, showNotice]);
 
   const handleNodeSelect = useCallback((node: GraphNode | null, shiftKey = false) => {
     if (!node) {
@@ -287,7 +333,7 @@ export default function Home() {
     if (!selectedNode) return;
     setChatContextNodes((current) => current.some((node) => node.id === selectedNode.id) ? current : [...current, selectedNode]);
     setChatInputPreset(`Summarize ${selectedNode.label} and surface its most useful connections.`);
-    setActiveView('chat');
+    scrollToView('chat');
     setIsFullscreen(false);
   };
 
@@ -318,7 +364,7 @@ export default function Home() {
   const askFromSearch = (query: string) => {
     if (!query) return;
     setChatInputPreset(query);
-    setActiveView('chat');
+    scrollToView('chat');
     setIsOmniOpen(false);
     setOmniQuery('');
   };
@@ -382,7 +428,7 @@ export default function Home() {
     <div className={`app-shell ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
       <Sidebar
         activeView={activeView}
-        onViewChange={(view) => { setActiveView(view); setIsMobileMenuOpen(false); }}
+        onViewChange={scrollToView}
         onScan={() => void triggerScan()}
         isScanning={isScanning}
         isConnected={isConnected}
@@ -413,8 +459,13 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="workspace-main">
-          {activeView === 'dashboard' && (
+        <main className="workspace-main" ref={workspaceMainRef}>
+          <section
+            id="overview"
+            ref={overviewSectionRef}
+            className="journey-section journey-overview"
+            aria-label="Workspace overview"
+          >
             <Overview
               healthData={healthData}
               recentNotes={recentNotes}
@@ -425,19 +476,24 @@ export default function Home() {
               onScan={() => void triggerScan()}
               onIndex={() => void triggerIndex()}
               onCreate={() => setShowCreateNote(true)}
-              onOpenGraph={() => setActiveView('graph')}
-              onOpenChat={() => setActiveView('chat')}
+              onOpenGraph={() => scrollToView('graph')}
+              onOpenChat={() => scrollToView('chat')}
               onOpenNode={(node) => void loadNode(node)}
               onOpenRecent={openRecentNote}
             />
-          )}
+          </section>
 
-          {activeView === 'graph' && (
+          <section
+            id="knowledge-graph"
+            ref={graphSectionRef}
+            className="journey-section journey-graph"
+            aria-labelledby="knowledge-graph-title"
+          >
             <div className="graph-view view-enter">
               <header className="view-heading graph-heading">
                 <div>
                   <span className="view-context">Spatial view</span>
-                  <h1>Knowledge graph</h1>
+                  <h1 id="knowledge-graph-title">Knowledge graph</h1>
                   <p>Explore relationships. Select a node to read it; Shift-click nodes to add them to Qwen context.</p>
                 </div>
                 <button type="button" className="button ghost" onClick={() => setIsFullscreen(true)}>
@@ -457,14 +513,19 @@ export default function Home() {
                 {renderNotePanel()}
               </div>
             </div>
-          )}
+          </section>
 
-          {activeView === 'chat' && (
+          <section
+            id="ask-qwen"
+            ref={chatSectionRef}
+            className="journey-section journey-chat"
+            aria-labelledby="ask-qwen-title"
+          >
             <div className="chat-view view-enter">
               <header className="view-heading chat-heading">
                 <div>
                   <span className="view-context">Local retrieval assistant</span>
-                  <h1>Ask Qwen</h1>
+                  <h1 id="ask-qwen-title">Ask Qwen</h1>
                   <p>Answers are grounded in your indexed notes and generated locally through Ollama.</p>
                 </div>
                 <span className="model-badge"><Brain size={15} /> Qwen 2.5 · local</span>
@@ -474,7 +535,7 @@ export default function Home() {
                 <ChatPanel presetQuery={chatInputPreset} contextNodes={chatContextNodes} />
               </div>
             </div>
-          )}
+          </section>
         </main>
       </div>
 
@@ -565,9 +626,6 @@ export default function Home() {
       )}
 
       <button type="button" className="mobile-backdrop" onClick={() => setIsMobileMenuOpen(false)} aria-label="Close navigation" />
-      <button type="button" className="mobile-view-switcher" onClick={() => setActiveView(activeView === 'dashboard' ? 'graph' : 'dashboard')} aria-label="Switch workspace view">
-        <ChevronLeft size={15} />
-      </button>
     </div>
   );
 }

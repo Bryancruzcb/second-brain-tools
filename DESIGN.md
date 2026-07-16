@@ -39,7 +39,7 @@ Hierarchy is built with borders, tonal steps, and spacing before shadows. Primar
 
 # Components
 
-The app shell uses a persistent left rail, command search top bar, and one active workspace view. Buttons have primary, secondary, ghost, text, compact, and icon forms with consistent focus-visible rings. Workspace panels share headings, supporting copy, and clear empty states. The graph owns its search, filters, camera controls, tooltip, and stats. Note and chat panels preserve context as users move between discovery, reading, editing, and asking.
+The app shell uses a persistent left rail, command search top bar, and one continuous scroll surface linking Overview, Knowledge Graph, and Ask Qwen. Sidebar selection follows the visible section and navigation scrolls without unmounting workspace state. Buttons have primary, secondary, ghost, text, compact, and icon forms with consistent focus-visible rings. The graph owns its search, filters, camera controls, direct node labels, and stats. Note and chat panels preserve context as users move between discovery, reading, editing, and asking.
 
 # Do’s and Don’ts
 
@@ -47,6 +47,6 @@ The app shell uses a persistent left rail, command search top bar, and one activ
 - Do write plain status copy for scanning, indexing, loading, saving, and failures.
 - Do maintain keyboard access, reduced-motion behavior, responsive layouts, and WCAG AA contrast.
 - Do use the chartreuse signal sparingly so it retains meaning.
-- Don’t turn the product into a scrolling landing page or a grid of decorative metrics.
+- Don’t let the continuous scroll behave like a marketing page; preserve live state, task density, and persistent navigation.
 - Don’t use gradient text, neon bloom on every element, or glassmorphism as the visual system.
 - Don’t hide essential navigation or replace familiar controls with novelty.

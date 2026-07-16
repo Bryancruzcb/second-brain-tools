@@ -21,7 +21,7 @@ Focused, intelligent, and quietly distinctive. The interface should feel like a 
 - Generic AI tool landing pages with oversized hero copy, floating gradient orbs, and repetitive metric cards.
 - Decorative neon cyberpunk dashboards where every element glows and inactive controls compete for attention.
 - Glassmorphism-heavy interfaces that blur hierarchy and reduce text contrast.
-- Marketing-page scrolling inside a task-oriented desktop application.
+- Marketing-page scrolling that loses task context, persistent navigation, or live workspace state.
 - Novel controls that replace familiar navigation, search, editing, or dialog behavior without a user benefit.
 
 ## Design Principles

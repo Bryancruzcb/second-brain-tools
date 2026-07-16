@@ -14,7 +14,7 @@ import {
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Html, Line, OrbitControls, Stars } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
-import { Maximize, Network, Search, Share2, Tag } from 'lucide-react';
+import { Maximize, Network, Search, Tag } from 'lucide-react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import type { GraphEdge, GraphNode } from '../types';
@@ -61,30 +61,6 @@ const GHOST_EDGE_COLORS: EdgeColors = [colorTuple(GHOST_EDGE_COLOR), colorTuple(
 const EMPTY_NODES: GraphNode[] = [];
 const EMPTY_EDGES: GraphEdge[] = [];
 
-const AXIS_MARKERS: ReadonlyArray<{ position: Point3; label: string; color: string }> = [
-  { position: [0, -400, 0], label: '▼ Bottom', color: '#3b82f6' },
-  { position: [0, 400, 0], label: '▲ Top', color: '#8b5cf6' },
-  { position: [-600, 0, 0], label: '◀ Left', color: '#10b981' },
-  { position: [600, 0, 0], label: '▶ Right', color: '#f59e0b' },
-  { position: [0, 0, -600], label: '⬟ Back', color: '#ec4899' },
-  { position: [0, 0, 600], label: '⬡ Front', color: '#06b6d4' },
-];
-
-const BOUNDING_BOX_EDGES: ReadonlyArray<[Point3, Point3]> = [
-  [[-600, -400, -600], [-600, 400, -600]],
-  [[600, -400, -600], [600, 400, -600]],
-  [[-600, -400, 600], [-600, 400, 600]],
-  [[600, -400, 600], [600, 400, 600]],
-  [[-600, -400, -600], [600, -400, -600]],
-  [[-600, -400, 600], [600, -400, 600]],
-  [[-600, -400, -600], [-600, -400, 600]],
-  [[600, -400, -600], [600, -400, 600]],
-  [[-600, 400, -600], [600, 400, -600]],
-  [[-600, 400, 600], [600, 400, 600]],
-  [[-600, 400, -600], [-600, 400, 600]],
-  [[600, 400, -600], [600, 400, 600]],
-];
-
 interface GraphCssVariables extends CSSProperties {
   '--graph-node-color'?: string;
   '--graph-tag-color'?: string;
@@ -106,6 +82,7 @@ interface LayoutNode extends GraphNode {
   colorTuple: Color3;
   connections: number;
   normalizedTags: string[];
+  isLabeled: boolean;
 }
 
 interface LayoutEdge extends GraphEdge {
@@ -136,7 +113,6 @@ interface GraphSceneProps {
   orbitRef: RefObject<OrbitControlsImpl | null>;
   prefersReducedMotion: boolean;
   starCount: number;
-  onNodeHover: (node: LayoutNode | null) => void;
   onNodeSelect: (node: LayoutNode, shiftKey: boolean) => void;
 }
 
@@ -322,6 +298,14 @@ function buildGraphLayout(nodes: GraphNode[], edges: GraphEdge[]): GraphLayout {
   center.y /= workingNodes.length;
   center.z /= workingNodes.length;
 
+  const labelBudget = nodes.length <= 48 ? nodes.length : Math.min(34, Math.ceil(nodes.length * 0.16));
+  const labeledNodeIds = new Set(
+    [...nodes]
+      .sort((a, b) => (connections.get(b.id) ?? 0) - (connections.get(a.id) ?? 0))
+      .slice(0, labelBudget)
+      .map((node) => node.id),
+  );
+
   const layoutNodes: LayoutNode[] = workingNodes.map((node) => {
     const color = getNodeColor(node);
     const connectionCount = connections.get(node.id) ?? 0;
@@ -336,6 +320,7 @@ function buildGraphLayout(nodes: GraphNode[], edges: GraphEdge[]): GraphLayout {
       colorTuple: colorTuple(color),
       connections: connectionCount,
       normalizedTags: node.tags.map(normalizeTag).filter(Boolean),
+      isLabeled: labeledNodeIds.has(node.id),
     };
   });
 
@@ -405,7 +390,6 @@ function GraphScene({
   orbitRef,
   prefersReducedMotion,
   starCount,
-  onNodeHover,
   onNodeSelect,
 }: GraphSceneProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -416,38 +400,6 @@ function GraphScene({
 
   return (
     <group>
-      <group>
-        <gridHelper args={[1200, 24, '#28313b', '#171d24']} position={[0, -400, 0]} />
-        <gridHelper args={[1200, 24, '#242d37', '#151b22']} position={[0, 400, 0]} />
-        <gridHelper args={[800, 16, '#242d37', '#151b22']} position={[-600, 0, 0]} rotation={[0, 0, Math.PI / 2]} />
-        <gridHelper args={[800, 16, '#242d37', '#151b22']} position={[600, 0, 0]} rotation={[0, 0, Math.PI / 2]} />
-        <gridHelper args={[800, 16, '#242d37', '#151b22']} position={[0, 0, -600]} rotation={[Math.PI / 2, 0, 0]} />
-
-        {AXIS_MARKERS.map((axis) => (
-          <Html
-            key={axis.label}
-            position={axis.position}
-            distanceFactor={600}
-            zIndexRange={[0, 0]}
-          >
-            <span className="graph-axis-label" style={{ color: axis.color }}>
-              {axis.label}
-            </span>
-          </Html>
-        ))}
-
-        {BOUNDING_BOX_EDGES.map((points, index) => (
-          <Line
-            key={`bounding-edge-${index}`}
-            points={points}
-            color="#ffffff"
-            lineWidth={0.5}
-            transparent
-            opacity={0.06}
-          />
-        ))}
-      </group>
-
       <Stars
         radius={500}
         depth={200}
@@ -494,12 +446,10 @@ function GraphScene({
               onPointerOver={(event) => {
                 event.stopPropagation();
                 setHoveredNodeId(node.id);
-                onNodeHover(node);
               }}
               onPointerOut={(event) => {
                 event.stopPropagation();
                 setHoveredNodeId(null);
-                onNodeHover(null);
               }}
               onClick={(event) => {
                 event.stopPropagation();
@@ -518,15 +468,15 @@ function GraphScene({
               />
             </mesh>
 
-            {(isHovered || isSelected) && (
+            {(node.isLabeled || isHovered || isSelected) && (
               <Html
                 center
-                position={[0, node.radius * 2.4, 0]}
-                distanceFactor={350}
+                position={[0, node.radius * 2.25, 0]}
+                distanceFactor={420}
                 zIndexRange={[100, 0]}
               >
                 <span
-                  className="graph-node-tooltip"
+                  className={`graph-node-label${isHovered || isSelected ? ' is-emphasized' : ''}`}
                   style={{ '--graph-node-color': node.color } as GraphCssVariables}
                 >
                   {node.label}
@@ -560,7 +510,6 @@ export default function GraphCanvas({
     [graphNodes, graphEdges],
   );
 
-  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
@@ -571,7 +520,6 @@ export default function GraphCanvas({
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const resolvedSelectedNodeId = selectedNodeId ?? null;
-  const activeNode = activeNodeId ? layout.nodeById.get(activeNodeId) ?? null : null;
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const searchResults = useMemo(() => {
     if (!normalizedQuery) return graphNodes.slice(0, 5);
@@ -585,10 +533,6 @@ export default function GraphCanvas({
   const activeOptionId = isSearchOpen && searchResults.length > 0
     ? `${listboxId}-option-${activeOptionIndex}`
     : undefined;
-
-  const handleNodeHover = useCallback((node: LayoutNode | null) => {
-    setActiveNodeId(node?.id ?? null);
-  }, []);
 
   const handleNodeSelect = useCallback((node: GraphNode, shiftKey = false) => {
     onNodeSelect?.(node, shiftKey);
@@ -664,7 +608,7 @@ export default function GraphCanvas({
 
   return (
     <section
-      className={`graph-container${isExpanded ? ' graph-container--expanded' : ''}${activeNode ? ' has-hovered-node' : ''}`}
+      className={`graph-container${isExpanded ? ' graph-container--expanded' : ''}`}
       aria-label="Interactive knowledge graph"
     >
       <div className="graph-controls">
@@ -767,7 +711,6 @@ export default function GraphCanvas({
           orbitRef={orbitRef}
           prefersReducedMotion={prefersReducedMotion}
           starCount={isExpanded ? 2200 : 1400}
-          onNodeHover={handleNodeHover}
           onNodeSelect={handleNodeSelect}
         />
         <EffectComposer multisampling={4}>
@@ -783,23 +726,6 @@ export default function GraphCanvas({
           minDistance={20}
         />
       </Canvas>
-
-      {!resolvedSelectedNodeId && activeNode && (
-        <aside className="graph-hover-card" aria-live="polite">
-          <div className="graph-hover-heading">
-            <span
-              className="graph-hover-dot"
-              style={{ '--graph-node-color': activeNode.color } as GraphCssVariables}
-              aria-hidden="true"
-            />
-            <strong>{activeNode.label}</strong>
-          </div>
-          <div className="graph-hover-meta">
-            <Share2 size={14} aria-hidden="true" />
-            <span>{activeNode.connections} connections</span>
-          </div>
-        </aside>
-      )}
 
       <div
         className="graph-stats"
