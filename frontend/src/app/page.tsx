@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Rows3,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -38,6 +39,38 @@ const GraphCanvas = dynamic(() => import('./components/GraphCanvas'), {
 });
 
 type Notice = { message: string; tone: 'success' | 'error' | 'info' };
+type WorkspaceScale = 'compact' | 'fit' | 'expanded';
+
+const WORKSPACE_SCALE_OPTIONS = [
+  { value: 'compact', label: 'Compact', Icon: Minimize2 },
+  { value: 'fit', label: 'Fit to window', Icon: Rows3 },
+  { value: 'expanded', label: 'Expanded', Icon: Maximize2 },
+] as const;
+
+function WorkspaceScaleControl({
+  value,
+  onChange,
+}: {
+  value: WorkspaceScale;
+  onChange: (value: WorkspaceScale) => void;
+}) {
+  return (
+    <div className="workspace-scale-control" role="group" aria-label="Graph and AI workspace height">
+      {WORKSPACE_SCALE_OPTIONS.map(({ value: option, label, Icon }) => (
+        <button
+          key={option}
+          type="button"
+          aria-label={`${label} workspace height`}
+          aria-pressed={value === option}
+          title={`${label} workspace height`}
+          onClick={() => onChange(option)}
+        >
+          <Icon size={14} aria-hidden="true" />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function Home() {
   const [activeView, setActiveView] = useState<ViewMode>('dashboard');
@@ -79,6 +112,7 @@ export default function Home() {
   const [isRightOpen, setIsRightOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGraphVisible, setIsGraphVisible] = useState(false);
+  const [workspaceScale, setWorkspaceScale] = useState<WorkspaceScale>('fit');
   const workspaceMainRef = useRef<HTMLElement | null>(null);
   const overviewSectionRef = useRef<HTMLElement | null>(null);
   const graphSectionRef = useRef<HTMLElement | null>(null);
@@ -440,7 +474,7 @@ export default function Home() {
   ) : null;
 
   return (
-    <div className={`app-shell ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
+    <div className={`app-shell workspace-scale-${workspaceScale} ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
       <Sidebar
         activeView={activeView}
         onViewChange={scrollToView}
@@ -511,9 +545,12 @@ export default function Home() {
                   <h1 id="knowledge-graph-title">Knowledge graph</h1>
                   <p>Explore relationships. Select a node to read it; Shift-click nodes to add them to Qwen context.</p>
                 </div>
-                <button type="button" className="button ghost" onClick={() => setIsFullscreen(true)}>
-                  <Maximize2 size={16} /> Focus mode
-                </button>
+                <div className="view-heading-actions">
+                  <WorkspaceScaleControl value={workspaceScale} onChange={setWorkspaceScale} />
+                  <button type="button" className="button ghost" onClick={() => setIsFullscreen(true)}>
+                    <Maximize2 size={16} /> Focus mode
+                  </button>
+                </div>
               </header>
               <ContextChips nodes={chatContextNodes} onRemove={removeContextNode} onClear={() => setChatContextNodes([])} compact />
               <div className={`graph-workspace ${selectedNode ? 'has-note' : ''}`}>
@@ -544,7 +581,10 @@ export default function Home() {
                   <h1 id="ask-qwen-title">Ask Qwen</h1>
                   <p>Answers are grounded in your indexed notes and generated locally through Ollama.</p>
                 </div>
-                <span className="model-badge"><Brain size={15} /> Qwen 2.5 · local</span>
+                <div className="view-heading-actions">
+                  <span className="model-badge"><Brain size={15} /> Qwen 2.5 · local</span>
+                  <WorkspaceScaleControl value={workspaceScale} onChange={setWorkspaceScale} />
+                </div>
               </header>
               <ContextChips nodes={chatContextNodes} onRemove={removeContextNode} onClear={() => setChatContextNodes([])} />
               <div className="chat-workspace">

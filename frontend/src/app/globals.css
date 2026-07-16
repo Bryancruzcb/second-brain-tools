@@ -94,11 +94,23 @@ button:disabled {
 }
 
 .app-shell {
+  --workspace-height: min(760px, calc(100dvh - 176px));
+  --workspace-min-height: 620px;
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
   height: 100dvh;
   min-height: 0;
   background: var(--ink-950);
+}
+
+.app-shell.workspace-scale-compact {
+  --workspace-height: clamp(420px, 48dvh, 560px);
+  --workspace-min-height: 420px;
+}
+
+.app-shell.workspace-scale-expanded {
+  --workspace-height: clamp(700px, 82dvh, 920px);
+  --workspace-min-height: 620px;
 }
 
 .app-sidebar {
@@ -598,6 +610,47 @@ button:disabled {
 
 .view-heading > div:first-child {
   min-width: 0;
+}
+
+.view-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-scale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--ink-900);
+}
+
+.workspace-scale-control button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--paper-500);
+  cursor: pointer;
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+.workspace-scale-control button:hover {
+  background: var(--ink-800);
+  color: var(--paper-100);
+}
+
+.workspace-scale-control button[aria-pressed='true'] {
+  background: var(--signal-soft);
+  color: var(--signal);
 }
 
 .view-heading h1 {
@@ -1202,8 +1255,8 @@ button:disabled {
 
 .graph-workspace {
   display: grid;
-  height: min(760px, calc(100dvh - 176px));
-  min-height: 620px;
+  height: var(--workspace-height);
+  min-height: var(--workspace-min-height);
   grid-template-columns: minmax(0, 1fr);
   overflow: visible;
 }
@@ -1463,8 +1516,8 @@ button:disabled {
 .panel-skeleton span:nth-child(4) { width: 60%; }
 
 .chat-workspace {
-  height: min(760px, calc(100dvh - 188px));
-  min-height: 620px;
+  height: var(--workspace-height);
+  min-height: var(--workspace-min-height);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -2400,7 +2453,19 @@ button:disabled {
 @keyframes thinking { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-3px); opacity: 1; } }
 
 @media (max-width: 1180px) {
-  .app-shell { grid-template-columns: 220px minmax(0, 1fr); }
+  .app-shell {
+    --workspace-height: clamp(440px, 58dvh, 600px);
+    --workspace-min-height: 440px;
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .app-shell.workspace-scale-compact {
+    --workspace-height: clamp(360px, 44dvh, 460px);
+    --workspace-min-height: 360px;
+  }
+  .app-shell.workspace-scale-expanded {
+    --workspace-height: clamp(560px, 74dvh, 760px);
+    --workspace-min-height: 540px;
+  }
   .app-sidebar { padding-inline: 11px; }
   .brand-copy span, .sidebar-item-copy small { display: none; }
   .sidebar-item { min-height: 46px; }
@@ -2411,7 +2476,19 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-  .app-shell { display: block; }
+  .app-shell {
+    --workspace-height: clamp(400px, 54dvh, 540px);
+    --workspace-min-height: 400px;
+    display: block;
+  }
+  .app-shell.workspace-scale-compact {
+    --workspace-height: clamp(340px, 42dvh, 430px);
+    --workspace-min-height: 340px;
+  }
+  .app-shell.workspace-scale-expanded {
+    --workspace-height: clamp(540px, 72dvh, 720px);
+    --workspace-min-height: 520px;
+  }
   .app-sidebar {
     position: fixed;
     z-index: var(--z-modal);
@@ -2449,6 +2526,18 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+  .app-shell {
+    --workspace-height: clamp(360px, 52dvh, 500px);
+    --workspace-min-height: 360px;
+  }
+  .app-shell.workspace-scale-compact {
+    --workspace-height: clamp(320px, 40dvh, 400px);
+    --workspace-min-height: 320px;
+  }
+  .app-shell.workspace-scale-expanded {
+    --workspace-height: clamp(500px, 70dvh, 680px);
+    --workspace-min-height: 480px;
+  }
   .app-topbar { padding: 0 10px; }
   .command-search-field kbd { display: none; }
   .topbar-meta .icon-button { display: none; }
@@ -2503,6 +2592,21 @@ button:disabled {
   .fullscreen-brand { display: none; }
   .create-dialog form { padding: 21px; }
   .toast { right: 12px; bottom: 12px; max-width: calc(100vw - 24px); }
+}
+
+@media (max-height: 760px) and (min-width: 1181px) {
+  .app-shell {
+    --workspace-height: clamp(440px, 68dvh, 560px);
+    --workspace-min-height: 440px;
+  }
+  .app-shell.workspace-scale-compact {
+    --workspace-height: clamp(340px, 50dvh, 420px);
+    --workspace-min-height: 340px;
+  }
+  .app-shell.workspace-scale-expanded {
+    --workspace-height: clamp(520px, 82dvh, 680px);
+    --workspace-min-height: 500px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
