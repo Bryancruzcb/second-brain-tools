@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "source": "DESIGN.md",
+  "northStar": "The Night Atlas",
+  "principles": [
+    "Keep the vault—not the interface—the protagonist",
+    "Use one continuous search-inspect-connect-ask loop",
+    "Earn atmosphere through structure and typography",
+    "State system status plainly",
+    "Preserve keyboard, responsive, and reduced-motion access"
+  ]
+}

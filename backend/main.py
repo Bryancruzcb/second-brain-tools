@@ -1,0 +1,809 @@
+import os
+import re
+import subprocess
+import json
+import logging
+import time
+import random
+from contextlib import asynccontextmanager
+import asyncio
+from typing import List, Dict, Any, Optional
+import numpy as np
+from sklearn.cluster import KMeans
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from dotenv import load_dotenv
+import chromadb
+from sentence_transformers import SentenceTransformer
+import openai
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("second-brain-backend")
+
+load_dotenv()
+
+
+
+# Global variables to load models/database on startup
+model = None
+chroma_collection = None
+
+# Cache configuration
+CACHE_FILE = "health_cache.json"
+health_cache = {
+    "total_notes": 0,
+    "total_links": 0,
+    "avg_links_per_note": 0.0,
+    "broken_links": [],
+    "orphaned_notes": [],
+    "tagless_notes": [],
+    "nodes": [],
+    "edges": []
+}
+is_scanning = False
+last_scan_time = 0.0
+
+def _load_fast_sync():
+    """Load ChromaDB and Cache on startup."""
+    global chroma_collection, health_cache, last_scan_time
+
+    # 1. Load cache if it exists on disk
+    if os.path.exists(CACHE_FILE):
+        try:
+            logger.info("Loading health cache from disk...")
+            with open(CACHE_FILE, "r") as f:
+                health_cache = json.load(f)
+            last_scan_time = os.path.getmtime(CACHE_FILE)
+            logger.info("Health cache loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load health cache from disk: {e}")
+
+    # 2. Initialize ChromaDB client
+    home_dir = os.path.expanduser("~")
+    db_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/backend/chroma_db")
+    logger.info(f"Connecting to ChromaDB at {db_path}...")
+    try:
+        chroma_client = chromadb.PersistentClient(path=db_path)
+        chroma_collection = chroma_client.get_collection("second_brain")
+        logger.info("ChromaDB collection 'second_brain' loaded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to load ChromaDB collection: {e}")
+
+def _load_model_background():
+    """Load sentence transformer in background thread."""
+    global model
+    logger.info("Loading Sentence Transformer model (all-MiniLM-L6-v2) in background...")
+    try:
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("Sentence Transformer model loaded successfully in background.")
+    except Exception as e:
+        logger.error(f"Failed to load Sentence Transformer model: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _load_fast_sync()
+    asyncio.create_task(asyncio.to_thread(_load_model_background))
+    yield
+
+app = FastAPI(title="Second Brain Tools API", version="1.0.0", lifespan=lifespan)
+
+# Enable CORS for Next.js frontend on port 3000
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def get_vault_path() -> str:
+    """Resolve the Obsidian vault consistently across every endpoint."""
+    configured_path = os.environ.get("OBSIDIAN_VAULT_PATH")
+    if configured_path:
+        return os.path.abspath(os.path.expanduser(configured_path))
+
+    home_dir = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault"),
+        os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault"),
+        os.path.join(home_dir, "Documents/Obsidian Vault"),
+    ]
+    return next((path for path in candidates if os.path.isdir(path)), candidates[0])
+
+
+def resolve_vault_file(relative_path: str) -> str:
+    """Resolve a relative note path without allowing traversal outside the vault."""
+    vault_path = get_vault_path()
+    full_path = os.path.abspath(os.path.join(vault_path, relative_path))
+    if os.path.commonpath([vault_path, full_path]) != vault_path:
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+    return full_path
+
+
+def get_indexed_note_text(source: str) -> str:
+    """Return locally indexed note text when a cloud file is unavailable."""
+    global chroma_collection
+    if chroma_collection is None:
+        return ""
+    try:
+        result = chroma_collection.get(
+            where={"source": source},
+            include=["documents"],
+        )
+        documents = result.get("documents") or []
+        # Preserve chunk order while removing any exact duplicates.
+        return "\n\n".join(dict.fromkeys(document for document in documents if document))
+    except Exception as error:
+        logger.warning("Could not read indexed fallback for %s: %s", source, error)
+        return ""
+
+
+def is_dataless_file(path: str) -> bool:
+    """Detect macOS cloud placeholders without triggering a file download."""
+    dataless_flag = 0x40000000
+    try:
+        return bool(getattr(os.stat(path), "st_flags", 0) & dataless_flag)
+    except OSError:
+        return False
+
+
+def get_api_key() -> Optional[str]:
+    # Try environment variable first
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key and key.strip() and key != "your-api-key-here":
+        return key.strip()
+
+
+    # Fallback to reading API KEYS.md in the Obsidian vault
+    home_dir = os.path.expanduser("~")
+    vault_key_path = os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault/API KEYS.md")
+    if os.path.exists(vault_key_path):
+        try:
+            logger.info("Attempting to load Anthropic key from Obsidian vault...")
+            with open(vault_key_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            for line in content.splitlines():
+                if ":" in line and any(x in line.lower() for x in ["openai", "qwen"]):
+                    parts = line.split(":", 1)
+                    val = parts[1].strip().strip('"').strip("'")
+                    if val:
+                        logger.info("Found key in API KEYS.md")
+                        return val
+        except Exception as e:
+            logger.warning(f"Error reading API KEYS.md from vault: {e}")
+            
+    return None
+
+def build_graph_from_chroma() -> Dict[str, Any]:
+    """Derive graph nodes and edges from the local ChromaDB index.
+
+    This is the primary graph source — it never touches OneDrive, so it
+    always works regardless of cloud-sync timeouts.
+    """
+    global chroma_collection
+    if chroma_collection is None:
+        return {"nodes": [], "edges": []}
+
+    try:
+        # Fetch all chunks (no query — just get everything)
+        results = chroma_collection.get(include=["metadatas", "documents", "embeddings"])
+        metadatas = results.get("metadatas") or []
+        documents = results.get("documents") or []
+        embeddings = results.get("embeddings") or []
+
+        # Build unique node map: source_path -> {id, label, tags}
+        node_map: Dict[str, Dict] = {}
+        # Map title -> source for edge resolution
+        title_to_source: Dict[str, str] = {}
+
+        for meta in metadatas:
+            source = meta.get("source", "")
+            title = meta.get("title", source)
+            tags_raw = meta.get("tags", "")
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+
+            if source and source not in node_map:
+                node_map[source] = {"id": source, "label": title, "tags": tags}
+                title_to_source[title.lower()] = source
+
+        # Build edges by scanning chunk text for [[wikilinks]]
+        wikilink_pattern = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
+        edge_set: set = set()
+
+        for meta, doc in zip(metadatas, documents):
+            source = meta.get("source", "")
+            if not source:
+                continue
+            for match in wikilink_pattern.finditer(doc):
+                target_title = match.group(1).strip().lower()
+                target_source = title_to_source.get(target_title)
+                if target_source and target_source != source:
+                    edge = tuple(sorted([source, target_source]))
+                    edge_set.add(edge)
+
+        nodes = list(node_map.values())
+        
+        if embeddings:
+            try:
+                n_clusters = min(8, len(nodes))
+                if n_clusters > 1:
+                    emb_array = np.array(embeddings)
+                    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+                    labels = kmeans.fit_predict(emb_array)
+                    
+                    source_to_cluster = {}
+                    for idx, meta in enumerate(metadatas):
+                        source = meta.get("source", "")
+                        if source:
+                            source_to_cluster[source] = int(labels[idx])
+                            
+                    for node in nodes:
+                        node["cluster_id"] = source_to_cluster.get(node["id"], 0)
+                logger.info(f"Assigned nodes to {n_clusters} clusters.")
+            except Exception as e:
+                logger.error(f"KMeans clustering failed: {e}")
+
+        explicit_edges = [{"source": e[0], "target": e[1]} for e in edge_set]
+        
+        ghost_edges = []
+        if embeddings:
+            try:
+                # Query nearest neighbors for all embeddings to find semantic Ghost Links
+                nn_results = chroma_collection.query(
+                    query_embeddings=embeddings,
+                    n_results=4
+                )
+                
+                ghost_edge_set = set()
+                for idx, meta in enumerate(metadatas):
+                    source = meta.get("source", "")
+                    if not source: continue
+                    
+                    neighbors_meta = nn_results.get('metadatas', [])[idx]
+                    distances = nn_results.get('distances', [])[idx]
+                    
+                    for neighbor_idx, neighbor_meta in enumerate(neighbors_meta):
+                        # Filter out matches that aren't semantically close enough
+                        dist = distances[neighbor_idx]
+                        if dist > 1.2:  # Threshold for semantic similarity
+                            continue
+                            
+                        target_source = neighbor_meta.get("source", "")
+                        if target_source and target_source != source:
+                            edge = tuple(sorted([source, target_source]))
+                            if edge not in edge_set and edge not in ghost_edge_set:
+                                ghost_edge_set.add(edge)
+                                
+                ghost_edges = [{"source": e[0], "target": e[1], "is_ghost": True} for e in ghost_edge_set]
+                logger.info(f"Generated {len(ghost_edges)} semantic Ghost Links.")
+            except Exception as e:
+                logger.error(f"Failed to compute ghost links: {e}")
+                
+        edges = explicit_edges + ghost_edges
+
+        logger.info(f"ChromaDB graph: {len(nodes)} nodes, {len(edges)} edges.")
+        return {"nodes": nodes, "edges": edges}
+
+    except Exception as e:
+        logger.error(f"Failed to build graph from ChromaDB: {e}")
+        return {"nodes": [], "edges": []}
+
+
+import shutil
+
+def run_health_scan_sync():
+    global health_cache, is_scanning, last_scan_time
+    is_scanning = True
+    try:
+        # Check system PATH first (e.g. inside Docker), fallback to workspace
+        binary_path = shutil.which("vault-core")
+        if not binary_path:
+            home_dir = os.path.expanduser("~")
+            binary_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/core/target/release/vault-core")
+
+        rust_data = None
+        if binary_path and os.path.exists(binary_path):
+            logger.info("Running background vault-core health checker...")
+            try:
+                result = subprocess.run(
+                    [binary_path, "--json"],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    rust_data = json.loads(result.stdout)
+                    # Only trust Rust output if it actually found notes
+                    if rust_data.get("total_notes", 0) == 0:
+                        logger.warning("vault-core returned 0 notes — likely OneDrive timeout. Falling back to ChromaDB.")
+                        rust_data = None
+            except subprocess.TimeoutExpired:
+                logger.warning("vault-core timed out. Falling back to ChromaDB.")
+            except Exception as e:
+                logger.warning(f"vault-core failed: {e}. Falling back to ChromaDB.")
+        else:
+            logger.warning("vault-core binary not found. Falling back to ChromaDB.")
+
+        # Always build graph from ChromaDB (fast, local, reliable)
+        graph = build_graph_from_chroma()
+
+        if rust_data:
+            # Merge: use Rust stats but always use the ChromaDB graph
+            data = {**rust_data, **graph}
+        else:
+            # Full ChromaDB fallback for stats too
+            chroma_note_count = len(graph["nodes"])
+            chroma_edge_count = len(graph["edges"])
+            data = {
+                "total_notes": chroma_note_count,
+                "total_links": chroma_edge_count,
+                "avg_links_per_note": round(chroma_edge_count / chroma_note_count, 2) if chroma_note_count else 0.0,
+                "broken_links": health_cache.get("broken_links", []),
+                "orphaned_notes": [],
+                "tagless_notes": [],
+                **graph
+            }
+
+        health_cache = data
+        last_scan_time = time.time()
+
+        with open(CACHE_FILE, "w") as f:
+            json.dump(data, f)
+        logger.info("Health scan complete and cache updated.")
+
+    except Exception as e:
+        logger.error(f"Failed during background health scan: {e}")
+    finally:
+        is_scanning = False
+
+class QueryRequest(BaseModel):
+    query: str
+    context_nodes: Optional[List[str]] = None
+
+class QueryResponse(BaseModel):
+    answer: str
+    sources: List[Dict[str, Any]]
+    api_configured: bool
+
+@app.get("/api/health")
+def get_health():
+    global health_cache, is_scanning, last_scan_time
+    return {
+        "data": health_cache,
+        "is_scanning": is_scanning,
+        "last_scan_time": last_scan_time
+    }
+
+@app.post("/api/health/scan")
+def trigger_scan(background_tasks: BackgroundTasks):
+    global is_scanning
+    if is_scanning:
+        return {"status": "scanning", "message": "A scan is already in progress."}
+    
+    background_tasks.add_task(run_health_scan_sync)
+    return {"status": "started", "message": "Scan started in background."}
+
+def run_ingestion_sync():
+    global chroma_collection, model
+    if not chroma_collection or not model:
+        logger.error("Cannot ingest: db or model not loaded yet.")
+        return
+        
+    home_dir = os.path.expanduser("~")
+    vault_path = os.environ.get("OBSIDIAN_VAULT_PATH") or os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
+    if not os.path.exists(vault_path):
+        vault_path = os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault")
+        
+    exclude_dirs = {".obsidian", ".smart-env", "Templates", "99 Archive", "Obsidian Vault Backup", "05 AI Chats", "99 Import Logs"}
+    
+    docs, metadatas, ids = [], [], []
+    logger.info(f"Starting vector ingestion from {vault_path}...")
+    
+    for root, dirs, files in os.walk(vault_path):
+        dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
+        for f in files:
+            if f.endswith(".md") and "Index.md" not in f and f != "Vault Health Report.md":
+                path = os.path.join(root, f)
+                rel_path = os.path.relpath(path, vault_path).replace("\\", "/")
+                title = os.path.splitext(f)[0]
+                try:
+                    with open(path, "r", encoding="utf-8") as file_obj:
+                        content = file_obj.read()
+                    
+                    chunk_size = 1500
+                    for i in range(0, len(content), chunk_size):
+                        chunk = content[i:i+chunk_size]
+                        if len(chunk.strip()) > 10:
+                            docs.append(chunk)
+                            metadatas.append({"source": rel_path, "title": title})
+                            ids.append(f"{rel_path}_{i}")
+                except Exception as e:
+                    logger.warning(f"Failed to read {path}: {e}")
+                    
+    if not docs:
+        logger.warning("No documents found to ingest.")
+        return
+        
+    batch_size = 100
+    for i in range(0, len(docs), batch_size):
+        b_docs = docs[i:i+batch_size]
+        b_meta = metadatas[i:i+batch_size]
+        b_ids = ids[i:i+batch_size]
+        try:
+            embeddings = model.encode(b_docs).tolist()
+            chroma_collection.upsert(
+                documents=b_docs,
+                embeddings=embeddings,
+                metadatas=b_meta,
+                ids=b_ids
+            )
+            logger.info(f"Upserted batch {i//batch_size + 1}")
+        except Exception as e:
+            logger.error(f"Batch upsert failed: {e}")
+            
+    logger.info(f"Vector ingestion complete! Upserted {len(docs)} chunks.")
+
+@app.post("/api/index")
+def trigger_index(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_ingestion_sync)
+    return {"status": "started", "message": "Vector indexing started in background."}
+
+@app.get("/api/graph")
+def get_graph():
+    global health_cache
+    nodes = health_cache.get("nodes", [])
+    edges = health_cache.get("edges", [])
+    # If no cached graph yet, build on-demand from ChromaDB
+    if not nodes:
+        graph = build_graph_from_chroma()
+        nodes = graph["nodes"]
+        edges = graph["edges"]
+    return {"nodes": nodes, "edges": edges}
+
+@app.post("/api/query", response_model=QueryResponse)
+def run_query(request: QueryRequest):
+    global model, chroma_collection
+    
+    if model is None or chroma_collection is None:
+        raise HTTPException(status_code=503, detail="Vector search engine or embedding model is not initialized.")
+        
+    query_text = request.query.strip()
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Query text cannot be empty.")
+        
+    try:
+        # 1. Embed query
+        query_embedding = model.encode([query_text]).tolist()
+        
+        # 2. Query ChromaDB
+        if request.context_nodes and len(request.context_nodes) > 0:
+            # Retrieve specifically requested nodes
+            results = chroma_collection.get(
+                where={"source": {"$in": request.context_nodes}}
+            )
+            # Reformat to match query output structure
+            if results and 'documents' in results and results['documents']:
+                results = {
+                    'documents': [results['documents']],
+                    'metadatas': [results['metadatas']],
+                    'distances': [[0.0] * len(results['documents'])]
+                }
+        else:
+            # Vector similarity search
+            results = chroma_collection.query(
+                query_embeddings=query_embedding,
+                n_results=4
+            )
+        
+        # 3. Format context source items
+        sources = []
+        context_chunks = []
+        
+        if results and 'documents' in results and results['documents']:
+            for i in range(len(results['documents'][0])):
+                doc = results['documents'][0][i]
+                meta = results['metadatas'][0][i]
+                dist = results['distances'][0][i] if 'distances' in results and results['distances'] else 0.0
+                
+                sources.append({
+                    "title": meta.get("title", "Untitled Note"),
+                    "source": meta.get("source", ""),
+                    "snippet": doc[:400] + "..." if len(doc) > 400 else doc,
+                    "distance": float(dist)
+                })
+                
+                context_chunks.append(f"From Note: {meta.get('title', 'Untitled')}\nContent: {doc}")
+                
+        # 4. Generate prompt context
+        context_str = "\n\n".join(context_chunks)
+        
+        # 5. Connect to Local Ollama instance
+        api_configured = True
+        logger.info("Calling Local Qwen 2.5 via Ollama for response synthesis...")
+        client = openai.OpenAI(
+            base_url="http://localhost:11434/v1",
+            api_key="ollama" # Required by SDK but ignored by Ollama
+        )
+            
+
+        system_prompt = (
+            "You are an expert Second Brain Personal AI Assistant. "
+            "Your task is to answer the user's question using ONLY the provided Markdown note snippets as context. "
+            "If the context doesn't contain the answer, explain that you couldn't find sufficient information in their notes "
+            "but supply whatever relevant details are in the context. "
+            "Always cite the source notes by name (e.g., 'According to your notes on [Note Name]...') in a professional, senior portfolio-grade format."
+        )
+        
+        message = client.chat.completions.create(
+            model="qwen2.5",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": f"Context snippets:\n{context_str}\n\nQuestion: {query_text}"
+                }
+            ],
+            max_tokens=1024
+        )
+        
+        # Extract text response safely
+        answer_text = message.choices[0].message.content or ""
+        
+        # Print response directly to the backend terminal with color formatting
+        print(f"\n🤖 \033[1;36m[Qwen 2.5 Response]:\033[0m\n{answer_text}\n")
+                
+        return QueryResponse(answer=answer_text, sources=sources, api_configured=api_configured)
+        
+    except Exception as e:
+        logger.error(f"RAG search query failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class CreateNoteRequest(BaseModel):
+    title: str
+    content: str = ""
+
+@app.post("/api/note/create")
+def create_new_note(request: CreateNoteRequest):
+    """Create a root-level Markdown note.
+
+    This static route must stay above the dynamic /api/note/{title} POST route so
+    FastAPI does not interpret the word "create" as a note title.
+    """
+    home_dir = os.path.expanduser("~")
+    vault_path = os.environ.get("OBSIDIAN_VAULT_PATH") or os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
+    if not os.path.exists(vault_path):
+        vault_path = os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault")
+
+    safe_title = "".join(c for c in request.title if c.isalnum() or c in " -_").strip()
+    if not safe_title:
+        safe_title = "Untitled Note"
+
+    target_path = os.path.join(vault_path, f"{safe_title}.md")
+
+    if not os.path.abspath(target_path).startswith(os.path.abspath(vault_path)):
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+
+    if os.path.exists(target_path):
+        raise HTTPException(status_code=409, detail="A note with that title already exists")
+
+    content = request.content or f"# {request.title}\n\n"
+    try:
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"status": "success", "title": safe_title}
+    except Exception as e:
+        logger.error(f"Create note failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/note/{note_ref:path}")
+def get_note_content(note_ref: str):
+    global health_cache
+    nodes = health_cache.get("nodes", [])
+    normalized_ref = note_ref.lower()
+    node = next(
+        (
+            n for n in nodes
+            if n.get("id", "").lower() == normalized_ref
+            or n.get("label", "").lower() == normalized_ref
+        ),
+        None,
+    )
+
+    if not node:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    rel_path = node["id"]
+    full_path = resolve_vault_file(rel_path)
+        
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="Note file not found at expected path")
+
+    if is_dataless_file(full_path):
+        indexed_content = get_indexed_note_text(rel_path)
+        if indexed_content:
+            return {
+                "title": node["label"],
+                "content": indexed_content,
+                "read_only_fallback": True,
+            }
+
+    try:
+        with open(full_path, "r", encoding="utf-8") as file_obj:
+            return {"title": node["label"], "content": file_obj.read()}
+    except OSError as error:
+        indexed_content = get_indexed_note_text(rel_path)
+        if indexed_content:
+            return {
+                "title": node["label"],
+                "content": indexed_content,
+                "read_only_fallback": True,
+            }
+        raise HTTPException(status_code=500, detail=str(error))
+
+class NoteSaveRequest(BaseModel):
+    content: str
+
+@app.post("/api/note/{note_ref:path}")
+def save_note_content(note_ref: str, request: NoteSaveRequest):
+    global health_cache
+    nodes = health_cache.get("nodes", [])
+    normalized_ref = note_ref.lower()
+    node = next(
+        (
+            n for n in nodes
+            if n.get("id", "").lower() == normalized_ref
+            or n.get("label", "").lower() == normalized_ref
+        ),
+        None,
+    )
+
+    if node:
+        target_path = resolve_vault_file(node["id"])
+    else:
+        # Create at root if doesn't exist. Sanitize title first.
+        safe_title = os.path.splitext(os.path.basename(note_ref))[0]
+        target_path = resolve_vault_file(f"{safe_title}.md")
+        
+    try:
+        with open(target_path, "w", encoding="utf-8") as file_obj:
+            file_obj.write(request.content)
+        return {"status": "success", "message": "Note saved"}
+    except Exception as e:
+        logger.error(f"Failed to save note: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class CowriteRequest(BaseModel):
+    content: str
+    
+@app.post("/api/cowrite")
+def run_cowrite(request: CowriteRequest):
+    client = openai.OpenAI(
+        base_url="http://localhost:11434/v1",
+        api_key="ollama"
+    )
+    prompt = (
+        "You are an AI co-writer. Continue the following markdown text naturally. "
+        "Provide ONLY the continuation text, do NOT repeat the provided text, and do not include conversational filler.\n\n"
+        f"{request.content[-2000:]}"
+    )
+    try:
+        message = client.chat.completions.create(
+            model="qwen2.5",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=256
+        )
+        return {"completion": message.choices[0].message.content or ""}
+    except Exception as e:
+        logger.error(f"Co-write failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ClipRequest(BaseModel):
+    title: str
+    content: str
+    url: str
+
+@app.post("/api/clip")
+def save_web_clip(request: ClipRequest):
+    home_dir = os.path.expanduser("~")
+    vault_path = os.environ.get("OBSIDIAN_VAULT_PATH") or os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
+    if not os.path.exists(vault_path):
+        vault_path = os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault")
+        
+    inbox_dir = os.path.join(vault_path, "Inbox")
+    if not os.path.exists(inbox_dir):
+        os.makedirs(inbox_dir, exist_ok=True)
+        
+    safe_title = "".join(c for c in request.title if c.isalnum() or c in " -_").strip()
+    if not safe_title: safe_title = "Clipped Note"
+    
+    target_path = os.path.join(inbox_dir, f"{safe_title}.md")
+    
+    file_content = f"# {request.title}\n\n**Source**: {request.url}\n\n{request.content}\n"
+    
+    try:
+        with open(target_path, "a", encoding="utf-8") as f:
+            f.write(file_content + "\\n---\\n")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Clip save failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/digest")
+def get_daily_digest():
+    global health_cache
+    nodes = health_cache.get("nodes", [])
+    if not nodes:
+        return {"digest": []}
+    
+    # Stable for the current day so the review set does not jump during polling.
+    daily_random = random.Random(time.strftime("%Y-%m-%d"))
+    selected = daily_random.sample(nodes, min(3, len(nodes)))
+    return {"digest": selected}
+
+@app.get("/api/recent")
+def get_recent_notes():
+    # The health cache already contains every indexed note. Stat those known files
+    # instead of recursively walking a cloud-synced vault on every dashboard load.
+    candidates = []
+    for node in health_cache.get("nodes", []):
+        try:
+            path = resolve_vault_file(node["id"])
+            if os.path.isfile(path):
+                candidates.append((os.path.getmtime(path), node, path))
+        except (OSError, HTTPException, KeyError):
+            continue
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    recent = []
+    for mtime, node, path in candidates[:6]:
+        indexed_content = get_indexed_note_text(node["id"])
+        preview = indexed_content[:200].strip()
+        recent.append({
+            "title": node.get("label") or os.path.splitext(os.path.basename(path))[0],
+            "id": node["id"],
+            "mtime": mtime,
+            "preview": preview,
+        })
+
+    return {"notes": recent}
+
+@app.get("/api/search")
+def search_notes(q: str = ""):
+    global model, chroma_collection
+    if not q.strip() or model is None or chroma_collection is None:
+        return {"results": []}
+    
+    try:
+        query_embedding = model.encode([q.strip()]).tolist()
+        results = chroma_collection.query(query_embeddings=query_embedding, n_results=6)
+        
+        seen_titles = set()
+        items = []
+        if results and 'documents' in results and results['documents']:
+            for i in range(len(results['documents'][0])):
+                meta = results['metadatas'][0][i]
+                title = meta.get("title", "Untitled")
+                if title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                doc = results['documents'][0][i]
+                items.append({
+                    "title": title,
+                    "id": meta.get("source", ""),
+                    "snippet": doc[:150]
+                })
+        return {"results": items}
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        return {"results": []}
+
+if __name__ == "__main__":
+    import uvicorn
+    # Load settings from environment or fallback
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "127.0.0.1")
+    uvicorn.run("main:app", host=host, port=port, reload=True)

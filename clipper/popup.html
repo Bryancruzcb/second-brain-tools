@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 16px;
+      margin: 0;
+      background: #020205;
+      color: #fff;
+    }
+    h2 {
+      margin: 0 0 16px 0;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      opacity: 0.9;
+    }
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      resize: vertical;
+      min-height: 80px;
+    }
+    #status {
+      margin-top: 12px;
+      font-size: 13px;
+      text-align: center;
+      color: #10b981;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h2>🧠 Second Brain Clipper</h2>
+  <textarea id="noteText" placeholder="Add a quick note..."></textarea>
+  <button id="clipBtn">Clip Current Page</button>
+  <div id="status">Clipped successfully!</div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
