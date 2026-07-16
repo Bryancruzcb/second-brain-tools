@@ -128,6 +128,7 @@ interface Props {
   selectedNodeId?: string | null;
   onNodeSelect?: (node: GraphNode | null, shiftKey?: boolean) => void;
   isExpanded?: boolean;
+  isActive?: boolean;
 }
 
 function normalizeTag(tag: string) {
@@ -502,6 +503,7 @@ export default function GraphCanvas({
   selectedNodeId,
   onNodeSelect,
   isExpanded = false,
+  isActive = true,
 }: Props) {
   const graphNodes = nodes ?? EMPTY_NODES;
   const graphEdges = edges ?? EMPTY_EDGES;
@@ -696,6 +698,7 @@ export default function GraphCanvas({
         className="graph-canvas"
         camera={{ position: DEFAULT_CAMERA_POSITION, fov: 60, near: 1, far: 10000 }}
         dpr={[1, 1.5]}
+        frameloop={isActive ? 'always' : 'demand'}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
         role="img"
         aria-label={`${graphNodes.length} notes connected by ${graphEdges.length} links in a three-dimensional map`}
@@ -722,6 +725,7 @@ export default function GraphCanvas({
           enableDamping
           dampingFactor={0.05}
           autoRotate={false}
+          enableZoom={isExpanded}
           maxDistance={2000}
           minDistance={20}
         />

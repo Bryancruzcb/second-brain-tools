@@ -78,6 +78,7 @@ export default function Home() {
   const [isLeftOpen, setIsLeftOpen] = useState(true);
   const [isRightOpen, setIsRightOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isGraphVisible, setIsGraphVisible] = useState(false);
   const workspaceMainRef = useRef<HTMLElement | null>(null);
   const overviewSectionRef = useRef<HTMLElement | null>(null);
   const graphSectionRef = useRef<HTMLElement | null>(null);
@@ -91,7 +92,8 @@ export default function Home() {
         : chatSectionRef.current;
     setActiveView(view);
     setIsMobileMenuOpen(false);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
   }, []);
 
   const showNotice = useCallback((message: string, tone: Notice['tone'] = 'info') => {
@@ -199,6 +201,19 @@ export default function Home() {
       root.removeEventListener('scroll', updateActiveSection);
       window.removeEventListener('resize', updateActiveSection);
     };
+  }, []);
+
+  useEffect(() => {
+    const root = workspaceMainRef.current;
+    const graphSection = graphSectionRef.current;
+    if (!root || !graphSection) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsGraphVisible(entry.isIntersecting);
+    }, { root, threshold: 0.01 });
+
+    observer.observe(graphSection);
+    return () => observer.disconnect();
   }, []);
 
   const triggerScan = async () => {
@@ -508,6 +523,7 @@ export default function Home() {
                     edges={healthData?.edges}
                     selectedNodeId={selectedNode?.id}
                     onNodeSelect={handleNodeSelect}
+                    isActive={isGraphVisible}
                   />
                 </div>
                 {renderNotePanel()}
