@@ -111,8 +111,17 @@ npx tsc --noEmit
 npm run build
 
 cd ../
-python3 -m py_compile backend/main.py
+python3 -m py_compile \
+  backend/main.py \
+  backend/rag_query.py \
+  backend/indexing.py \
+  backend/scripts/rebuild_rag_index.py \
+  backend/scripts/seed_real_structure.py \
+  scripts/chat_archiver.py
+PYTHONPATH=backend python3 -m unittest discover -s backend/tests -p 'test_*.py' -v
+python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
 cargo check --manifest-path core/Cargo.toml
+cargo test --manifest-path core/Cargo.toml
 ```
 
 Local runtime data such as `.env`, ChromaDB files, health caches, virtual environments, and Next.js build output is excluded from Git.

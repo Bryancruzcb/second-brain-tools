@@ -57,7 +57,21 @@ jobs:
           pip install -r backend/requirements.txt
 
       - name: Python Syntax Verification
-        run: python -m py_compile backend/main.py backend/rag_query.py
+        run: >-
+          python -m py_compile
+          backend/main.py
+          backend/rag_query.py
+          backend/indexing.py
+          backend/scripts/rebuild_rag_index.py
+          backend/scripts/seed_real_structure.py
+          scripts/chat_archiver.py
+
+      - name: Run Python Tests
+        env:
+          PYTHONPATH: backend
+        run: |
+          python -m unittest discover -s backend/tests -p 'test_*.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_*.py' -v
 
   # ── Next.js Frontend Verification ───────────────────────────────────────────
   nextjs-check:
