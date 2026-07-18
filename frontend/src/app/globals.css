@@ -35,6 +35,7 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --z-dropdown: 30;
   --z-sticky: 40;
+  --z-sidebar: 45;
   --z-backdrop: 50;
   --z-modal: 60;
   --z-toast: 70;
@@ -99,17 +100,46 @@ button:disabled {
   height: 100dvh;
   min-height: 0;
   background: var(--ink-950);
+  transition: grid-template-columns 220ms var(--ease-out);
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
 }
 
 .app-sidebar {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-sidebar);
   display: flex;
   min-height: 0;
   flex-direction: column;
   padding: 22px 14px 16px;
   background: var(--ink-925);
   border-right: 1px solid var(--border);
+}
+
+.sidebar-collapse {
+  position: absolute;
+  z-index: 4;
+  top: 31px;
+  right: -13px;
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--ink-850);
+  color: var(--paper-400);
+  cursor: pointer;
+  box-shadow: 0 7px 18px oklch(0.04 0.02 255 / 0.38);
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+
+.sidebar-collapse:hover {
+  border-color: oklch(0.84 0.17 126 / 0.42);
+  background: var(--ink-800);
+  color: var(--signal);
 }
 
 .sidebar-brand {
@@ -316,6 +346,87 @@ button:disabled {
 .sidebar-scan:hover:not(:disabled) {
   border-color: var(--border-strong);
   color: var(--paper-50);
+}
+
+@media (min-width: 901px) {
+  .app-sidebar.is-collapsed {
+    padding-inline: 10px;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app-sidebar.is-collapsed .brand-copy,
+  .app-sidebar.is-collapsed .sidebar-section-label,
+  .app-sidebar.is-collapsed .sidebar-item-copy,
+  .app-sidebar.is-collapsed .system-row > div,
+  .app-sidebar.is-collapsed .sidebar-scan-label {
+    display: none;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-nav {
+    align-items: center;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-item {
+    position: relative;
+    min-height: 48px;
+    justify-content: center;
+    padding: 7px;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-item-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-item::after {
+    position: absolute;
+    z-index: var(--z-dropdown);
+    top: 50%;
+    left: calc(100% + 12px);
+    width: max-content;
+    max-width: 180px;
+    padding: 7px 9px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--ink-850);
+    color: var(--paper-100);
+    box-shadow: 0 9px 26px oklch(0.04 0.02 255 / 0.42);
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 580;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(4px, -50%);
+    transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);
+    white-space: nowrap;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-item:hover::after,
+  .app-sidebar.is-collapsed .sidebar-item:focus-visible::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+
+  .app-sidebar.is-collapsed .sidebar-system {
+    padding: 10px 8px;
+  }
+
+  .app-sidebar.is-collapsed .system-row {
+    min-height: 22px;
+    justify-content: center;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-scan {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    margin-inline: auto;
+    padding: 0;
+  }
 }
 
 .app-main {
@@ -2169,11 +2280,12 @@ body.focus-panel-resizing * {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  width: min(370px, calc(100% - 88px));
+  width: min(472px, calc(100% - 30px));
 }
 
 .graph-container--expanded .graph-controls {
   left: 68px;
+  width: min(472px, calc(100% - 136px));
 }
 
 .graph-search {
@@ -2270,6 +2382,12 @@ body.focus-panel-resizing * {
 .graph-icon-button:hover {
   background: var(--ink-800);
   color: var(--signal);
+}
+
+.graph-camera-controls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
 }
 
 .graph-filter-bar {
@@ -2470,6 +2588,7 @@ body.focus-panel-resizing * {
     transform: translateX(-105%);
     transition: transform 240ms var(--ease-out);
   }
+  .sidebar-collapse { display: none; }
   .mobile-menu-open .app-sidebar { transform: translateX(0); }
   .brand-copy span, .sidebar-item-copy small { display: block; }
   .sidebar-item { min-height: 56px; }

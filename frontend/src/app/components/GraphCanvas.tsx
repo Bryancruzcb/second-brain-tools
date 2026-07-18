@@ -10,11 +10,12 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
+  type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Html, Line, OrbitControls, Stars } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
-import { Maximize, Network, Search, Tag } from 'lucide-react';
+import { Maximize, Network, Search, Tag, ZoomIn, ZoomOut } from 'lucide-react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import type { GraphEdge, GraphNode } from '../types';
@@ -368,16 +369,35 @@ function usePrefersReducedMotion() {
 
 function CameraFocus({ position, controlsRef, prefersReducedMotion }: CameraFocusProps) {
   const focusTarget = useMemo(() => new THREE.Vector3(), []);
+  const isFocusing = useRef(false);
+
+  useEffect(() => {
+    if (!position) {
+      isFocusing.current = false;
+      return;
+    }
+
+    focusTarget.set(...position);
+    isFocusing.current = true;
+  }, [focusTarget, position]);
 
   useFrame(() => {
     const controls = controlsRef.current;
-    if (!controls || !position) return;
+    if (!controls || !isFocusing.current) return;
 
-    focusTarget.set(...position);
-    if (controls.target.distanceToSquared(focusTarget) < 0.01) return;
+    if (controls.target.distanceToSquared(focusTarget) < 0.01) {
+      controls.target.copy(focusTarget);
+      controls.update();
+      isFocusing.current = false;
+      return;
+    }
 
-    if (prefersReducedMotion) controls.target.copy(focusTarget);
-    else controls.target.lerp(focusTarget, 0.08);
+    if (prefersReducedMotion) {
+      controls.target.copy(focusTarget);
+      isFocusing.current = false;
+    } else {
+      controls.target.lerp(focusTarget, 0.08);
+    }
     controls.update();
   });
 
@@ -560,6 +580,26 @@ export default function GraphCanvas({
     controls.update();
   }, [onNodeSelect]);
 
+  const handleZoom = useCallback((scale: number) => {
+    const controls = orbitRef.current;
+    if (!controls) return;
+
+    const offset = controls.object.position.clone().sub(controls.target);
+    const distance = THREE.MathUtils.clamp(
+      offset.length() * scale,
+      controls.minDistance,
+      controls.maxDistance,
+    );
+    controls.object.position.copy(controls.target).add(offset.setLength(distance));
+    controls.update();
+  }, []);
+
+  const handleEmbeddedWheel = useCallback((event: ReactWheelEvent<HTMLElement>) => {
+    if (isExpanded || (!event.metaKey && !event.ctrlKey)) return;
+    event.preventDefault();
+    handleZoom(event.deltaY > 0 ? 1.14 : 0.86);
+  }, [handleZoom, isExpanded]);
+
   const toggleFilter = useCallback((tag: string) => {
     setActiveFilters((current) => {
       const next = new Set(current);
@@ -611,7 +651,8 @@ export default function GraphCanvas({
   return (
     <section
       className={`graph-container${isExpanded ? ' graph-container--expanded' : ''}`}
-      aria-label="Interactive knowledge graph"
+      aria-label="Interactive knowledge graph. Drag to orbit, right-drag to pan, and use the camera buttons to zoom."
+      onWheel={handleEmbeddedWheel}
     >
       <div className="graph-controls">
         <div className="graph-search">
@@ -664,15 +705,35 @@ export default function GraphCanvas({
           )}
         </div>
 
-        <button
-          type="button"
-          className="graph-icon-button"
-          onClick={handleResetView}
-          aria-label="Reset graph camera"
-          title="Reset graph camera"
-        >
-          <Maximize size={18} aria-hidden="true" />
-        </button>
+        <div className="graph-camera-controls" role="group" aria-label="Graph camera controls">
+          <button
+            type="button"
+            className="graph-icon-button"
+            onClick={() => handleZoom(1.25)}
+            aria-label="Zoom graph out"
+            title="Zoom out"
+          >
+            <ZoomOut size={18} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="graph-icon-button"
+            onClick={() => handleZoom(0.8)}
+            aria-label="Zoom graph in"
+            title="Zoom in"
+          >
+            <ZoomIn size={18} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="graph-icon-button"
+            onClick={handleResetView}
+            aria-label="Reset graph camera"
+            title="Reset graph camera"
+          >
+            <Maximize size={18} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="graph-filter-bar" role="group" aria-label="Filter graph by tag">

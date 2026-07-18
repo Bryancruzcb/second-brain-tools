@@ -83,6 +83,7 @@ export default function Home() {
   const [isCreatingNote, setIsCreatingNote] = useState(false);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLeftOpen, setIsLeftOpen] = useState(true);
   const [isRightOpen, setIsRightOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -450,13 +451,15 @@ export default function Home() {
   ) : null;
 
   return (
-    <div className={`app-shell ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
+    <div className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}${isMobileMenuOpen ? ' mobile-menu-open' : ''}`}>
       <Sidebar
         activeView={activeView}
         onViewChange={scrollToView}
         onScan={() => void triggerScan()}
         isScanning={isScanning}
         isConnected={isConnected}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapsed={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
       />
 
       <div className="app-main">
