@@ -6,14 +6,18 @@ SCRIPT_DIR=${0:A:h}
 PROJECT_ROOT=${SCRIPT_DIR:h}
 FRONTEND_LABEL="com.bryancruz.second-brain.frontend"
 BACKEND_LABEL="com.bryancruz.second-brain.backend"
+CHAT_ARCHIVER_LABEL="com.bryancruz.chatarchiver"
 DOMAIN="gui/$(/usr/bin/id -u)"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 LOG_DIR="$HOME/Library/Logs/SecondBrain"
 APP_DIR="$HOME/Applications/Second Brain.app"
 APP_BUNDLE_ID="com.bryancruz.secondbrain.launcher"
 INSTALL_VERSION="2"
+CHAT_ARCHIVER_INSTALL_VERSION="3"
 FRONTEND_PLIST="$LAUNCH_AGENTS_DIR/$FRONTEND_LABEL.plist"
 BACKEND_PLIST="$LAUNCH_AGENTS_DIR/$BACKEND_LABEL.plist"
+CHAT_ARCHIVER_PLIST="$LAUNCH_AGENTS_DIR/$CHAT_ARCHIVER_LABEL.plist"
+CHAT_ARCHIVER_STATUS="$LOG_DIR/chat-archiver-status.json"
 FRONTEND_URL="http://localhost:3000"
 BACKEND_URL="http://127.0.0.1:8000/api/health"
 FRONTEND_MARKER="<title>Second Brain"
@@ -37,6 +41,7 @@ Commands:
   status     Show service and website status
   open       Open the website in Google Chrome
   logs       Follow frontend and backend logs
+  archive-now  Archive local AI sessions now and request a RAG refresh
   uninstall  Remove the background services and launcher app
 USAGE
 }
@@ -93,6 +98,10 @@ installed_for_current_project() {
   [[ "$(plist_value "$BACKEND_PLIST" ProgramArguments.1)" == "backend" ]] || return 1
   [[ "$(plist_value "$FRONTEND_PLIST" ProgramArguments.0)" == "$wrapper" ]] || return 1
   [[ "$(plist_value "$FRONTEND_PLIST" ProgramArguments.1)" == "frontend" ]] || return 1
+  [[ -f "$CHAT_ARCHIVER_PLIST" ]] || return 1
+  [[ "$(plist_value "$CHAT_ARCHIVER_PLIST" EnvironmentVariables.SECOND_BRAIN_INSTALL_VERSION)" == "$CHAT_ARCHIVER_INSTALL_VERSION" ]] || return 1
+  [[ "$(plist_value "$CHAT_ARCHIVER_PLIST" ProgramArguments.0)" == "$PROJECT_ROOT/backend/venv/bin/python3" ]] || return 1
+  [[ "$(plist_value "$CHAT_ARCHIVER_PLIST" ProgramArguments.1)" == "$PROJECT_ROOT/scripts/chat_archiver.py" ]] || return 1
   configured_node=$(plist_value "$FRONTEND_PLIST" ProgramArguments.2)
   [[ -x "$configured_node" ]] || return 1
   [[ "$(plist_value "$APP_DIR/Contents/Info.plist" CFBundleIdentifier)" == "$APP_BUNDLE_ID" ]] || return 1
@@ -121,6 +130,11 @@ verify_owned_artifacts() {
   if [[ -f "$FRONTEND_PLIST" ]] && \
     [[ "$(plist_value "$FRONTEND_PLIST" Label)" != "$FRONTEND_LABEL" ]]; then
     print -u2 "Refusing to replace an unrelated launch agent at $FRONTEND_PLIST"
+    return 1
+  fi
+  if [[ -f "$CHAT_ARCHIVER_PLIST" ]] && \
+    [[ "$(plist_value "$CHAT_ARCHIVER_PLIST" Label)" != "$CHAT_ARCHIVER_LABEL" ]]; then
+    print -u2 "Refusing to replace an unrelated launch agent at $CHAT_ARCHIVER_PLIST"
     return 1
   fi
   if [[ -d "$APP_DIR" ]] && \
@@ -178,6 +192,83 @@ unload_agent() {
 
   print -u2 "$label still appears loaded after launchctl bootout."
   return 1
+}
+
+install_chat_archiver() {
+  local python_path="$PROJECT_ROOT/backend/venv/bin/python"
+  local template="$PROJECT_ROOT/scripts/macos/$CHAT_ARCHIVER_LABEL.plist"
+  local node_path staging staged backup
+  local was_loaded=false had_previous=false
+
+  node_path=$(find_node || true)
+  [[ -x "$python_path" ]] || {
+    print -u2 "The backend virtual environment is missing at backend/venv."
+    return 1
+  }
+  [[ -n "$node_path" ]] || node_path="/usr/bin/false"
+  [[ -f "$template" ]] || {
+    print -u2 "The chat archiver launch template is missing: $template"
+    return 1
+  }
+
+  /bin/mkdir -p "$LAUNCH_AGENTS_DIR" "$LOG_DIR"
+  staging=$(mktemp -d "$LOG_DIR/chat-archiver-install.XXXXXX")
+  staged="$staging/$CHAT_ARCHIVER_LABEL.plist"
+  backup="$staging/previous.plist"
+
+  if ! render_plist "$python_path" "$template" "$staged" "$node_path" || \
+    ! /usr/bin/plutil -lint "$staged" >/dev/null; then
+    /bin/rm -rf "$staging"
+    print -u2 "Could not render a valid chat archiver launch configuration."
+    return 1
+  fi
+
+  if [[ -f "$CHAT_ARCHIVER_PLIST" ]]; then
+    had_previous=true
+    if ! /bin/cp "$CHAT_ARCHIVER_PLIST" "$backup"; then
+      /bin/rm -rf "$staging"
+      return 1
+    fi
+  fi
+  if is_loaded "$CHAT_ARCHIVER_LABEL"; then
+    was_loaded=true
+    if ! unload_agent "$CHAT_ARCHIVER_LABEL"; then
+      /bin/rm -rf "$staging"
+      return 1
+    fi
+  fi
+
+  if ! /bin/cp "$staged" "$CHAT_ARCHIVER_PLIST.installing" || \
+    ! /bin/mv -f "$CHAT_ARCHIVER_PLIST.installing" "$CHAT_ARCHIVER_PLIST" || \
+    ! /bin/launchctl bootstrap "$DOMAIN" "$CHAT_ARCHIVER_PLIST"; then
+    /bin/launchctl bootout "$DOMAIN/$CHAT_ARCHIVER_LABEL" >/dev/null 2>&1 || true
+    if [[ "$had_previous" == true ]]; then
+      /bin/cp "$backup" "$CHAT_ARCHIVER_PLIST"
+      if [[ "$was_loaded" == true ]]; then
+        /bin/launchctl bootstrap "$DOMAIN" "$CHAT_ARCHIVER_PLIST" || true
+      fi
+    else
+      /bin/rm -f "$CHAT_ARCHIVER_PLIST"
+    fi
+    /bin/rm -rf "$staging"
+    print -u2 "Could not install the nightly chat archiver; the previous setup was restored."
+    return 1
+  fi
+
+  /bin/rm -rf "$staging"
+  print "✓ Nightly AI chat archiver installed for 23:00"
+}
+
+run_archive_now() {
+  local python_path="$PROJECT_ROOT/backend/venv/bin/python"
+  [[ -x "$python_path" ]] || {
+    print -u2 "The backend virtual environment is missing at backend/venv."
+    return 1
+  }
+  "$python_path" "$PROJECT_ROOT/scripts/chat_archiver.py" \
+    --lookback-days 3 \
+    --status-file "$CHAT_ARCHIVER_STATUS" \
+    --reindex-url "http://127.0.0.1:8000/api/index"
 }
 
 restore_previous_install() {
@@ -354,6 +445,9 @@ install_services() {
     ! wait_for_url "Frontend" "$FRONTEND_LABEL" "$FRONTEND_URL" "$FRONTEND_MARKER"; then
     return 1
   fi
+  if ! install_chat_archiver; then
+    return 1
+  fi
 
   INSTALL_ROLLBACK_ARMED=false
   trap - EXIT INT TERM
@@ -378,11 +472,15 @@ start_services() {
   local ready=0
   wait_for_url "Backend" "$BACKEND_LABEL" "$BACKEND_URL" "$BACKEND_MARKER" || ready=1
   wait_for_url "Frontend" "$FRONTEND_LABEL" "$FRONTEND_URL" "$FRONTEND_MARKER" || ready=1
+  if ! is_loaded "$CHAT_ARCHIVER_LABEL"; then
+    /bin/launchctl bootstrap "$DOMAIN" "$CHAT_ARCHIVER_PLIST" || ready=1
+  fi
   return $ready
 }
 
 stop_services() {
   local failed=0
+  unload_agent "$CHAT_ARCHIVER_LABEL" || failed=1
   unload_agent "$FRONTEND_LABEL" || failed=1
   unload_agent "$BACKEND_LABEL" || failed=1
   (( failed == 0 )) || return 1
@@ -431,6 +529,15 @@ show_status() {
     print "✗ Frontend is not responding"
     failed=1
   fi
+  if is_loaded "$CHAT_ARCHIVER_LABEL"; then
+    print "✓ Nightly chat archiver is scheduled for 23:00"
+  else
+    print "✗ Nightly chat archiver is not loaded"
+    failed=1
+  fi
+  if [[ -f "$CHAT_ARCHIVER_STATUS" ]]; then
+    print "  Last archiver status: $CHAT_ARCHIVER_STATUS"
+  fi
 
   return $failed
 }
@@ -443,6 +550,8 @@ follow_logs() {
     "$LOG_DIR/backend.log"
     "$LOG_DIR/backend-error.log"
     "$LOG_DIR/backend-supervisor-error.log"
+    "$LOG_DIR/chat-archiver.log"
+    "$LOG_DIR/chat-archiver-error.log"
     "$LOG_DIR/launcher.log"
   )
   /bin/mkdir -p "$LOG_DIR"
@@ -453,7 +562,7 @@ follow_logs() {
 uninstall_services() {
   verify_owned_artifacts || return 1
   stop_services
-  /bin/rm -f "$FRONTEND_PLIST" "$BACKEND_PLIST"
+  /bin/rm -f "$FRONTEND_PLIST" "$BACKEND_PLIST" "$CHAT_ARCHIVER_PLIST"
   /bin/rm -rf "$APP_DIR"
   print "✓ Second Brain auto-start and launcher app removed"
   print "  Logs were kept at $LOG_DIR"
@@ -487,6 +596,9 @@ case "$command" in
     ;;
   logs)
     follow_logs
+    ;;
+  archive-now)
+    run_archive_now
     ;;
   uninstall)
     uninstall_services

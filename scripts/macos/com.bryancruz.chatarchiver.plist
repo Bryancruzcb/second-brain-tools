@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bryancruz.chatarchiver</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PROJECT_ROOT__/backend/venv/bin/python3</string>
+    <string>__PROJECT_ROOT__/scripts/chat_archiver.py</string>
+    <string>--lookback-days</string>
+    <string>3</string>
+    <string>--status-file</string>
+    <string>__USER_HOME__/Library/Logs/SecondBrain/chat-archiver-status.json</string>
+    <string>--reindex-url</string>
+    <string>http://127.0.0.1:8000/api/index</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_ROOT__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__USER_HOME__</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <key>SECOND_BRAIN_INSTALL_VERSION</key>
+    <string>3</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>23</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__USER_HOME__/Library/Logs/SecondBrain/chat-archiver.log</string>
+  <key>StandardErrorPath</key>
+  <string>__USER_HOME__/Library/Logs/SecondBrain/chat-archiver-error.log</string>
+</dict>
+</plist>
