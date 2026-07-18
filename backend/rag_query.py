@@ -1,7 +1,7 @@
-import os
 import sys
 import chromadb
 from sentence_transformers import SentenceTransformer
+from indexing import resolve_database_path
 
 def main():
     if len(sys.argv) < 2:
@@ -10,15 +10,14 @@ def main():
         
     query = " ".join(sys.argv[1:])
     
-    home_dir = os.path.expanduser("~")
-    db_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/chroma_db")
+    db_path = resolve_database_path()
     
-    if not os.path.exists(db_path):
+    if not db_path.exists():
         print(f"Error: Vector database not found at {db_path}.")
         print("Please run rebuild_rag_index.py first.")
         sys.exit(1)
         
-    client = chromadb.PersistentClient(path=db_path)
+    client = chromadb.PersistentClient(path=str(db_path))
     collection = client.get_collection("second_brain")
     
     # We load the embedding model to encode the query

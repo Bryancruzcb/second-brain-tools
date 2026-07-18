@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend application source code
 COPY backend/main.py .
-COPY backend/seed_real_structure.py .
+COPY backend/indexing.py .
 
 # Environment variables
 ENV PORT=8000

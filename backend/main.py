@@ -7,6 +7,7 @@ import time
 import random
 from contextlib import asynccontextmanager
 import asyncio
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 import numpy as np
 from sklearn.cluster import KMeans
@@ -17,6 +18,7 @@ from dotenv import load_dotenv
 import chromadb
 from sentence_transformers import SentenceTransformer
 import openai
+from indexing import rebuild_index, resolve_database_path, resolve_vault_path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +33,7 @@ model = None
 chroma_collection = None
 
 # Cache configuration
-CACHE_FILE = "health_cache.json"
+CACHE_FILE = str(Path(__file__).resolve().parent / "health_cache.json")
 health_cache = {
     "total_notes": 0,
     "total_links": 0,
@@ -44,6 +46,14 @@ health_cache = {
 }
 is_scanning = False
 last_scan_time = 0.0
+is_indexing = False
+index_status: Dict[str, Any] = {
+    "state": "idle",
+    "started_at": None,
+    "finished_at": None,
+    "summary": None,
+    "error": None,
+}
 
 def _load_fast_sync():
     """Load ChromaDB and Cache on startup."""
@@ -61,8 +71,7 @@ def _load_fast_sync():
             logger.error(f"Failed to load health cache from disk: {e}")
 
     # 2. Initialize ChromaDB client
-    home_dir = os.path.expanduser("~")
-    db_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/backend/chroma_db")
+    db_path = str(resolve_database_path())
     logger.info(f"Connecting to ChromaDB at {db_path}...")
     try:
         chroma_client = chromadb.PersistentClient(path=db_path)
@@ -101,17 +110,7 @@ app.add_middleware(
 
 def get_vault_path() -> str:
     """Resolve the Obsidian vault consistently across every endpoint."""
-    configured_path = os.environ.get("OBSIDIAN_VAULT_PATH")
-    if configured_path:
-        return os.path.abspath(os.path.expanduser(configured_path))
-
-    home_dir = os.path.expanduser("~")
-    candidates = [
-        os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault"),
-        os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault"),
-        os.path.join(home_dir, "Documents/Obsidian Vault"),
-    ]
-    return next((path for path in candidates if os.path.isdir(path)), candidates[0])
+    return str(resolve_vault_path())
 
 
 def resolve_vault_file(relative_path: str) -> str:
@@ -192,7 +191,9 @@ def build_graph_from_chroma() -> Dict[str, Any]:
         results = chroma_collection.get(include=["metadatas", "documents", "embeddings"])
         metadatas = results.get("metadatas") or []
         documents = results.get("documents") or []
-        embeddings = results.get("embeddings") or []
+        embeddings = results.get("embeddings")
+        if embeddings is None:
+            embeddings = []
 
         # Build unique node map: source_path -> {id, label, tags}
         node_map: Dict[str, Dict] = {}
@@ -226,7 +227,7 @@ def build_graph_from_chroma() -> Dict[str, Any]:
 
         nodes = list(node_map.values())
         
-        if embeddings:
+        if len(embeddings) > 0:
             try:
                 n_clusters = min(8, len(nodes))
                 if n_clusters > 1:
@@ -249,7 +250,7 @@ def build_graph_from_chroma() -> Dict[str, Any]:
         explicit_edges = [{"source": e[0], "target": e[1]} for e in edge_set]
         
         ghost_edges = []
-        if embeddings:
+        if len(embeddings) > 0:
             try:
                 # Query nearest neighbors for all embeddings to find semantic Ghost Links
                 nn_results = chroma_collection.query(
@@ -385,69 +386,62 @@ def trigger_scan(background_tasks: BackgroundTasks):
     return {"status": "started", "message": "Scan started in background."}
 
 def run_ingestion_sync():
-    global chroma_collection, model
-    if not chroma_collection or not model:
-        logger.error("Cannot ingest: db or model not loaded yet.")
+    global chroma_collection, model, is_indexing, index_status
+    if model is None:
+        index_status = {
+            "state": "failed",
+            "started_at": None,
+            "finished_at": time.time(),
+            "summary": None,
+            "error": "Embedding model is not loaded yet.",
+        }
+        logger.error("Cannot ingest: embedding model is not loaded yet.")
         return
-        
-    home_dir = os.path.expanduser("~")
-    vault_path = os.environ.get("OBSIDIAN_VAULT_PATH") or os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
-    if not os.path.exists(vault_path):
-        vault_path = os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault")
-        
-    exclude_dirs = {".obsidian", ".smart-env", "Templates", "99 Archive", "Obsidian Vault Backup", "05 AI Chats", "99 Import Logs"}
-    
-    docs, metadatas, ids = [], [], []
-    logger.info(f"Starting vector ingestion from {vault_path}...")
-    
-    for root, dirs, files in os.walk(vault_path):
-        dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
-        for f in files:
-            if f.endswith(".md") and "Index.md" not in f and f != "Vault Health Report.md":
-                path = os.path.join(root, f)
-                rel_path = os.path.relpath(path, vault_path).replace("\\", "/")
-                title = os.path.splitext(f)[0]
-                try:
-                    with open(path, "r", encoding="utf-8") as file_obj:
-                        content = file_obj.read()
-                    
-                    chunk_size = 1500
-                    for i in range(0, len(content), chunk_size):
-                        chunk = content[i:i+chunk_size]
-                        if len(chunk.strip()) > 10:
-                            docs.append(chunk)
-                            metadatas.append({"source": rel_path, "title": title})
-                            ids.append(f"{rel_path}_{i}")
-                except Exception as e:
-                    logger.warning(f"Failed to read {path}: {e}")
-                    
-    if not docs:
-        logger.warning("No documents found to ingest.")
-        return
-        
-    batch_size = 100
-    for i in range(0, len(docs), batch_size):
-        b_docs = docs[i:i+batch_size]
-        b_meta = metadatas[i:i+batch_size]
-        b_ids = ids[i:i+batch_size]
-        try:
-            embeddings = model.encode(b_docs).tolist()
-            chroma_collection.upsert(
-                documents=b_docs,
-                embeddings=embeddings,
-                metadatas=b_meta,
-                ids=b_ids
-            )
-            logger.info(f"Upserted batch {i//batch_size + 1}")
-        except Exception as e:
-            logger.error(f"Batch upsert failed: {e}")
-            
-    logger.info(f"Vector ingestion complete! Upserted {len(docs)} chunks.")
+
+    is_indexing = True
+    index_status = {
+        "state": "running",
+        "started_at": time.time(),
+        "finished_at": None,
+        "summary": None,
+        "error": None,
+    }
+    try:
+        logger.info("Starting content-first Obsidian index rebuild...")
+        collection, summary = rebuild_index(model=model)
+        chroma_collection = collection
+        index_status = {
+            "state": "complete",
+            "started_at": index_status["started_at"],
+            "finished_at": time.time(),
+            "summary": summary.as_dict(),
+            "error": None,
+        }
+        logger.info("Vector ingestion complete: %s", summary.as_dict())
+        run_health_scan_sync()
+    except Exception as error:
+        index_status = {
+            "state": "failed",
+            "started_at": index_status.get("started_at"),
+            "finished_at": time.time(),
+            "summary": None,
+            "error": str(error),
+        }
+        logger.exception("Content index rebuild failed; previous collection was preserved.")
+    finally:
+        is_indexing = False
 
 @app.post("/api/index")
 def trigger_index(background_tasks: BackgroundTasks):
+    if is_indexing:
+        return {"status": "running", "message": "Vector indexing is already in progress."}
     background_tasks.add_task(run_ingestion_sync)
     return {"status": "started", "message": "Vector indexing started in background."}
+
+
+@app.get("/api/index/status")
+def get_index_status():
+    return {"is_indexing": is_indexing, **index_status}
 
 @app.get("/api/graph")
 def get_graph():
