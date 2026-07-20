@@ -1,6 +1,22 @@
 # Second Brain Knowledge Engine
 
-A private, local-first workspace for exploring an Obsidian vault. It combines a fast Rust parser, a FastAPI/ChromaDB retrieval layer, local Qwen through Ollama, and a responsive Next.js interface with an interactive 3D knowledge graph.
+Explore your Obsidian notes as a 3D map and ask questions about them, with everything running on your own machine.
+
+[![CI Pipeline](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml)
+
+Nothing leaves the machine. There are no cloud calls and no hosted AI: retrieval is local ChromaDB, generation is Qwen through Ollama, and both LLM clients are constructed against localhost. The graph, note reader, and health tools all keep working when Ollama is off — only the Qwen features need it.
+
+## The hard part: parsing a cloud-synced vault
+
+The vault lives in OneDrive, so half the problem is the filesystem lying to you.
+
+Parallelising the file reads is the obvious first move and it's wrong — it saturates OneDrive's File Provider daemon and the scan dies with `os error 60`. So the Rust core reads files **sequentially on purpose** and parallelises only the CPU-bound work, fanning wikilink and tag extraction across cores with Rayon ([`core/src/main.rs:173`](core/src/main.rs#L173) and [`:194`](core/src/main.rs#L194)).
+
+The second trap is files that aren't really there. OneDrive leaves placeholders — metadata on disk, content not downloaded — and touching one triggers a blocking download or an error. `is_dataless_file()` detects them without reading: `FILE_ATTRIBUTE_OFFLINE` / `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` on Windows, `SF_DATALESS` on macOS. Those notes are served read-only from the last index instead of failing the request.
+
+Both of these came from running it against my own vault and watching it stall.
+
+> **DEMO GOES HERE.** Record 8–12 seconds at 1280×720: open the 3D graph, click a node, Shift-click two more to add them as context, ask Qwen a question, land on the answer with its source links visible. Save as `docs/demo.gif` and replace this block with `![Demo](docs/demo.gif)`.
 
 ## What it includes
 
@@ -14,7 +30,7 @@ A private, local-first workspace for exploring an Obsidian vault. It combines a 
 ## Architecture
 
 1. **`core` — Rust**  
-   Concurrently parses Markdown, wikilinks, tags, and vault structure.
+   Walks the vault and parses Markdown, wikilinks, tags, and structure. Reads sequentially to survive OneDrive; parses in parallel with Rayon.
 2. **`backend` — FastAPI / Python**  
    Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama.
 3. **`frontend` — Next.js / React Three Fiber**  
