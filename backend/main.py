@@ -142,12 +142,26 @@ def get_indexed_note_text(source: str) -> str:
 
 
 def is_dataless_file(path: str) -> bool:
-    """Detect macOS cloud placeholders without triggering a file download."""
-    dataless_flag = 0x40000000
-    try:
-        return bool(getattr(os.stat(path), "st_flags", 0) & dataless_flag)
-    except OSError:
-        return False
+    """Detect cloud placeholders without triggering a file download."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(path)
+            if attrs != -1:
+                # 0x1000: FILE_ATTRIBUTE_OFFLINE
+                # 0x00400000: FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+                return bool(attrs & (0x1000 | 0x00400000))
+            return False
+        except Exception:
+            return False
+    else:
+        dataless_flag = 0x40000000
+        try:
+            return bool(getattr(os.stat(path), "st_flags", 0) & dataless_flag)
+        except OSError:
+            return False
+
 
 
 def build_graph_from_chroma() -> Dict[str, Any]:
@@ -333,6 +347,8 @@ def run_health_scan_sync():
 class QueryRequest(BaseModel):
     query: str
     context_nodes: Optional[List[str]] = None
+    scope: Optional[str] = "notes"  # "notes", "chats", "all"
+
 
 class QueryResponse(BaseModel):
     answer: str
@@ -368,7 +384,7 @@ def run_ingestion_sync():
     if not os.path.exists(vault_path):
         vault_path = os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault")
         
-    exclude_dirs = {".obsidian", ".smart-env", "Templates", "99 Archive", "Obsidian Vault Backup", "05 AI Chats", "99 Import Logs"}
+    exclude_dirs = {".obsidian", ".smart-env", "Templates", "99 Archive", "Obsidian Vault Backup", "99 Import Logs"}
     
     docs, metadatas, ids = [], [], []
     logger.info(f"Starting vector ingestion from {vault_path}...")
@@ -378,18 +394,30 @@ def run_ingestion_sync():
         for f in files:
             if f.endswith(".md") and "Index.md" not in f and f != "Vault Health Report.md":
                 path = os.path.join(root, f)
+                
+                # Prevent triggering large file downloads on cloud files
+                if is_dataless_file(path):
+                    continue
+                    
                 rel_path = os.path.relpath(path, vault_path).replace("\\", "/")
                 title = os.path.splitext(f)[0]
                 try:
                     with open(path, "r", encoding="utf-8") as file_obj:
                         content = file_obj.read()
                     
+                    is_chat = "05 AI Chats" in rel_path
+                    category = "chat" if is_chat else "note"
+                    
                     chunk_size = 1500
                     for i in range(0, len(content), chunk_size):
                         chunk = content[i:i+chunk_size]
                         if len(chunk.strip()) > 10:
                             docs.append(chunk)
-                            metadatas.append({"source": rel_path, "title": title})
+                            metadatas.append({
+                                "source": rel_path,
+                                "title": title,
+                                "category": category
+                            })
                             ids.append(f"{rel_path}_{i}")
                 except Exception as e:
                     logger.warning(f"Failed to read {path}: {e}")
@@ -416,6 +444,7 @@ def run_ingestion_sync():
             logger.error(f"Batch upsert failed: {e}")
             
     logger.info(f"Vector ingestion complete! Upserted {len(docs)} chunks.")
+
 
 @app.post("/api/index")
 def trigger_index(background_tasks: BackgroundTasks):
@@ -463,11 +492,21 @@ def run_query(request: QueryRequest):
                     'distances': [[0.0] * len(results['documents'])]
                 }
         else:
+            # Construct where filter based on scope
+            where_filter = None
+            scope = request.scope or "notes"
+            if scope == "chats":
+                where_filter = {"category": "chat"}
+            elif scope == "notes":
+                where_filter = {"category": {"$ne": "chat"}}
+
             # Vector similarity search
             results = chroma_collection.query(
                 query_embeddings=query_embedding,
-                n_results=4
+                n_results=4,
+                where=where_filter
             )
+
         
         # 3. Format context source items
         sources = []
@@ -745,14 +784,24 @@ def get_recent_notes():
     return {"notes": recent}
 
 @app.get("/api/search")
-def search_notes(q: str = ""):
+def search_notes(q: str = "", scope: str = "notes"):
     global model, chroma_collection
     if not q.strip() or model is None or chroma_collection is None:
         return {"results": []}
     
     try:
+        where_filter = None
+        if scope == "chats":
+            where_filter = {"category": "chat"}
+        elif scope == "notes":
+            where_filter = {"category": {"$ne": "chat"}}
+
         query_embedding = model.encode([q.strip()]).tolist()
-        results = chroma_collection.query(query_embeddings=query_embedding, n_results=6)
+        results = chroma_collection.query(
+            query_embeddings=query_embedding, 
+            n_results=6,
+            where=where_filter
+        )
         
         seen_titles = set()
         items = []
@@ -773,6 +822,7 @@ def search_notes(q: str = ""):
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return {"results": []}
+
 
 if __name__ == "__main__":
     import uvicorn

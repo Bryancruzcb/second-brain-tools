@@ -14,7 +14,7 @@ interface ChatPanelProps {
 const suggestions = [
   'What themes have I been returning to lately?',
   'Connect ideas across my coding and school notes.',
-  'Which unfinished projects deserve attention?',
+  '💡 Brainstorm project ideas from my past chats',
   'Summarize how my Second Brain is organized.',
 ];
 
@@ -27,6 +27,7 @@ function readErrorMessage(status: number, detail?: string) {
 export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [scope, setScope] = useState<'notes' | 'chats' | 'all'>('notes');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +92,7 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
         body: JSON.stringify({
           query,
           context_nodes: contextNodes.length > 0 ? contextNodes.map((node) => node.id) : undefined,
+          scope,
         }),
       });
 
@@ -119,6 +121,16 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
     }
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    if (suggestion.includes('past chats') || suggestion.includes('project ideas')) {
+      setScope('chats');
+    } else {
+      setScope('notes');
+    }
+    setInput(suggestion);
+    textareaRef.current?.focus();
+  };
+
   const clearHistory = () => {
     setMessages([]);
     window.localStorage.removeItem('second_brain_chat_history');
@@ -132,6 +144,34 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
           <span className="assistant-avatar"><Brain size={16} /></span>
           <div><strong>Qwen copilot</strong><span><ShieldCheck size={11} /> Runs locally with your notes</span></div>
         </div>
+        
+        <div className="chat-scope-selector" style={{ marginRight: '10px' }}>
+          <button
+            type="button"
+            className={`scope-button ${scope === 'notes' ? 'active' : ''}`}
+            onClick={() => setScope('notes')}
+            title="Search knowledge notes only"
+          >
+            Notes
+          </button>
+          <button
+            type="button"
+            className={`scope-button ${scope === 'chats' ? 'active' : ''}`}
+            onClick={() => setScope('chats')}
+            title="Search archived AI chats only"
+          >
+            Chats
+          </button>
+          <button
+            type="button"
+            className={`scope-button ${scope === 'all' ? 'active' : ''}`}
+            onClick={() => setScope('all')}
+            title="Search notes and chats"
+          >
+            All
+          </button>
+        </div>
+
         {messages.length > 0 && (
           <button type="button" className="icon-button" onClick={clearHistory} aria-label="Clear chat history" title="Clear history">
             <Trash2 size={16} />
@@ -147,7 +187,7 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
             <p>Qwen retrieves relevant passages from your indexed Obsidian notes, then builds a grounded answer with sources.</p>
             <div className="chat-suggestions">
               {suggestions.map((suggestion) => (
-                <button type="button" key={suggestion} onClick={() => { setInput(suggestion); textareaRef.current?.focus(); }}>
+                <button type="button" key={suggestion} onClick={() => handleSuggestionClick(suggestion)}>
                   <span>{suggestion}</span><Send size={13} />
                 </button>
               ))}
@@ -187,7 +227,7 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
           <div className="chat-thinking" role="status">
             <span className="assistant-avatar"><Brain size={14} /></span>
             <div><i /><i /><i /></div>
-            <span>Searching your notes</span>
+            <span>Searching your {scope === 'notes' ? 'notes' : scope === 'chats' ? 'chats' : 'vault'}</span>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -206,7 +246,7 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
                 void sendMessage();
               }
             }}
-            placeholder="Ask a question about your vault…"
+            placeholder={`Ask a question about your ${scope === 'notes' ? 'notes' : scope === 'chats' ? 'chats' : 'vault'}…`}
             aria-label="Message Qwen"
             rows={1}
           />

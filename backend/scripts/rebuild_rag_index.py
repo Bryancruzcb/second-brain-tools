@@ -5,7 +5,7 @@ extracts frontmatter tags, chunks text, and builds a ChromaDB vector index.
 """
 import os
 import re
-import signal
+import sys
 import chromadb
 from sentence_transformers import SentenceTransformer
 import time
@@ -14,7 +14,6 @@ import time
 EXCLUDES = [
     ".obsidian", ".smart-env", "Templates",
     "99 Archive", "99 Import Logs", "Obsidian Vault Backup",
-    "05 AI Chats",        # Very large; Gemini/Claude export logs
     "06 Exports",
 ]
 
@@ -28,27 +27,48 @@ def _timeout_handler(signum, frame):
 
 def is_local_file(filepath: str) -> bool:
     """Return True if the file has local disk blocks (not a cloud-only stub)."""
-    try:
-        return os.stat(filepath).st_blocks > 0
-    except OSError:
-        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(filepath)
+            if attrs != -1:
+                # Check for FILE_ATTRIBUTE_OFFLINE (0x1000) or RECALL_ON_DATA_ACCESS (0x400000)
+                is_offline = bool(attrs & 0x1000)
+                is_recall = bool(attrs & 0x00400000)
+                return not (is_offline or is_recall)
+            return True
+        except Exception:
+            return True
+    else:
+        try:
+            return getattr(os.stat(filepath), "st_blocks", 1) > 0
+        except OSError:
+            return False
 
 
 def safe_read(filepath: str) -> str | None:
     """Read a file with a hard timeout. Returns None on timeout or error."""
-    signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(FILE_TIMEOUT)
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read()
-        return content
-    except TimeoutError:
-        return None
-    except Exception:
-        return None
-    finally:
-        signal.alarm(0)
-
+    if sys.platform == "win32":
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            return content
+        except Exception:
+            return None
+    else:
+        import signal
+        signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(FILE_TIMEOUT)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            return content
+        except TimeoutError:
+            return None
+        except Exception:
+            return None
+        finally:
+            signal.alarm(0)
 
 
 def extract_frontmatter_tags(content: str) -> list[str]:
@@ -88,6 +108,13 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
 
 
 def main():
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stderr.reconfigure(encoding='utf-8')
+        except AttributeError:
+            pass
+
     home_dir = os.path.expanduser("~")
     vault_dir = os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
     db_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/chroma_db")
@@ -146,12 +173,17 @@ def main():
             title = file.removesuffix(".md")
             tags_str = ",".join(tags)
 
+            # Determine category: "chat" if inside 05 AI Chats, else "note"
+            is_chat = "05 AI Chats" in rel_path.replace("\\", "/")
+            category = "chat" if is_chat else "note"
+
             for i, chunk in enumerate(chunks):
                 documents.append(chunk)
                 metadatas.append({
                     "source": rel_path,
                     "title": title,
                     "tags": tags_str,
+                    "category": category,
                 })
                 ids.append(f"{rel_path}_chunk_{i}")
 
