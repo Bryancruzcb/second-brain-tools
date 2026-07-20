@@ -150,33 +150,6 @@ def is_dataless_file(path: str) -> bool:
         return False
 
 
-def get_api_key() -> Optional[str]:
-    # Try environment variable first
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if key and key.strip() and key != "your-api-key-here":
-        return key.strip()
-
-
-    # Fallback to reading API KEYS.md in the Obsidian vault
-    home_dir = os.path.expanduser("~")
-    vault_key_path = os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault/API KEYS.md")
-    if os.path.exists(vault_key_path):
-        try:
-            logger.info("Attempting to load Anthropic key from Obsidian vault...")
-            with open(vault_key_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            for line in content.splitlines():
-                if ":" in line and any(x in line.lower() for x in ["openai", "qwen"]):
-                    parts = line.split(":", 1)
-                    val = parts[1].strip().strip('"').strip("'")
-                    if val:
-                        logger.info("Found key in API KEYS.md")
-                        return val
-        except Exception as e:
-            logger.warning(f"Error reading API KEYS.md from vault: {e}")
-            
-    return None
-
 def build_graph_from_chroma() -> Dict[str, Any]:
     """Derive graph nodes and edges from the local ChromaDB index.
 
