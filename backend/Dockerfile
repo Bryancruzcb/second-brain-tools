@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend application source code
 COPY backend/main.py .
+COPY backend/config.py .
+COPY backend/indexer.py .
 COPY backend/seed_real_structure.py .
 
 # Environment variables

@@ -3,16 +3,17 @@ import sys
 import chromadb
 from sentence_transformers import SentenceTransformer
 
+import config
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python rag_query.py \"Your question here\"")
         sys.exit(1)
-        
+
     query = " ".join(sys.argv[1:])
-    
-    home_dir = os.path.expanduser("~")
-    db_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/chroma_db")
-    
+
+    db_path = config.get_chroma_path()
+
     if not os.path.exists(db_path):
         print(f"Error: Vector database not found at {db_path}.")
         print("Please run rebuild_rag_index.py first.")

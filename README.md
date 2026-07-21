@@ -37,6 +37,8 @@ Both of these came from running it against my own vault and watching it stall.
    Provides the desktop workspace, responsive layouts, Markdown tools, chat, and WebGL graph.
 4. **`clipper` — Chrome extension**  
    Saves selected web content into the vault inbox.
+5. **`scripts` — archive pipeline**  
+   Exports AI chat transcripts (Claude Code, Codex, Gemini) into the vault as Markdown, regenerates the per-source chat indexes, runs a vault health report, updates the vector index incrementally, and backs up the vault. Designed to run unattended on a schedule.
 
 ## Prerequisites
 
@@ -92,6 +94,21 @@ Open [http://localhost:3000](http://localhost:3000).
 4. Open **Ask Qwen** to search and synthesize across the vault locally.
 5. Use the top command search or `⌘K` from anywhere in the workspace.
 
+## Automated chat archiving
+
+`scripts/auto_archive.py` runs the whole maintenance pass in one shot:
+
+1. Export new Claude Code, Codex, and Gemini transcripts into `05 AI Chats/<Source>/<Category>/` (each session becomes one Markdown note; already-exported sessions are skipped by id).
+2. Delete empty or header-only chat exports.
+3. Regenerate every `<Source> Chat Index.md` from the files on disk.
+4. Write `00 Home/Vault Health Report.md` (broken links, orphans, missing tags).
+5. Incrementally update the ChromaDB vector index — only changed, new, or deleted notes are re-embedded.
+6. Zip the vault into `~/Documents/Obsidian Vault Backup/` and keep the newest 7 backups.
+
+Run it manually with `python scripts/auto_archive.py`, or schedule `scripts/run_auto_archive.cmd` (Windows Task Scheduler) to run it daily; it appends to `scripts/auto_archive.log`.
+
+Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
+
 ## Validation
 
 ```bash
@@ -101,7 +118,7 @@ npx tsc --noEmit
 npm run build
 
 cd ../
-python3 -m py_compile backend/main.py
+python3 -m py_compile backend/main.py backend/config.py backend/indexer.py scripts/*.py
 cargo check --manifest-path core/Cargo.toml
 ```
 

@@ -18,6 +18,9 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 import openai
 
+import config
+import indexer
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("second-brain-backend")
@@ -61,12 +64,13 @@ def _load_fast_sync():
             logger.error(f"Failed to load health cache from disk: {e}")
 
     # 2. Initialize ChromaDB client
-    home_dir = os.path.expanduser("~")
-    db_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/backend/chroma_db")
+    db_path = config.get_chroma_path()
     logger.info(f"Connecting to ChromaDB at {db_path}...")
     try:
         chroma_client = chromadb.PersistentClient(path=db_path)
-        chroma_collection = chroma_client.get_collection("second_brain")
+        # get_or_create so a fresh machine (no collection yet) doesn't leave
+        # chroma_collection stuck at None forever.
+        chroma_collection = chroma_client.get_or_create_collection("second_brain")
         logger.info("ChromaDB collection 'second_brain' loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load ChromaDB collection: {e}")
@@ -101,17 +105,7 @@ app.add_middleware(
 
 def get_vault_path() -> str:
     """Resolve the Obsidian vault consistently across every endpoint."""
-    configured_path = os.environ.get("OBSIDIAN_VAULT_PATH")
-    if configured_path:
-        return os.path.abspath(os.path.expanduser(configured_path))
-
-    home_dir = os.path.expanduser("~")
-    candidates = [
-        os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault"),
-        os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault"),
-        os.path.join(home_dir, "Documents/Obsidian Vault"),
-    ]
-    return next((path for path in candidates if os.path.isdir(path)), candidates[0])
+    return config.get_vault_path()
 
 
 def resolve_vault_file(relative_path: str) -> str:
@@ -141,27 +135,9 @@ def get_indexed_note_text(source: str) -> str:
         return ""
 
 
-def is_dataless_file(path: str) -> bool:
-    """Detect cloud placeholders without triggering a file download."""
-    import sys
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            attrs = ctypes.windll.kernel32.GetFileAttributesW(path)
-            if attrs != -1:
-                # 0x1000: FILE_ATTRIBUTE_OFFLINE
-                # 0x00400000: FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
-                return bool(attrs & (0x1000 | 0x00400000))
-            return False
-        except Exception:
-            return False
-    else:
-        dataless_flag = 0x40000000
-        try:
-            return bool(getattr(os.stat(path), "st_flags", 0) & dataless_flag)
-        except OSError:
-            return False
-
+# is_dataless_file now lives in indexer.py (the single shared implementation
+# used by both the API endpoints below and the vault indexer).
+is_dataless_file = indexer.is_dataless_file
 
 
 def build_graph_from_chroma() -> Dict[str, Any]:
@@ -378,72 +354,14 @@ def run_ingestion_sync():
     if not chroma_collection or not model:
         logger.error("Cannot ingest: db or model not loaded yet.")
         return
-        
-    home_dir = os.path.expanduser("~")
-    vault_path = os.environ.get("OBSIDIAN_VAULT_PATH") or os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
-    if not os.path.exists(vault_path):
-        vault_path = os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault")
-        
-    exclude_dirs = {".obsidian", ".smart-env", "Templates", "99 Archive", "Obsidian Vault Backup", "99 Import Logs"}
-    
-    docs, metadatas, ids = [], [], []
-    logger.info(f"Starting vector ingestion from {vault_path}...")
-    
-    for root, dirs, files in os.walk(vault_path):
-        dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
-        for f in files:
-            if f.endswith(".md") and "Index.md" not in f and f != "Vault Health Report.md":
-                path = os.path.join(root, f)
-                
-                # Prevent triggering large file downloads on cloud files
-                if is_dataless_file(path):
-                    continue
-                    
-                rel_path = os.path.relpath(path, vault_path).replace("\\", "/")
-                title = os.path.splitext(f)[0]
-                try:
-                    with open(path, "r", encoding="utf-8") as file_obj:
-                        content = file_obj.read()
-                    
-                    is_chat = "05 AI Chats" in rel_path
-                    category = "chat" if is_chat else "note"
-                    
-                    chunk_size = 1500
-                    for i in range(0, len(content), chunk_size):
-                        chunk = content[i:i+chunk_size]
-                        if len(chunk.strip()) > 10:
-                            docs.append(chunk)
-                            metadatas.append({
-                                "source": rel_path,
-                                "title": title,
-                                "category": category
-                            })
-                            ids.append(f"{rel_path}_{i}")
-                except Exception as e:
-                    logger.warning(f"Failed to read {path}: {e}")
-                    
-    if not docs:
-        logger.warning("No documents found to ingest.")
-        return
-        
-    batch_size = 100
-    for i in range(0, len(docs), batch_size):
-        b_docs = docs[i:i+batch_size]
-        b_meta = metadatas[i:i+batch_size]
-        b_ids = ids[i:i+batch_size]
-        try:
-            embeddings = model.encode(b_docs).tolist()
-            chroma_collection.upsert(
-                documents=b_docs,
-                embeddings=embeddings,
-                metadatas=b_meta,
-                ids=b_ids
-            )
-            logger.info(f"Upserted batch {i//batch_size + 1}")
-        except Exception as e:
-            logger.error(f"Batch upsert failed: {e}")
-            
-    logger.info(f"Vector ingestion complete! Upserted {len(docs)} chunks.")
+
+    logger.info("Starting vector ingestion (incremental)...")
+    summary = indexer.index_vault(chroma_collection, model, incremental=True, log=logger.info)
+    logger.info(
+        f"Vector ingestion complete! {summary['files_scanned']} scanned, "
+        f"{summary['files_reindexed']} reindexed, {summary['files_skipped']} skipped, "
+        f"{summary['files_pruned']} pruned, {summary['chunks_written']} chunks written."
+    )
 
 
 @app.post("/api/index")
