@@ -16,10 +16,17 @@ def is_empty_or_header_only(filepath):
         if not content.strip():
             return True
 
-        # Split by the first horizontal rule
+        # Only exporter-generated transcripts (they always start with
+        # "# Chat Transcript:") are eligible for the header-only check.
+        # The chat folders also hold hand-written session summaries that
+        # legitimately never contain the exporter's "## 👤 User" heading;
+        # the old marker-based check deleted those.
+        if not content.lstrip().startswith("# Chat Transcript:"):
+            return False
+
+        # Split by the first horizontal rule (the exporter's header separator)
         parts = content.split('---', 1)
         if len(parts) < 2:
-            # If no horizontal rule, check if it has a User header
             return "## 👤 User" not in content
 
         body = parts[1].strip()

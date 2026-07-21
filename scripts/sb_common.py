@@ -26,10 +26,16 @@ def get_ai_chats_dir() -> str:
     return os.path.join(get_vault_path(), "05 AI Chats")
 
 
+MAX_TITLE_LEN = 60
+
+
 def clean_filename(text: str, fallback: str = "Untitled Session") -> str:
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"[^a-zA-Z0-9\s_\-]", "", text)
     title = " ".join(text.split()[:6])
+    # A URL or pasted path can survive as one enormous "word" and push the
+    # vault file path past Windows' 260-char MAX_PATH, crashing the export.
+    title = title[:MAX_TITLE_LEN].rstrip()
     return title or fallback
 
 

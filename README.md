@@ -105,7 +105,7 @@ Open [http://localhost:3000](http://localhost:3000).
 5. Incrementally update the ChromaDB vector index — only changed, new, or deleted notes are re-embedded.
 6. Zip the vault into `~/Documents/Obsidian Vault Backup/` and keep the newest 7 backups.
 
-Run it manually with `python scripts/auto_archive.py`, or schedule `scripts/run_auto_archive.cmd` (Windows Task Scheduler) to run it daily; it appends to `scripts/auto_archive.log`.
+Run it manually with `python scripts/auto_archive.py`, or schedule it daily with Windows Task Scheduler pointing at `wscript.exe scripts/run_hidden.vbs` — that runs `scripts/run_auto_archive.cmd` with no visible console and appends to `scripts/auto_archive.log`.
 
 Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
 
