@@ -100,7 +100,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 `scripts/auto_archive.py` runs the whole maintenance pass in one shot:
 
-1. Export new Claude Code, Codex, and Gemini transcripts into `05 AI Chats/<Source>/<Category>/` (each session becomes one Markdown note; already-exported sessions are skipped by id).
+1. Export new Claude Code, Codex, and Gemini transcripts into `05 AI Chats/<Source>/<Category>/` (each session becomes one Markdown note, matched by id). A session whose transcript has grown since its last export is re-exported in place — renames are preserved and hand-written summary notes are never overwritten.
 2. Delete empty or header-only chat exports.
 3. Regenerate every `<Source> Chat Index.md` from the files on disk.
 4. Write `00 Home/Vault Health Report.md` (broken links, orphans, missing tags).

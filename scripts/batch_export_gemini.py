@@ -62,7 +62,7 @@ def export_sessions(brain_dir, vault_dir, index_path, source_type):
         return
 
     # Get existing files in vault (to avoid duplicate exports)
-    existing_mds = sb_common.list_existing_exports(vault_dir)
+    existing = sb_common.map_existing_exports(vault_dir)
 
     # Find all transcript.jsonl files
     session_dirs = []
@@ -78,8 +78,9 @@ def export_sessions(brain_dir, vault_dir, index_path, source_type):
     for uuid, log_file in sorted(session_dirs, key=lambda x: os.path.getmtime(x[1]), reverse=True):
         short_id = uuid[:6]
 
-        # Check if already exported
-        if any(short_id.lower() in x for x in existing_mds):
+        # New session -> export; current copy -> skip; grown session -> refresh in place.
+        action, refresh_path = sb_common.resolve_export_action(existing, short_id, os.path.getmtime(log_file))
+        if action == "skip":
             continue
 
         # Parse timestamp and first prompt
@@ -123,10 +124,13 @@ def export_sessions(brain_dir, vault_dir, index_path, source_type):
         # Determine category (subfolder)
         category = sb_common.detect_category(first_prompt)
 
-        output_path = os.path.join(vault_dir, category, file_name)
+        output_path = refresh_path or os.path.join(vault_dir, category, file_name)
 
         # Parse and save
         parse_gemini_jsonl(log_file, output_path, f"{raw_title} ({short_id})")
+        if refresh_path:
+            print(f"Refreshed {source_type}: {os.path.basename(output_path)}")
+            continue
         print(f"Exported {source_type}: {file_name} -> {category}")
 
         rel_link = f"05 AI Chats/{'Gemini' if source_type == 'desktop' else 'Gemini CLI'}/{category}/{file_name.replace('.md', '')}"
