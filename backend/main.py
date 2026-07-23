@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import chromadb
 from sentence_transformers import SentenceTransformer
-import openai
+import httpx
 
 import config
 import indexer
@@ -330,6 +330,70 @@ class QueryRequest(BaseModel):
     query: str
     context_nodes: Optional[List[str]] = None
     scope: Optional[str] = "notes"  # "notes", "chats", "all"
+    history: Optional[List[Dict[str, str]]] = None  # prior turns: {role, content}
+
+
+# History budget: ~12K chars ≈ 3K tokens, which fits the 8K default context
+# window alongside 4 retrieved chunks (~2.7K tokens), the system prompt, and
+# a 1K-token answer.
+MAX_HISTORY_MESSAGES = 6
+MAX_HISTORY_MESSAGE_CHARS = 3000
+MAX_HISTORY_TOTAL_CHARS = 12000
+
+OLLAMA_CHAT_TIMEOUT_SECONDS = 300
+
+
+def clean_history(raw) -> List[Dict[str, str]]:
+    """Sanitize client-supplied conversation history.
+
+    Keeps only well-formed user/assistant turns, newest-first within the
+    char budget, so a hostile or bloated payload can't blow the context
+    window or smuggle in system-role messages.
+    """
+    if not raw:
+        return []
+    cleaned = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = (item.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        cleaned.append({"role": role, "content": content[:MAX_HISTORY_MESSAGE_CHARS]})
+
+    cleaned = cleaned[-MAX_HISTORY_MESSAGES:]
+
+    kept, total = [], 0
+    for msg in reversed(cleaned):
+        total += len(msg["content"])
+        if total > MAX_HISTORY_TOTAL_CHARS:
+            break
+        kept.append(msg)
+    return list(reversed(kept))
+
+
+def ollama_chat(messages: List[Dict[str, str]], max_tokens: int) -> str:
+    """Call Ollama's native chat API.
+
+    The OpenAI-compatible endpoint cannot set num_ctx, so long prompts were
+    silently truncated from the top at Ollama's small default window.
+    """
+    response = httpx.post(
+        f"{config.get_ollama_url()}/api/chat",
+        json={
+            "model": config.get_ollama_model(),
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "num_ctx": config.get_ollama_num_ctx(),
+                "num_predict": max_tokens,
+            },
+        },
+        timeout=OLLAMA_CHAT_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return (response.json().get("message") or {}).get("content") or ""
 
 
 class QueryResponse(BaseModel):
@@ -399,9 +463,15 @@ def run_query(request: QueryRequest):
         raise HTTPException(status_code=400, detail="Query text cannot be empty.")
         
     try:
-        # 1. Embed query
-        query_embedding = model.encode([query_text]).tolist()
-        
+        history = clean_history(request.history)
+
+        # 1. Embed the retrieval text. Follow-ups like "expand on that" carry
+        # no topic words themselves, so fold the last couple of user turns
+        # into the embedding to keep retrieval anchored to the conversation.
+        recent_user_turns = [m["content"] for m in history if m["role"] == "user"][-2:]
+        retrieval_text = "\n".join(recent_user_turns + [query_text])
+        query_embedding = model.encode([retrieval_text]).tolist()
+
         # 2. Query ChromaDB
         if request.context_nodes and len(request.context_nodes) > 0:
             # Retrieve specifically requested nodes
@@ -454,40 +524,27 @@ def run_query(request: QueryRequest):
         # 4. Generate prompt context
         context_str = "\n\n".join(context_chunks)
         
-        # 5. Connect to Local Ollama instance
+        # 5. Generate through local Ollama, carrying the conversation so far
         api_configured = True
-        logger.info("Calling Local Qwen 2.5 via Ollama for response synthesis...")
-        client = openai.OpenAI(
-            base_url="http://localhost:11434/v1",
-            api_key="ollama" # Required by SDK but ignored by Ollama
+        logger.info(
+            "Calling local %s via Ollama (%d history turns)...",
+            config.get_ollama_model(), len(history),
         )
-            
 
         system_prompt = (
             "You are an expert Second Brain Personal AI Assistant. "
-            "Your task is to answer the user's question using ONLY the provided Markdown note snippets as context. "
+            "Answer the user's question using ONLY the provided Markdown note snippets and the conversation so far as context. "
             "If the context doesn't contain the answer, explain that you couldn't find sufficient information in their notes "
             "but supply whatever relevant details are in the context. "
             "Always cite the source notes by name (e.g., 'According to your notes on [Note Name]...') in a professional, senior portfolio-grade format."
         )
-        
-        message = client.chat.completions.create(
-            model=config.get_ollama_model(),
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": f"Context snippets:\n{context_str}\n\nQuestion: {query_text}"
-                }
-            ],
-            max_tokens=1024
+
+        messages = (
+            [{"role": "system", "content": system_prompt}]
+            + history
+            + [{"role": "user", "content": f"Context snippets:\n{context_str}\n\nQuestion: {query_text}"}]
         )
-        
-        # Extract text response safely
-        answer_text = message.choices[0].message.content or ""
+        answer_text = ollama_chat(messages, max_tokens=1024)
         
         # Emoji/ANSI print here crashed the endpoint on Windows (cp1252
         # stdout raises UnicodeEncodeError inside the handler -> 500).
@@ -618,22 +675,14 @@ class CowriteRequest(BaseModel):
     
 @app.post("/api/cowrite")
 def run_cowrite(request: CowriteRequest):
-    client = openai.OpenAI(
-        base_url="http://localhost:11434/v1",
-        api_key="ollama"
-    )
     prompt = (
         "You are an AI co-writer. Continue the following markdown text naturally. "
         "Provide ONLY the continuation text, do NOT repeat the provided text, and do not include conversational filler.\n\n"
         f"{request.content[-2000:]}"
     )
     try:
-        message = client.chat.completions.create(
-            model=config.get_ollama_model(),
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=256
-        )
-        return {"completion": message.choices[0].message.content or ""}
+        completion = ollama_chat([{"role": "user", "content": prompt}], max_tokens=256)
+        return {"completion": completion}
     except Exception as e:
         logger.error(f"Co-write failure: {e}")
         raise HTTPException(status_code=500, detail=str(e))

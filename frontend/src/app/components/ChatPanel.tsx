@@ -85,6 +85,14 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
     setInput('');
     setIsLoading(true);
 
+    // Prior turns (excluding the question being sent and local error
+    // bubbles) so Qwen can follow references like "expand on that".
+    // The backend caps how much of this actually reaches the model.
+    const history = messages
+      .filter((message) => !message.content.startsWith("**I couldn't complete that request.**"))
+      .slice(-6)
+      .map(({ role, content }) => ({ role, content }));
+
     try {
       const response = await fetch(`${API_BASE}/api/query`, {
         method: 'POST',
@@ -93,6 +101,7 @@ export default function ChatPanel({ presetQuery, contextNodes = [] }: ChatPanelP
           query,
           context_nodes: contextNodes.length > 0 ? contextNodes.map((node) => node.id) : undefined,
           scope,
+          history: history.length > 0 ? history : undefined,
         }),
       });
 
