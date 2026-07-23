@@ -63,13 +63,64 @@ def detect_project_link(text: str) -> str:
     return ""
 
 
-def list_existing_exports(vault_dir: str) -> list[str]:
-    """Lowercased filenames of every markdown file already exported."""
+EXPORT_MARKER = "# Chat Transcript:"
+
+
+def map_existing_exports(vault_dir: str) -> list[dict]:
+    """Every markdown file already in this source's vault tree, with the
+    path and mtime needed for staleness checks."""
     existing = []
     if os.path.exists(vault_dir):
-        for _root, _dirs, files in os.walk(vault_dir):
-            existing.extend(f.lower() for f in files if f.endswith(".md"))
+        for root, _dirs, files in os.walk(vault_dir):
+            for f in files:
+                if not f.endswith(".md"):
+                    continue
+                path = os.path.join(root, f)
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                existing.append({"name": f.lower(), "path": path, "mtime": mtime})
     return existing
+
+
+def is_generated_transcript(path: str) -> bool:
+    """True if the file was written by an exporter (starts with the
+    transcript marker). Hand-written session summaries never are, and a
+    refresh must never overwrite them."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read(len(EXPORT_MARKER) + 8).lstrip().startswith(EXPORT_MARKER)
+    except OSError:
+        return False
+
+
+def resolve_export_action(existing: list[dict], short_id: str, source_mtime: float):
+    """Decide what to do with a session given what's already in the vault.
+
+    Returns (action, path):
+      ("new", None)     — nothing matches this id: export normally
+      ("skip", None)    — the vault copy is current, or only hand-written
+                          notes exist for this session
+      ("refresh", path) — an exporter-written copy exists but the source
+                          transcript is newer (the session kept going):
+                          rewrite it at its current path, preserving any
+                          human rename
+    """
+    sid = short_id.lower()
+    matches = [e for e in existing if sid in e["name"]]
+    if not matches:
+        return ("new", None)
+
+    generated = [m for m in matches if is_generated_transcript(m["path"])]
+    if not generated:
+        return ("skip", None)
+
+    target = max(generated, key=lambda m: m["mtime"])
+    # 2s slack absorbs filesystem/OneDrive mtime rounding.
+    if source_mtime <= target["mtime"] + 2:
+        return ("skip", None)
+    return ("refresh", target["path"])
 
 
 INDEX_HEADER = "| Date | Chat | Category | Project |"

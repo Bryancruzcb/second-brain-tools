@@ -81,7 +81,7 @@ def main():
         return
 
     # Get existing files in vault
-    existing_mds = sb_common.list_existing_exports(vault_dir)
+    existing = sb_common.map_existing_exports(vault_dir)
 
     # Scan all rollout files recursively under .codex/sessions
     rollout_files = []
@@ -105,8 +105,9 @@ def main():
         full_uuid = match_id.group(1)
         short_id = full_uuid[:6]
 
-        # Check if already exported
-        if any(short_id.lower() in x for x in existing_mds):
+        # New session -> export; current copy -> skip; grown session -> refresh in place.
+        action, refresh_path = sb_common.resolve_export_action(existing, short_id, os.path.getmtime(fp))
+        if action == "skip":
             continue
 
         # Parse first user prompt and timestamp
@@ -149,9 +150,12 @@ def main():
         # Determine category (subfolder)
         category = sb_common.detect_category(first_prompt)
 
-        output_path = os.path.join(vault_dir, category, file_name)
+        output_path = refresh_path or os.path.join(vault_dir, category, file_name)
 
         parse_codex_jsonl(fp, output_path, f"{raw_title} ({short_id})")
+        if refresh_path:
+            print(f"Refreshed Codex: {os.path.basename(output_path)}")
+            continue
         print(f"Exported Codex: {file_name} -> {category}")
 
         rel_link = f"05 AI Chats/Codex/{category}/{file_name.replace('.md', '')}"

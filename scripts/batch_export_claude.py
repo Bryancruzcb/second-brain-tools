@@ -140,16 +140,18 @@ def main():
         return
 
     # Existing files in vault (to avoid duplicate exports)
-    existing_mds = sb_common.list_existing_exports(vault_dir)
+    existing = sb_common.map_existing_exports(vault_dir)
 
     exported_entries = []
 
-    for full_path, fname, _mtime in transcripts:
+    for full_path, fname, src_mtime in transcripts:
         uid = fname[:-len('.jsonl')]
         short_id = uid[:6]
 
-        # Check if already exported
-        if any(short_id.lower() in x for x in existing_mds):
+        # New session -> export; current copy -> skip; session that kept
+        # growing after its export -> refresh the existing file in place.
+        action, refresh_path = sb_common.resolve_export_action(existing, short_id, src_mtime)
+        if action == "skip":
             continue
 
         # Parse timestamp and first prompt
@@ -193,10 +195,15 @@ def main():
         # Determine category (subfolder)
         category = sb_common.detect_category(first_prompt)
 
-        output_path = os.path.join(vault_dir, category, file_name)
+        output_path = refresh_path or os.path.join(vault_dir, category, file_name)
 
         # Parse and save
         parse_jsonl(full_path, output_path, f"{raw_title} ({short_id})")
+        if refresh_path:
+            # Existing index row still points at this file; the nightly
+            # rebuild_chat_indices pass regenerates rows from disk anyway.
+            print(f"Refreshed: {os.path.basename(output_path)}")
+            continue
         print(f"Exported: {file_name} -> {category}")
 
         # Record for index
