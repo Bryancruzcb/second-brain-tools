@@ -19,7 +19,7 @@ def get_vault_path() -> str:
         os.path.join(home, "Library", "CloudStorage", "OneDrive-Personal", "Documents", "Obsidian Vault"),
         os.path.join(home, "Documents", "Obsidian Vault"),
     ]
-    return next((p for p in candidates if os.path.isdir(p)), candidates[0])
+    return os.path.abspath(next((p for p in candidates if os.path.isdir(p)), candidates[0]))
 
 
 def get_ai_chats_dir() -> str:

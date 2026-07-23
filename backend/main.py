@@ -155,7 +155,13 @@ def build_graph_from_chroma() -> Dict[str, Any]:
         results = chroma_collection.get(include=["metadatas", "documents", "embeddings"])
         metadatas = results.get("metadatas") or []
         documents = results.get("documents") or []
-        embeddings = results.get("embeddings") or []
+        # Newer chromadb returns embeddings as a numpy array, whose truth
+        # value is ambiguous — never use `or` / bare `if` on it.
+        embeddings = results.get("embeddings")
+        if embeddings is None:
+            embeddings = []
+        elif hasattr(embeddings, "tolist"):
+            embeddings = embeddings.tolist()
 
         # Build unique node map: source_path -> {id, label, tags}
         node_map: Dict[str, Dict] = {}
@@ -466,7 +472,7 @@ def run_query(request: QueryRequest):
         )
         
         message = client.chat.completions.create(
-            model="qwen2.5",
+            model=config.get_ollama_model(),
             messages=[
                 {
                     "role": "system",
@@ -483,8 +489,9 @@ def run_query(request: QueryRequest):
         # Extract text response safely
         answer_text = message.choices[0].message.content or ""
         
-        # Print response directly to the backend terminal with color formatting
-        print(f"\n🤖 \033[1;36m[Qwen 2.5 Response]:\033[0m\n{answer_text}\n")
+        # Emoji/ANSI print here crashed the endpoint on Windows (cp1252
+        # stdout raises UnicodeEncodeError inside the handler -> 500).
+        logger.info("Model response generated (%d chars, %d sources).", len(answer_text), len(sources))
                 
         return QueryResponse(answer=answer_text, sources=sources, api_configured=api_configured)
         
@@ -622,7 +629,7 @@ def run_cowrite(request: CowriteRequest):
     )
     try:
         message = client.chat.completions.create(
-            model="qwen2.5",
+            model=config.get_ollama_model(),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=256
         )

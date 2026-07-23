@@ -16,7 +16,9 @@ The second trap is files that aren't really there. OneDrive leaves placeholders 
 
 Both of these came from running it against my own vault and watching it stall.
 
-> **DEMO GOES HERE.** Record 8–12 seconds at 1280×720: open the 3D graph, click a node, Shift-click two more to add them as context, ask Qwen a question, land on the answer with its source links visible. Save as `docs/demo.gif` and replace this block with `![Demo](docs/demo.gif)`.
+![Demo: open the 3D graph, search and select a note, ask Qwen, get a grounded answer with sources](docs/demo.gif)
+
+*Above: opening the 3D graph, finding a note through graph search, and asking Qwen about it — the answer is generated locally and cites the source notes it used.*
 
 ## What it includes
 

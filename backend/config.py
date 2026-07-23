@@ -27,7 +27,15 @@ def get_vault_path() -> str:
         os.path.join(home_dir, "Library/CloudStorage/OneDrive-Personal/Documents/Obsidian Vault"),
         os.path.join(home_dir, "Documents/Obsidian Vault"),
     ]
-    return next((path for path in candidates if os.path.isdir(path)), candidates[0])
+    # abspath normalizes the mixed / and \ separators these literals produce
+    # on Windows — resolve_vault_file's commonpath containment check 403s on
+    # every note otherwise.
+    return os.path.abspath(next((path for path in candidates if os.path.isdir(path)), candidates[0]))
+
+
+def get_ollama_model() -> str:
+    """Ollama model used for chat and co-writing (OLLAMA_MODEL to override)."""
+    return os.environ.get("OLLAMA_MODEL", "qwen2.5")
 
 
 def get_chroma_path() -> str:
