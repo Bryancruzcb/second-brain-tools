@@ -16,7 +16,9 @@ The second trap is files that aren't really there. OneDrive leaves placeholders 
 
 Both of these came from running it against my own vault and watching it stall.
 
-> **DEMO GOES HERE.** Record 8–12 seconds at 1280×720: open the 3D graph, click a node, Shift-click two more to add them as context, ask Qwen a question, land on the answer with its source links visible. Save as `docs/demo.gif` and replace this block with `![Demo](docs/demo.gif)`.
+![Demo: open the 3D graph, search and select a note, ask Qwen, get a grounded answer with sources](docs/demo.gif)
+
+*Above: opening the 3D graph, finding a note through graph search, and asking Qwen about it — the answer is generated locally and cites the source notes it used.*
 
 ## What it includes
 
@@ -37,6 +39,8 @@ Both of these came from running it against my own vault and watching it stall.
    Provides the desktop workspace, responsive layouts, Markdown tools, chat, and WebGL graph.
 4. **`clipper` — Chrome extension**  
    Saves selected web content into the vault inbox.
+5. **`scripts` — archive pipeline**  
+   Exports AI chat transcripts (Claude Code, Codex, Gemini) into the vault as Markdown, regenerates the per-source chat indexes, runs a vault health report, updates the vector index incrementally, and backs up the vault. Designed to run unattended on a schedule.
 
 ## Prerequisites
 
@@ -92,6 +96,21 @@ Open [http://localhost:3000](http://localhost:3000).
 4. Open **Ask Qwen** to search and synthesize across the vault locally.
 5. Use the top command search or `⌘K` from anywhere in the workspace.
 
+## Automated chat archiving
+
+`scripts/auto_archive.py` runs the whole maintenance pass in one shot:
+
+1. Export new Claude Code, Codex, and Gemini transcripts into `05 AI Chats/<Source>/<Category>/` (each session becomes one Markdown note; already-exported sessions are skipped by id).
+2. Delete empty or header-only chat exports.
+3. Regenerate every `<Source> Chat Index.md` from the files on disk.
+4. Write `00 Home/Vault Health Report.md` (broken links, orphans, missing tags).
+5. Incrementally update the ChromaDB vector index — only changed, new, or deleted notes are re-embedded.
+6. Zip the vault into `~/Documents/Obsidian Vault Backup/` and keep the newest 7 backups.
+
+Run it manually with `python scripts/auto_archive.py`, or schedule it daily with Windows Task Scheduler pointing at `wscript.exe scripts/run_hidden.vbs` — that runs `scripts/run_auto_archive.cmd` with no visible console and appends to `scripts/auto_archive.log`.
+
+Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
+
 ## Validation
 
 ```bash
@@ -101,7 +120,7 @@ npx tsc --noEmit
 npm run build
 
 cd ../
-python3 -m py_compile backend/main.py
+python3 -m py_compile backend/main.py backend/config.py backend/indexer.py scripts/*.py
 cargo check --manifest-path core/Cargo.toml
 ```
 
