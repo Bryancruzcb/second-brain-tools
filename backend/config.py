@@ -38,6 +38,25 @@ def get_ollama_model() -> str:
     return os.environ.get("OLLAMA_MODEL", "qwen2.5")
 
 
+def get_ollama_url() -> str:
+    """Base URL of the local Ollama server (OLLAMA_URL to override)."""
+    return os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+
+
+def get_ollama_num_ctx() -> int:
+    """Context window requested per chat call (OLLAMA_NUM_CTX to override).
+
+    Ollama's own default is small (~4K) and it silently truncates from the
+    top when a prompt exceeds it — which would eat the system prompt once
+    conversation history is included. 8K fits history + retrieved snippets
+    + a 1K answer comfortably on CPU-only hardware.
+    """
+    try:
+        return int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
+    except ValueError:
+        return 8192
+
+
 def get_chroma_path() -> str:
     """Resolve the ChromaDB persistence directory.
 
