@@ -23,8 +23,28 @@ import datetime
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPTS_DIR)
 
+# Written after every fully-successful run; lets scheduled triggers (daily +
+# at-logon catch-up) skip if today's run already happened.
+MARKER_FILE = os.path.join(SCRIPTS_DIR, ".auto_archive_last_success")
+
 sys.path.insert(0, SCRIPTS_DIR)
 import sb_common  # noqa: E402
+
+
+def already_ran_today() -> bool:
+    try:
+        with open(MARKER_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip() == datetime.date.today().isoformat()
+    except OSError:
+        return False
+
+
+def write_success_marker():
+    try:
+        with open(MARKER_FILE, "w", encoding="utf-8") as f:
+            f.write(datetime.date.today().isoformat())
+    except OSError as e:
+        print(f"Could not write success marker: {e}", file=sys.stderr)
 
 
 def run_script(python_exe, script_path):
@@ -102,6 +122,13 @@ def prune_old_backups(backup_dir, keep_limit=7):
 
 
 def main():
+    # --daily: used by the scheduled triggers (9 PM + logon catch-up). A
+    # laptop that was asleep at 9 PM gets its run at next logon instead,
+    # while a day that already ran becomes a cheap no-op.
+    if "--daily" in sys.argv[1:] and already_ran_today():
+        print(f"Already ran successfully today ({datetime.date.today().isoformat()}); skipping (--daily).")
+        return
+
     failures = 0
     steps_run = 0
 
@@ -162,6 +189,7 @@ def main():
 
     if failures:
         sys.exit(1)
+    write_success_marker()
 
 
 if __name__ == '__main__':

@@ -60,7 +60,7 @@ def main():
     report_path = os.path.join(vault_dir, '00 Home', 'Vault Health Report.md')
 
     # Exclude directories
-    exclude_dirs = {'.obsidian', '.smart-env', 'Templates', '99 Archive', 'Obsidian Vault Backup'}
+    exclude_dirs = {'.obsidian', '.smart-env', 'Templates', '99 Archive', 'Obsidian Vault Backup', '99 Import Logs'}
 
     all_notes = {}  # Normalized Title -> Relative Path
     note_details = {}  # Relative Path -> {title, content, links, tags}
@@ -71,6 +71,13 @@ def main():
 
         for f in files:
             if not f.endswith('.md'):
+                continue
+
+            # Never analyze our own generated report: its tables escape pipes
+            # as [[path\|title]], which parses as a link to "path\" (trailing
+            # backslash, never resolvable) — so every row of the previous
+            # report counted as a broken link and the count compounded each run.
+            if f == 'Vault Health Report.md':
                 continue
 
             filepath = os.path.join(root, f)
@@ -107,6 +114,13 @@ def main():
     incoming_links = {rel: [] for rel in note_details.keys()}  # target -> [sources]
     tagless_notes = []
 
+    def is_chat_note(rel_path: str) -> bool:
+        # Archived chat transcripts quote wikilink syntax verbatim and have
+        # no curated tags, so counting them floods the report with noise.
+        # They stay registered as link *targets* and their real links still
+        # rescue other notes from orphandom; they just aren't reported on.
+        return rel_path.replace('\\', '/').startswith('05 AI Chats/')
+
     for rel_path, details in note_details.items():
         for link in details['links']:
             normalized_link = link.lower()
@@ -119,14 +133,15 @@ def main():
                 incoming_links[target_rel].append(rel_path)
             else:
                 # Exclude internal headers references within the same file (e.g. [[#Section]])
-                if not link.startswith('#'):
+                # and unresolved links merely quoted inside chat transcripts.
+                if not link.startswith('#') and not is_chat_note(rel_path):
                     broken_links.append({
                         "source": rel_path,
                         "link": link
                     })
 
-        # Check for empty/missing tags
-        if not details['tags']:
+        # Check for empty/missing tags (chat exports are expected to be tagless)
+        if not details['tags'] and not is_chat_note(rel_path):
             suggestions = suggest_tags(details['title'], details['content'])
             tagless_notes.append({
                 "note": rel_path,
@@ -137,8 +152,10 @@ def main():
     # Find orphaned notes (0 incoming links)
     orphaned_notes = []
     for rel_path, incoming in incoming_links.items():
-        # Exclude dashboard/home files from being orphans (since they are landing pages)
-        if len(incoming) == 0 and "Home" not in rel_path and "Index.md" not in rel_path:
+        # Exclude dashboard/home files from being orphans (since they are landing
+        # pages) and chat transcripts (only ever reached via their index).
+        if len(incoming) == 0 and "Home" not in rel_path and "Index.md" not in rel_path \
+                and not is_chat_note(rel_path):
             orphaned_notes.append({
                 "note": rel_path,
                 "title": note_details[rel_path]['title']
@@ -162,6 +179,8 @@ Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - **Broken Links**: {len(broken_links)}
 - **Orphaned Notes**: {len(orphaned_notes)}
 - **Notes Lacking Tags**: {len(tagless_notes)}
+
+*Broken-link, orphan, and tag checks skip `05 AI Chats` transcripts (archived chats quote link syntax verbatim and carry no curated tags).*
 
 ---
 
