@@ -748,34 +748,20 @@ def search_notes(q: str = "", scope: str = "notes"):
         return {"results": []}
     
     try:
-        where_filter = None
-        if scope == "chats":
-            where_filter = {"category": "chat"}
-        elif scope == "notes":
-            where_filter = {"category": {"$ne": "chat"}}
-
-        query_embedding = model.encode([q.strip()]).tolist()
-        results = chroma_collection.query(
-            query_embeddings=query_embedding, 
-            n_results=6,
-            where=where_filter
+        candidates = retrieval.retrieve(
+            q.strip(), model=model, collection=chroma_collection, scope=scope, k=6,
         )
-        
         seen_titles = set()
         items = []
-        if results and 'documents' in results and results['documents']:
-            for i in range(len(results['documents'][0])):
-                meta = results['metadatas'][0][i]
-                title = meta.get("title", "Untitled")
-                if title in seen_titles:
-                    continue
-                seen_titles.add(title)
-                doc = results['documents'][0][i]
-                items.append({
-                    "title": title,
-                    "id": meta.get("source", ""),
-                    "snippet": doc[:150]
-                })
+        for c in candidates:
+            if c["title"] in seen_titles:
+                continue
+            seen_titles.add(c["title"])
+            items.append({
+                "title": c["title"],
+                "id": c["source"],
+                "snippet": c["chunk"][:150],
+            })
         return {"results": items}
     except Exception as e:
         logger.error(f"Search failed: {e}")
