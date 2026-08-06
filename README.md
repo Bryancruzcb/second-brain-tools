@@ -38,7 +38,9 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 
 | Change | hit-rate@4 | MRR@4 |
 |---|---|---|
-| Baseline: MiniLM embeddings, 500-word chunks, vector-only | _measuring_ | _measuring_ |
+| Baseline: MiniLM embeddings, 500-word chunks, vector-only | 70.0% | 0.496 |
+
+*Baseline measured 2026-08-05 over 40 cases (16 exact-keyword, 15 paraphrase, 8 chat-scope, 2 multi-source, one expected note labeled per question).*
 
 Score it against your own vault:
 
