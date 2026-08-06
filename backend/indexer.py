@@ -228,10 +228,35 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
     incremental=False: wipes every existing chunk first, then reindexes the
     whole vault from scratch.
 
+    A full rebuild stamps the configured embedding model into the collection
+    metadata; an incremental run whose stamp disagrees with the configured
+    model aborts without writing (continuing would mix vector spaces). An
+    unstamped index only warns — pre-stamp indexes are legal, and incremental
+    runs never stamp, since they do not re-embed what is already stored.
+
     Returns a summary dict: files_scanned, files_skipped, files_reindexed,
-    files_pruned, chunks_written.
+    files_pruned, chunks_written, batches_failed — plus "aborted" (a string
+    reason) if and only if the model-mismatch abort fired.
     """
     vault_path = config.get_vault_path()
+    configured_model = config.get_embedding_model()
+    stamped_model = (collection.metadata or {}).get("embedding_model")
+    if incremental and stamped_model and stamped_model != configured_model:
+        # Continuing would embed new chunks with a different model into the
+        # same vector space — silent, permanent corruption. Refuse.
+        reason = (
+            f"embedding model mismatch: index stamped '{stamped_model}', "
+            f"configured '{configured_model}'; run scripts/rebuild_rag_index.py --full"
+        )
+        log(f"ABORTING incremental index: {reason}")
+        return {
+            "files_scanned": 0, "files_skipped": 0, "files_reindexed": 0,
+            "files_pruned": 0, "chunks_written": 0, "batches_failed": 0,
+            "aborted": reason,
+        }
+    if incremental and not stamped_model:
+        log("Index has no embedding-model stamp; run scripts/rebuild_rag_index.py --full to stamp it.")
+
     log(f"Scanning vault at {vault_path}...")
 
     summary = {
@@ -240,6 +265,7 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
         "files_reindexed": 0,
         "files_pruned": 0,
         "chunks_written": 0,
+        "batches_failed": 0,
     }
 
     # ── Snapshot what's already indexed (source -> stored mtime + chunk ids) ──
@@ -260,14 +286,35 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
             log(f"Could not read existing index for incremental diff: {e}")
     else:
         # Full wipe-and-rebuild: clear every existing chunk up front.
+        wiped_ok = False
         try:
             existing = collection.get(include=[])
             all_ids = existing.get("ids") or []
             if all_ids:
                 collection.delete(ids=all_ids)
                 log(f"Cleared {len(all_ids)} existing chunks for full rebuild.")
+            wiped_ok = True
         except Exception as e:
             log(f"Could not clear existing collection for full rebuild: {e}")
+        summary["wipe_failed"] = not wiped_ok
+
+        # Provenance: a full rebuild re-embeds everything with the current
+        # model, so it is the only run allowed to assert which model the
+        # stored vectors came from — and only when the wipe succeeded, or
+        # residual old-model chunks would sit under a fresh stamp and every
+        # downstream mismatch check would go quiet. Chroma rejects a
+        # modify() payload that contains "hnsw:space" even when the value
+        # is unchanged, so drop that legacy key while carrying the rest
+        # forward — the distance function lives in the collection's
+        # configuration, not here. Its own try/except: a stamping failure
+        # is a different operation from the wipe and must not be reported
+        # as one.
+        if wiped_ok:
+            try:
+                carried = {k: v for k, v in (collection.metadata or {}).items() if not k.startswith("hnsw:")}
+                collection.modify(metadata={**carried, "embedding_model": configured_model})
+            except Exception as e:
+                log(f"Could not stamp embedding model on collection: {e}")
 
     valid_sources = set()
     pending_docs, pending_metas, pending_ids = [], [], []
@@ -285,6 +332,7 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
                 collection.upsert(documents=b_docs, embeddings=embeddings, metadatas=b_meta, ids=b_ids)
                 summary["chunks_written"] += len(b_docs)
             except Exception as e:
+                summary["batches_failed"] += 1
                 log(f"Batch upsert failed: {e}")
         pending_docs, pending_metas, pending_ids = [], [], []
 
@@ -376,4 +424,6 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
         f"{summary['files_reindexed']} reindexed, {summary['files_skipped']} skipped, "
         f"{summary['files_pruned']} pruned, {summary['chunks_written']} chunks written."
     )
+    if summary["batches_failed"]:
+        log(f"WARNING: {summary['batches_failed']} embedding batch(es) FAILED — the index is incomplete.")
     return summary

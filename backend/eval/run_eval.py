@@ -94,7 +94,22 @@ def main():
     import config
     from lexical import LexicalIndex
     collection = chromadb.PersistentClient(path=config.get_chroma_path()).get_collection("second_brain")
-    model = SentenceTransformer(config.get_embedding_model())
+
+    # Scoring queries from one model against chunks embedded by another
+    # produces numbers that look real and mean nothing. Refuse rather than
+    # publish them.
+    configured_model = config.get_embedding_model()
+    stamped_model = (collection.metadata or {}).get("embedding_model")
+    if stamped_model and stamped_model != configured_model:
+        print(f"Embedding model mismatch: index stamped '{stamped_model}' but EMBEDDING_MODEL "
+              f"is '{configured_model}'. These scores would be meaningless — run "
+              "scripts/rebuild_rag_index.py --full first.")
+        sys.exit(1)
+    if not stamped_model:
+        print("WARNING: index has no embedding-model stamp; assuming it was built with "
+              f"'{configured_model}'. Run scripts/rebuild_rag_index.py --full to stamp it.")
+
+    model = SentenceTransformer(configured_model)
     lex = LexicalIndex.build(collection)  # same keyword leg the endpoints serve
 
     # Same reranker the endpoints serve, same kill switch (see main.py).
