@@ -87,3 +87,36 @@ def test_failed_batches_are_counted(vault_env):
     summary = indexer.index_vault(collection, ExplodingModel(), incremental=False, log=lambda *_: None)
     assert summary["batches_failed"] >= 1
     assert summary["chunks_written"] == 0
+
+
+class WipeFailingCollection:
+    """Delegates to a real collection but fails the full-rebuild wipe."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    @property
+    def metadata(self):
+        return self._inner.metadata
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("wipe failed")
+
+
+def test_failed_wipe_does_not_stamp(vault_env):
+    collection = vault_env
+    # Populate so the wipe has something to delete (and therefore fails).
+    indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
+
+    # Second full rebuild under a NEW model, with a failing wipe: stamping
+    # would assert the new model over chunks the wipe never removed.
+    os.environ["EMBEDDING_MODEL"] = "model-b"
+    try:
+        wrapped = WipeFailingCollection(collection)
+        indexer.index_vault(wrapped, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
+        assert collection.metadata["embedding_model"] == "model-a"  # old stamp kept
+    finally:
+        os.environ["EMBEDDING_MODEL"] = "model-a"

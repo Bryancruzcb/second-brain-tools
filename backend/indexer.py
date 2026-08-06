@@ -286,28 +286,34 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
             log(f"Could not read existing index for incremental diff: {e}")
     else:
         # Full wipe-and-rebuild: clear every existing chunk up front.
+        wiped_ok = False
         try:
             existing = collection.get(include=[])
             all_ids = existing.get("ids") or []
             if all_ids:
                 collection.delete(ids=all_ids)
                 log(f"Cleared {len(all_ids)} existing chunks for full rebuild.")
+            wiped_ok = True
         except Exception as e:
             log(f"Could not clear existing collection for full rebuild: {e}")
 
         # Provenance: a full rebuild re-embeds everything with the current
         # model, so it is the only run allowed to assert which model the
-        # stored vectors came from. Chroma rejects a modify() payload that
-        # contains "hnsw:space" even when the value is unchanged, so drop
-        # that legacy key while carrying the rest forward — the distance
-        # function lives in the collection's configuration, not here.
-        # Its own try/except: a stamping failure is a different operation
-        # from the wipe and must not be reported as one.
-        try:
-            carried = {k: v for k, v in (collection.metadata or {}).items() if k != "hnsw:space"}
-            collection.modify(metadata={**carried, "embedding_model": configured_model})
-        except Exception as e:
-            log(f"Could not stamp embedding model on collection: {e}")
+        # stored vectors came from — and only when the wipe succeeded, or
+        # residual old-model chunks would sit under a fresh stamp and every
+        # downstream mismatch check would go quiet. Chroma rejects a
+        # modify() payload that contains "hnsw:space" even when the value
+        # is unchanged, so drop that legacy key while carrying the rest
+        # forward — the distance function lives in the collection's
+        # configuration, not here. Its own try/except: a stamping failure
+        # is a different operation from the wipe and must not be reported
+        # as one.
+        if wiped_ok:
+            try:
+                carried = {k: v for k, v in (collection.metadata or {}).items() if k != "hnsw:space"}
+                collection.modify(metadata={**carried, "embedding_model": configured_model})
+            except Exception as e:
+                log(f"Could not stamp embedding model on collection: {e}")
 
     valid_sources = set()
     pending_docs, pending_metas, pending_ids = [], [], []
