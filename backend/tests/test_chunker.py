@@ -106,3 +106,8 @@ def test_four_space_indented_fence_marker_is_not_a_fence():
 def test_closing_fence_with_info_string_does_not_close():
     doc = "# Real\n```\n```python\n# still code\n```\n\n# After\nx\n"
     assert [s["heading"] for s in split_sections(doc)] == ["Real", "After"]
+
+
+def test_three_space_indented_fence_still_toggles():
+    doc = "# Real\n   ```\n# fenced despite indent\n   ```\nafter\n"
+    assert len(split_sections(doc)) == 1

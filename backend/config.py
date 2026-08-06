@@ -1,6 +1,6 @@
 """Shared configuration resolution for the Second Brain backend.
 
-Centralizes path resolution so main.py, rag_query.py, indexer.py, and
+Centralizes path resolution so main.py, indexer.py, and
 scripts/rebuild_rag_index.py all agree on where the vault and the ChromaDB
 store live, instead of each duplicating (and drifting from) its own copy.
 """

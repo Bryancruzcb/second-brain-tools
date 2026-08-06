@@ -43,6 +43,10 @@ def test_eval_end_to_end_on_fixture_vault(indexed_collection):
     # results.json records what was actually retrieved, so a miss is auditable.
     hit_row = by_q["how often do I feed the sourdough starter?"]
     assert hit_row["retrieved"][0] == "Sourdough Starter.md"
+    # Pins reranker passthrough: with the fake cross-encoder, Rust ranks
+    # second for this query; without it, Marathon does. A regression that
+    # drops cross_encoder= from run()'s retrieval call flips this.
+    assert hit_row["retrieved"][1] == "Rust Borrow Checker.md"
     miss_row = by_q["sourdough starter borrow checker marathon taper coffee grinder"]
     assert "Garden Compost.md" not in miss_row["retrieved"]
     assert by_q["note that does not exist anywhere"]["retrieved"] == []
