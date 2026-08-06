@@ -1,4 +1,4 @@
-from indexer import CHUNK_SIZE, chunk_text, split_sections
+from indexer import chunk_text, split_sections
 
 
 # ── split_sections ──────────────────────────────────────────────────────────
@@ -86,3 +86,23 @@ def test_preamble_only_note_gets_empty_heading():
 def test_empty_input_yields_no_chunks():
     assert chunk_text("") == []
     assert chunk_text("  \n \n") == []
+
+
+def test_indented_heading_up_to_three_spaces_splits():
+    doc = "intro\n   # Indented\nbody\n"
+    assert [s["heading"] for s in split_sections(doc)] == ["", "Indented"]
+
+
+def test_four_space_indented_hash_is_code_not_heading():
+    doc = "# Real\n    # code comment\nbody\n"
+    assert len(split_sections(doc)) == 1
+
+
+def test_four_space_indented_fence_marker_is_not_a_fence():
+    doc = "# Real\n    ```\n# Actual\nbody\n"
+    assert [s["heading"] for s in split_sections(doc)] == ["Real", "Actual"]
+
+
+def test_closing_fence_with_info_string_does_not_close():
+    doc = "# Real\n```\n```python\n# still code\n```\n\n# After\nx\n"
+    assert [s["heading"] for s in split_sections(doc)] == ["Real", "After"]

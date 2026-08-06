@@ -116,8 +116,8 @@ def extract_frontmatter_tags(content: str):
     return list(dict.fromkeys(body_tags))  # dedupe, preserve order
 
 
-HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+HEADING_RE = re.compile(r"^ {0,3}(#{1,6})\s+(.*)$")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})\s*(.*)$")
 
 
 def split_sections(text):
@@ -139,20 +139,16 @@ def split_sections(text):
             sections.append({"heading": heading, "text": "\n".join(lines)})
 
     for line in text.splitlines():
-        m_fence = FENCE_RE.match(line.lstrip())
+        m_fence = FENCE_RE.match(line)
         if m_fence:
             marker = m_fence.group(1)
+            info = m_fence.group(2).strip()
             if fence is None:
                 fence = marker
-            elif marker[0] == fence[0] and len(marker) >= len(fence):
-                # CommonMark: a closing fence must use the opening character
-                # and be at least as long, so a ~~~ inside a ``` block does
-                # not close it. An unclosed fence runs to end of file (also
-                # per CommonMark), so `fence` staying set is correct.
-                # Simplification: a real closing fence may not carry an info
-                # string, but we don't check for one — a mid-fence ```python
-                # line closing the block only misfires on the same character,
-                # which is rare and self-limiting.
+            elif marker[0] == fence[0] and len(marker) >= len(fence) and not info:
+                # CommonMark: a closing fence matches the opening char, is at
+                # least as long, and carries no info string. An unclosed
+                # fence runs to end of file (also per CommonMark).
                 fence = None
             lines.append(line)
             continue
