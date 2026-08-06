@@ -39,6 +39,7 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 | Change | hit-rate@4 | MRR@4 |
 |---|---|---|
 | Baseline: MiniLM embeddings, 500-word chunks, vector-only | 70.0% | 0.496 |
+| + Heading-aware chunking (split at markdown headings, code-fence aware) | 70.0% | 0.529 |
 
 *Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
 

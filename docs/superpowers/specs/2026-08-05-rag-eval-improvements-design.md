@@ -39,7 +39,8 @@ the eval can never drift from what the app actually does — the same reason
 Known gap (flagged in PR 1's final review): `/api/search` (⌘K command
 search) still runs its own inline vector query and is not measured by the
 eval. PR 2 must either fold it onto `retrieve()` or state the scope
-limitation explicitly in the README.
+limitation explicitly in the README. Resolved in PR 2: `/api/search` now
+calls `retrieve()`.
 
 ### 2. Eval harness — `backend/eval/`
 
