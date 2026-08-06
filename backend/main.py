@@ -20,6 +20,7 @@ import httpx
 
 import config
 import indexer
+import lexical
 import retrieval
 
 # Configure logging
@@ -33,6 +34,7 @@ load_dotenv()
 # Global variables to load models/database on startup
 model = None
 chroma_collection = None
+lexical_index = None
 
 # Cache configuration
 CACHE_FILE = "health_cache.json"
@@ -86,10 +88,25 @@ def _load_model_background():
     except Exception as e:
         logger.error(f"Failed to load Sentence Transformer model: {e}")
 
+def _build_lexical_index():
+    """(Re)build the BM25 index; called from a startup thread and again
+    synchronously after each ingestion. On failure the previous index (or
+    vector-only, if none was ever built) keeps serving."""
+    global lexical_index
+    if chroma_collection is None:
+        logger.warning("Skipping BM25 build: Chroma collection not initialized.")
+        return
+    try:
+        lexical_index = lexical.LexicalIndex.build(chroma_collection)
+        logger.info("BM25 lexical index built over %d chunks.", len(lexical_index))
+    except Exception as e:
+        logger.error(f"Failed to build BM25 index (hybrid degrades to vector-only): {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _load_fast_sync()
     asyncio.create_task(asyncio.to_thread(_load_model_background))
+    asyncio.create_task(asyncio.to_thread(_build_lexical_index))
     yield
 
 app = FastAPI(title="Second Brain Tools API", version="1.0.0", lifespan=lifespan)
@@ -433,6 +450,9 @@ def run_ingestion_sync():
         f"{summary['files_reindexed']} reindexed, {summary['files_skipped']} skipped, "
         f"{summary['files_pruned']} pruned, {summary['chunks_written']} chunks written."
     )
+    # The BM25 index is a snapshot of the collection: rebuild it or the
+    # keyword leg keeps answering from the pre-ingestion corpus.
+    _build_lexical_index()
 
 
 @app.post("/api/index")
@@ -454,8 +474,8 @@ def get_graph():
 
 @app.post("/api/query", response_model=QueryResponse)
 def run_query(request: QueryRequest):
-    global model, chroma_collection
-    
+    global model, chroma_collection, lexical_index
+
     if model is None or chroma_collection is None:
         raise HTTPException(status_code=503, detail="Vector search engine or embedding model is not initialized.")
         
@@ -486,10 +506,11 @@ def run_query(request: QueryRequest):
                 for doc, meta in zip(raw.get("documents") or [], raw.get("metadatas") or [])
             ]
         else:
-            candidates = retrieval.retrieve(
+            candidates = retrieval.retrieve_hybrid(
                 retrieval_text,
                 model=model,
                 collection=chroma_collection,
+                lexical=lexical_index,
                 scope=request.scope or "notes",
             )
 
@@ -501,7 +522,8 @@ def run_query(request: QueryRequest):
                 "title": c["title"],
                 "source": c["source"],
                 "snippet": c["chunk"][:400] + "..." if len(c["chunk"]) > 400 else c["chunk"],
-                "distance": c["distance"],
+                # A lexical-only fused candidate carries "score", not "distance".
+                "distance": c.get("distance", 0.0),
             })
             context_chunks.append(f"From Note: {c['title']}\nContent: {c['chunk']}")
 
@@ -743,13 +765,14 @@ def get_recent_notes():
 
 @app.get("/api/search")
 def search_notes(q: str = "", scope: str = "notes"):
-    global model, chroma_collection
+    global model, chroma_collection, lexical_index
     if not q.strip() or model is None or chroma_collection is None:
         return {"results": []}
-    
+
     try:
-        candidates = retrieval.retrieve(
-            q.strip(), model=model, collection=chroma_collection, scope=scope, k=6,
+        candidates = retrieval.retrieve_hybrid(
+            q.strip(), model=model, collection=chroma_collection,
+            lexical=lexical_index, scope=scope, k=6,
         )
         seen_titles = set()
         items = []

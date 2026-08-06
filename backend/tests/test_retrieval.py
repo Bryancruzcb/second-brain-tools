@@ -19,6 +19,7 @@ class FakeCollection:
 
 
 CANNED = {
+    "ids": [["id_a", "id_b"]],
     "documents": [["chunk one text", "chunk two text"]],
     "metadatas": [[{"source": "a.md", "title": "A"}, {"source": "b.md", "title": "B"}]],
     "distances": [[0.1, 0.4]],
@@ -29,8 +30,8 @@ def test_retrieve_parses_chroma_results_into_candidates():
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve("q", model=FakeModel(), collection=coll)
     assert out == [
-        {"source": "a.md", "title": "A", "chunk": "chunk one text", "distance": 0.1},
-        {"source": "b.md", "title": "B", "chunk": "chunk two text", "distance": 0.4},
+        {"id": "id_a", "source": "a.md", "title": "A", "chunk": "chunk one text", "distance": 0.1},
+        {"id": "id_b", "source": "b.md", "title": "B", "chunk": "chunk two text", "distance": 0.4},
     ]
 
 
@@ -61,3 +62,70 @@ def test_missing_metadata_gets_defaults():
     out = retrieval.retrieve("q", model=FakeModel(), collection=coll)
     assert out[0]["source"] == ""
     assert out[0]["title"] == "Untitled Note"
+
+
+def test_retrieve_tolerates_missing_ids_key():
+    coll = FakeCollection({
+        "documents": [["text"]],
+        "metadatas": [[{"source": "a.md", "title": "A"}]],
+        "distances": [[0.2]],
+    })
+    out = retrieval.retrieve("q", model=FakeModel(), collection=coll)
+    assert out[0]["id"] == ""
+
+
+def _cand(cid, source="s.md"):
+    return {"id": cid, "source": source, "title": "T", "chunk": f"chunk {cid}", "distance": 0.1}
+
+
+def test_rrf_item_in_both_lists_wins():
+    a, b, c = _cand("a"), _cand("b"), _cand("c")
+    fused = retrieval.rrf_fuse([[a, b], [c, a]], k=3)
+    assert fused[0]["id"] == "a"  # 1/(60+1) + 1/(60+2) beats any single entry
+
+
+def test_rrf_scores_by_rank_position():
+    a, b = _cand("a"), _cand("b")
+    fused = retrieval.rrf_fuse([[a, b], [b, a]], k=2)
+    # both sum to 1/61 + 1/62 — tie; first-inserted (a, from list one) wins
+    assert [c["id"] for c in fused] == ["a", "b"]
+
+
+def test_rrf_truncates_to_k():
+    lst = [_cand(str(i)) for i in range(6)]
+    assert len(retrieval.rrf_fuse([lst], k=4)) == 4
+
+
+def test_rrf_falls_back_to_source_chunk_identity_when_id_empty():
+    x1 = {"id": "", "source": "x.md", "title": "X", "chunk": "same text", "distance": 0.1}
+    x2 = {"id": "", "source": "x.md", "title": "X", "chunk": "same text", "score": 2.0}
+    fused = retrieval.rrf_fuse([[x1], [x2]], k=2)
+    assert len(fused) == 1  # same chunk, fused despite different score keys
+
+
+class FakeLexical:
+    def __init__(self, results):
+        self.results = results
+        self.last_args = None
+
+    def __len__(self):
+        return len(self.results)
+
+    def search(self, query_text, scope="notes", k=10):
+        self.last_args = (query_text, scope, k)
+        return self.results[:k]
+
+
+def test_hybrid_falls_back_to_vector_only_without_lexical():
+    coll = FakeCollection(CANNED)
+    out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
+    assert [c["id"] for c in out] == ["id_a", "id_b"]
+    assert coll.last_kwargs["n_results"] == retrieval.HYBRID_DEPTH
+
+
+def test_hybrid_fuses_vector_and_lexical():
+    coll = FakeCollection(CANNED)
+    lex = FakeLexical([_cand("id_b"), _cand("id_z")])
+    out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=lex, scope="chats", k=2)
+    assert out[0]["id"] == "id_b"  # in both lists
+    assert lex.last_args == ("q", "chats", retrieval.HYBRID_DEPTH)

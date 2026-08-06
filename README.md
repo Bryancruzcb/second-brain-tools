@@ -4,7 +4,7 @@ Explore your Obsidian notes as a 3D map and ask questions about them, with every
 
 [![CI Pipeline](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml)
 
-Nothing leaves the machine. There are no cloud calls and no hosted AI: retrieval is local ChromaDB, generation is Qwen through Ollama, and both LLM clients are constructed against localhost. The graph, note reader, and health tools all keep working when Ollama is off — only the Qwen features need it.
+Nothing leaves the machine. There are no cloud calls and no hosted AI: retrieval is local ChromaDB plus an in-memory BM25 index, generation is Qwen through Ollama, and both LLM clients are constructed against localhost. The graph, note reader, and health tools all keep working when Ollama is off — only the Qwen features need it.
 
 ## The hard part: parsing a cloud-synced vault
 
@@ -40,6 +40,13 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 |---|---|---|
 | Baseline: MiniLM embeddings, 500-word chunks, vector-only | 70.0% | 0.496 |
 | + Heading-aware chunking (split at markdown headings, code-fence aware) | 70.0% | 0.529 |
+| + Hybrid retrieval (BM25 keyword leg + reciprocal rank fusion) | 70.0% | 0.592 |
+
+The flat hit-rate has a diagnosis: the remaining misses are almost all
+sibling-note confusion — retrieval lands in the right folder but picks the
+wrong note inside it, because siblings share vocabulary. Ranking keeps
+improving (MRR), and fixing within-folder discrimination is what a
+reranker is for — that's the next change.
 
 *Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
 
@@ -131,6 +138,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Run it manually with `python scripts/auto_archive.py`, or schedule it daily with Windows Task Scheduler pointing at `wscript.exe scripts/run_hidden.vbs` — that runs `scripts/run_auto_archive.cmd` with no visible console and appends to `scripts/auto_archive.log`.
 
+One caveat: the backend keeps its BM25 keyword index in memory, so if the backend is running while the nightly pass updates the vector index from outside, use **Re-index notes** or restart the backend afterward — until then the keyword leg answers from the pre-update snapshot (including notes the pass may have deleted).
+
 Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
 
 ## Validation
@@ -142,7 +151,7 @@ npx tsc --noEmit
 npm run build
 
 cd ../
-python3 -m py_compile backend/main.py backend/config.py backend/indexer.py backend/retrieval.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/run_eval.py scripts/*.py
+python3 -m py_compile backend/main.py backend/config.py backend/indexer.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/run_eval.py scripts/*.py
 python3 -m pytest backend/tests -q
 cargo check --manifest-path core/Cargo.toml
 ```

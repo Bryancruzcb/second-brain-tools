@@ -23,7 +23,7 @@ DEFAULT_DATASET = os.path.join(EVAL_DIR, "dataset.jsonl")
 RESULTS_PATH = os.path.join(EVAL_DIR, "results.json")
 
 
-def run(cases, *, model, collection, k=retrieval.TOP_K):
+def run(cases, *, model, collection, lexical=None, k=retrieval.TOP_K):
     """Score every case. Returns (per_case_rows, summary).
 
     A case whose expected sources are entirely absent from the index is
@@ -39,9 +39,9 @@ def run(cases, *, model, collection, k=retrieval.TOP_K):
                          "rank": None, "expected_sources": expected})
             continue
 
-        candidates = retrieval.retrieve(
+        candidates = retrieval.retrieve_hybrid(
             case["question"], model=model, collection=collection,
-            scope=case["scope"], k=k,
+            lexical=lexical, scope=case["scope"], k=k,
         )
         result = score_case(unique_sources(candidates), expected, k=k)
         gradable.append(result)
@@ -74,10 +74,12 @@ def main():
     from sentence_transformers import SentenceTransformer
 
     import config
+    from lexical import LexicalIndex
     collection = chromadb.PersistentClient(path=config.get_chroma_path()).get_collection("second_brain")
     model = SentenceTransformer("all-MiniLM-L6-v2")  # must match main.py's embedder
+    lex = LexicalIndex.build(collection)  # same keyword leg the endpoints serve
 
-    rows, summary = run(cases, model=model, collection=collection, k=args.k)
+    rows, summary = run(cases, model=model, collection=collection, lexical=lex, k=args.k)
 
     for row in rows:
         mark = {"hit": "HIT ", "miss": "MISS", "ungradable": "N/A "}[row["status"]]
