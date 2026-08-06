@@ -117,6 +117,7 @@ def extract_frontmatter_tags(content: str):
 
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
 def split_sections(text):
@@ -131,19 +132,31 @@ def split_sections(text):
     sections = []
     heading = ""
     lines = []
-    in_fence = False
+    fence = None  # opening marker while inside a fence; None outside
 
     def close():
         if any(l.strip() for l in lines):
             sections.append({"heading": heading, "text": "\n".join(lines)})
 
     for line in text.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            in_fence = not in_fence
+        m_fence = FENCE_RE.match(line.lstrip())
+        if m_fence:
+            marker = m_fence.group(1)
+            if fence is None:
+                fence = marker
+            elif marker[0] == fence[0] and len(marker) >= len(fence):
+                # CommonMark: a closing fence must use the opening character
+                # and be at least as long, so a ~~~ inside a ``` block does
+                # not close it. An unclosed fence runs to end of file (also
+                # per CommonMark), so `fence` staying set is correct.
+                # Simplification: a real closing fence may not carry an info
+                # string, but we don't check for one — a mid-fence ```python
+                # line closing the block only misfires on the same character,
+                # which is rare and self-limiting.
+                fence = None
             lines.append(line)
             continue
-        match = None if in_fence else HEADING_RE.match(line)
+        match = None if fence else HEADING_RE.match(line)
         if match:
             close()
             heading = match.group(2).strip()

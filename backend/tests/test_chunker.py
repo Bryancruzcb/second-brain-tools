@@ -24,6 +24,17 @@ def test_tilde_fence_also_respected():
     assert len(split_sections(doc)) == 1
 
 
+def test_mismatched_fence_marker_does_not_close_fence():
+    doc = "# Real\n```\n~~~\n# still fenced\n```\n\n# After\nbody\n"
+    sections = split_sections(doc)
+    assert [s["heading"] for s in sections] == ["Real", "After"]
+
+
+def test_fence_with_language_tag_opens_fence():
+    doc = "# Real\n```python\n# comment not heading\n```\ndone\n"
+    assert len(split_sections(doc)) == 1
+
+
 def test_heading_only_document():
     sections = split_sections("# Lonely\n")
     assert len(sections) == 1
