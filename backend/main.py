@@ -20,6 +20,7 @@ import httpx
 
 import config
 import indexer
+import retrieval
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -470,57 +471,40 @@ def run_query(request: QueryRequest):
         # into the embedding to keep retrieval anchored to the conversation.
         recent_user_turns = [m["content"] for m in history if m["role"] == "user"][-2:]
         retrieval_text = "\n".join(recent_user_turns + [query_text])
-        query_embedding = model.encode([retrieval_text]).tolist()
 
-        # 2. Query ChromaDB
+        # 2. Retrieve context chunks
         if request.context_nodes and len(request.context_nodes) > 0:
-            # Retrieve specifically requested nodes
-            results = chroma_collection.get(
-                where={"source": {"$in": request.context_nodes}}
-            )
-            # Reformat to match query output structure
-            if results and 'documents' in results and results['documents']:
-                results = {
-                    'documents': [results['documents']],
-                    'metadatas': [results['metadatas']],
-                    'distances': [[0.0] * len(results['documents'])]
+            # Specifically requested nodes bypass search entirely.
+            raw = chroma_collection.get(where={"source": {"$in": request.context_nodes}})
+            candidates = [
+                {
+                    "source": (meta or {}).get("source", ""),
+                    "title": (meta or {}).get("title", "Untitled Note"),
+                    "chunk": doc,
+                    "distance": 0.0,
                 }
+                for doc, meta in zip(raw.get("documents") or [], raw.get("metadatas") or [])
+            ]
         else:
-            # Construct where filter based on scope
-            where_filter = None
-            scope = request.scope or "notes"
-            if scope == "chats":
-                where_filter = {"category": "chat"}
-            elif scope == "notes":
-                where_filter = {"category": {"$ne": "chat"}}
-
-            # Vector similarity search
-            results = chroma_collection.query(
-                query_embeddings=query_embedding,
-                n_results=4,
-                where=where_filter
+            candidates = retrieval.retrieve(
+                retrieval_text,
+                model=model,
+                collection=chroma_collection,
+                scope=request.scope or "notes",
             )
 
-        
         # 3. Format context source items
         sources = []
         context_chunks = []
-        
-        if results and 'documents' in results and results['documents']:
-            for i in range(len(results['documents'][0])):
-                doc = results['documents'][0][i]
-                meta = results['metadatas'][0][i]
-                dist = results['distances'][0][i] if 'distances' in results and results['distances'] else 0.0
-                
-                sources.append({
-                    "title": meta.get("title", "Untitled Note"),
-                    "source": meta.get("source", ""),
-                    "snippet": doc[:400] + "..." if len(doc) > 400 else doc,
-                    "distance": float(dist)
-                })
-                
-                context_chunks.append(f"From Note: {meta.get('title', 'Untitled')}\nContent: {doc}")
-                
+        for c in candidates:
+            sources.append({
+                "title": c["title"],
+                "source": c["source"],
+                "snippet": c["chunk"][:400] + "..." if len(c["chunk"]) > 400 else c["chunk"],
+                "distance": c["distance"],
+            })
+            context_chunks.append(f"From Note: {c['title']}\nContent: {c['chunk']}")
+
         # 4. Generate prompt context
         context_str = "\n\n".join(context_chunks)
         
