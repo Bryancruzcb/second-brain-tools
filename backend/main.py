@@ -35,6 +35,7 @@ load_dotenv()
 model = None
 chroma_collection = None
 lexical_index = None
+cross_encoder = None
 
 # Cache configuration
 CACHE_FILE = "health_cache.json"
@@ -102,11 +103,28 @@ def _build_lexical_index():
     except Exception as e:
         logger.error(f"Failed to build BM25 index (hybrid degrades to vector-only): {e}")
 
+def _load_reranker_background():
+    """Load the cross-encoder reranker; failure or RERANKER_MODEL=off
+    serves the fused order instead."""
+    global cross_encoder
+    name = config.get_reranker_model()
+    if name.strip().lower() in ("", "off", "none", "disabled"):
+        logger.info("Reranker disabled via RERANKER_MODEL.")
+        return
+    logger.info("Loading cross-encoder reranker (%s) in background...", name)
+    try:
+        from sentence_transformers import CrossEncoder
+        cross_encoder = CrossEncoder(name)
+        logger.info("Cross-encoder reranker loaded.")
+    except Exception as e:
+        logger.error(f"Failed to load reranker (serving fused order): {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _load_fast_sync()
     asyncio.create_task(asyncio.to_thread(_load_model_background))
     asyncio.create_task(asyncio.to_thread(_build_lexical_index))
+    asyncio.create_task(asyncio.to_thread(_load_reranker_background))
     yield
 
 app = FastAPI(title="Second Brain Tools API", version="1.0.0", lifespan=lifespan)
@@ -474,7 +492,7 @@ def get_graph():
 
 @app.post("/api/query", response_model=QueryResponse)
 def run_query(request: QueryRequest):
-    global model, chroma_collection, lexical_index
+    global model, chroma_collection, lexical_index, cross_encoder
 
     if model is None or chroma_collection is None:
         raise HTTPException(status_code=503, detail="Vector search engine or embedding model is not initialized.")
@@ -511,6 +529,7 @@ def run_query(request: QueryRequest):
                 model=model,
                 collection=chroma_collection,
                 lexical=lexical_index,
+                cross_encoder=cross_encoder,
                 scope=request.scope or "notes",
             )
 
@@ -765,14 +784,14 @@ def get_recent_notes():
 
 @app.get("/api/search")
 def search_notes(q: str = "", scope: str = "notes"):
-    global model, chroma_collection, lexical_index
+    global model, chroma_collection, lexical_index, cross_encoder
     if not q.strip() or model is None or chroma_collection is None:
         return {"results": []}
 
     try:
         candidates = retrieval.retrieve_hybrid(
             q.strip(), model=model, collection=chroma_collection,
-            lexical=lexical_index, scope=scope, k=6,
+            lexical=lexical_index, cross_encoder=cross_encoder, scope=scope, k=6,
         )
         seen_titles = set()
         items = []

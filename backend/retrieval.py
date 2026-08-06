@@ -91,6 +91,10 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
     Falls back gracefully at each stage: no lexical index → vector-only;
     no cross-encoder → fused order. Without a cross-encoder the behavior
     is identical to the pre-reranker version.
+
+    Caveat: that equivalence holds for k <= RERANK_DEPTH. The fused pool is
+    now built to RERANK_DEPTH rather than k, so a caller asking for k above
+    that gets at most RERANK_DEPTH results where the old code returned k.
     """
     vector = retrieve(query_text, model=model, collection=collection,
                       scope=scope, k=HYBRID_DEPTH)

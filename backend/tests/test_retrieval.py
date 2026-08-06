@@ -182,6 +182,15 @@ def test_hybrid_reranks_fused_pool():
     assert out[0]["id"] == "id_kw"
 
 
+def test_hybrid_vector_fallback_still_reranks():
+    coll = FakeCollection(CANNED)
+    out = retrieval.retrieve_hybrid(
+        "chunk two text", model=FakeModel(), collection=coll,
+        lexical=None, cross_encoder=OverlapCrossEncoder(), k=1,
+    )
+    assert out[0]["id"] == "id_b"  # promoted over id_a (distance order) by overlap
+
+
 def test_hybrid_without_cross_encoder_unchanged():
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
