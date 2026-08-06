@@ -1,0 +1,3 @@
+{"question": "what temperature do I keep my sourdough starter at?", "expected_sources": ["02 Areas/Sourdough Starter.md"]}
+{"question": "which project decided to use reciprocal rank fusion?", "expected_sources": ["03 Projects/Search Rework.md", "03 Projects/Search Rework Notes.md"]}
+{"question": "what did that chat about borrow checker errors conclude?", "expected_sources": ["05 AI Chats/Claude/Rust/Borrow Checker Session.md"], "scope": "chats"}
