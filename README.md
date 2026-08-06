@@ -29,6 +29,25 @@ Both of these came from running it against my own vault and watching it stall.
 - **Command search** with `⌘K`, semantic results, direct note opening, and a quick path from a search phrase into Qwen.
 - **Vault tools** for creating notes, saving web clips, refreshing graph/health data, and rebuilding the AI search index.
 
+## Retrieval quality
+
+Retrieval is scored against a private set of real questions about my own
+vault: each case asks whether the note that actually answers the question
+shows up in the top 4 chunks handed to Qwen. The harness is public
+(`backend/eval/`); the dataset stays local because it's my personal notes.
+
+| Change | hit-rate@4 | MRR@4 |
+|---|---|---|
+| Baseline: MiniLM embeddings, 500-word chunks, vector-only | _measuring_ | _measuring_ |
+
+Score it against your own vault:
+
+```bash
+cd backend
+cp eval/dataset.example.jsonl eval/dataset.jsonl   # then write real cases
+python -m eval.run_eval
+```
+
 ## Architecture
 
 1. **`core` — Rust**  
@@ -121,6 +140,7 @@ npm run build
 
 cd ../
 python3 -m py_compile backend/main.py backend/config.py backend/indexer.py scripts/*.py
+python -m pytest backend/tests -q
 cargo check --manifest-path core/Cargo.toml
 ```
 
