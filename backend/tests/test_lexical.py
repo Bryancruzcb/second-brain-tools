@@ -55,6 +55,13 @@ def test_no_overlap_returns_empty():
     assert index.search("zzz qqq", scope="all", k=3) == []
 
 
+def test_all_empty_vocabulary_corpus_is_safe():
+    index = LexicalIndex.build(FakeGetCollection(
+        ids=["x_chunk_0"], docs=["!!! ??? ..."], metas=[{"source": "x.md", "title": "X", "category": "note"}],
+    ))
+    assert index.search("anything") == []
+
+
 def test_empty_corpus_and_empty_query():
     empty = LexicalIndex.build(FakeGetCollection([], [], []))
     assert len(empty) == 0

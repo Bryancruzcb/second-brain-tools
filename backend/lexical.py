@@ -44,6 +44,10 @@ class LexicalIndex:
             corpus.append(tokenize(doc))
         if not entries:
             return cls([], None)
+        if not any(corpus):
+            # Every document tokenized to nothing (punctuation-only corpus):
+            # BM25Okapi divides by an empty vocabulary. Degrade, never crash.
+            return cls(entries, None)
         return cls(entries, BM25Okapi(corpus))
 
     def __len__(self):
