@@ -15,6 +15,10 @@ FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 @pytest.fixture()
 def indexed_collection(monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", os.path.join(FIXTURES, "vault"))
+    # Pin the query prefix off: the bag-of-words embedder is content-sensitive,
+    # so the ranking assertions below must not drift with the shipped default
+    # (or a stray .env entry pulled in by load_dotenv at main import).
+    monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "")
     client = chromadb.EphemeralClient()
     collection = client.get_or_create_collection("eval_e2e")
     embedder = BagOfWordsEmbedder()

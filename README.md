@@ -49,15 +49,16 @@ first three rows improved ranking while hit-rate sat still — the misses
 were sibling-note confusion (right folder, wrong note), which is exactly
 what a cross-encoder fixes: it converted four of those twelve misses.
 The embedding swap then targeted the misses that never reached the fused
-top-20 at all, and the harness caught something subtler: bge *without*
-its query instruction was a regression (77.5%), *with* it a modest win —
-so the instruction shipped as the default. Reranking 20 candidates costs
+top-20 at all — it pulled one of those five into the pool — and the
+harness caught something subtler: bge *without* its query instruction was
+a hit-rate regression (77.5%), *with* it a modest win — so the
+instruction shipped as the default. Reranking 20 candidates costs
 ~210 ms on CPU, noise next to a local Qwen generation.
 
 Every retrieval knob is an env var: `EMBEDDING_MODEL`,
 `EMBEDDING_QUERY_PREFIX`, `RERANKER_MODEL` (set to `off` on slow CPUs),
-`OLLAMA_MODEL`. Changing the embedding model requires
-`scripts/rebuild_rag_index.py --full`.
+`OLLAMA_MODEL`. Changing the embedding model requires a full re-embed:
+`python scripts/rebuild_rag_index.py --full` from `backend/`.
 
 *Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
 
