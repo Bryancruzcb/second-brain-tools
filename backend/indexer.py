@@ -116,13 +116,78 @@ def extract_frontmatter_tags(content: str):
     return list(dict.fromkeys(body_tags))  # dedupe, preserve order
 
 
-def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP):
-    words = text.split()
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+
+
+def split_sections(text):
+    """Split markdown into sections at ATX headings.
+
+    Each section is {"heading": str, "text": str}; the heading line stays in
+    its own section's text so it gets embedded with the content it titles.
+    Content before the first heading (including YAML frontmatter) is a
+    preamble section with heading "". Heading-looking lines inside ``` or
+    ~~~ code fences do not split — chat transcripts are full of # comments.
+    """
+    sections = []
+    heading = ""
+    lines = []
+    in_fence = False
+
+    def close():
+        if any(l.strip() for l in lines):
+            sections.append({"heading": heading, "text": "\n".join(lines)})
+
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            lines.append(line)
+            continue
+        match = None if in_fence else HEADING_RE.match(line)
+        if match:
+            close()
+            heading = match.group(2).strip()
+            lines = [line]
+        else:
+            lines.append(line)
+    close()
+    return sections
+
+
+def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    """Heading-aware chunking: one coherent topic per chunk.
+
+    Small adjacent sections merge until the word cap; a single oversized
+    section falls back to the plain word window (with overlap) so nothing
+    exceeds the cap. Returns [{"text": str, "heading": str}].
+    """
     chunks = []
-    for i in range(0, len(words), chunk_size - overlap):
-        chunk = " ".join(words[i:i + chunk_size])
-        if chunk:
-            chunks.append(chunk)
+    pending_texts = []
+    pending_words = 0
+    pending_heading = ""
+
+    def flush():
+        nonlocal pending_texts, pending_words, pending_heading
+        if pending_texts:
+            chunks.append({"text": "\n".join(pending_texts), "heading": pending_heading})
+        pending_texts, pending_words, pending_heading = [], 0, ""
+
+    for section in split_sections(text):
+        words = section["text"].split()
+        if len(words) > chunk_size:
+            flush()
+            for i in range(0, len(words), chunk_size - overlap):
+                piece = " ".join(words[i:i + chunk_size])
+                if piece:
+                    chunks.append({"text": piece, "heading": section["heading"]})
+            continue
+        if pending_words + len(words) > chunk_size:
+            flush()
+        if not pending_texts:
+            pending_heading = section["heading"]
+        pending_texts.append(section["text"])
+        pending_words += len(words)
+    flush()
     return chunks
 
 
