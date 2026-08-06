@@ -23,11 +23,14 @@ DEFAULT_DATASET = os.path.join(EVAL_DIR, "dataset.jsonl")
 RESULTS_PATH = os.path.join(EVAL_DIR, "results.json")
 
 
-def run(cases, *, model, collection, lexical=None, k=retrieval.TOP_K):
+def run(cases, *, model, collection, lexical=None, cross_encoder=None, k=retrieval.TOP_K):
     """Score every case. Returns (per_case_rows, summary).
 
     A case whose expected sources are entirely absent from the index is
     "ungradable" (stale dataset entry) and excluded from the averages.
+
+    Each row records the notes actually retrieved, so a miss can be diagnosed
+    from results.json instead of by rerunning the query by hand.
     """
     rows = []
     gradable = []
@@ -36,18 +39,21 @@ def run(cases, *, model, collection, lexical=None, k=retrieval.TOP_K):
         present = collection.get(where={"source": {"$in": expected}}, include=[])
         if not (present.get("ids") or []):
             rows.append({"question": case["question"], "status": "ungradable",
-                         "rank": None, "expected_sources": expected})
+                         "rank": None, "expected_sources": expected,
+                         "retrieved": []})
             continue
 
         candidates = retrieval.retrieve_hybrid(
             case["question"], model=model, collection=collection,
-            lexical=lexical, scope=case["scope"], k=k,
+            lexical=lexical, cross_encoder=cross_encoder, scope=case["scope"], k=k,
         )
-        result = score_case(unique_sources(candidates), expected, k=k)
+        retrieved = unique_sources(candidates)
+        result = score_case(retrieved, expected, k=k)
         gradable.append(result)
         rows.append({"question": case["question"],
                      "status": "hit" if result["hit"] else "miss",
-                     "rank": result["rank"], "expected_sources": expected})
+                     "rank": result["rank"], "expected_sources": expected,
+                     "retrieved": retrieved})
 
     summary = aggregate(gradable)
     summary["ungradable"] = sum(1 for r in rows if r["status"] == "ungradable")
@@ -79,7 +85,15 @@ def main():
     model = SentenceTransformer("all-MiniLM-L6-v2")  # must match main.py's embedder
     lex = LexicalIndex.build(collection)  # same keyword leg the endpoints serve
 
-    rows, summary = run(cases, model=model, collection=collection, lexical=lex, k=args.k)
+    # Same reranker the endpoints serve, same kill switch (see main.py).
+    reranker_name = config.get_reranker_model()
+    cross_encoder = None
+    if reranker_name.strip().lower() not in ("", "off", "none", "disabled"):
+        from sentence_transformers import CrossEncoder
+        cross_encoder = CrossEncoder(reranker_name)
+
+    rows, summary = run(cases, model=model, collection=collection, lexical=lex,
+                        cross_encoder=cross_encoder, k=args.k)
 
     for row in rows:
         mark = {"hit": "HIT ", "miss": "MISS", "ungradable": "N/A "}[row["status"]]
