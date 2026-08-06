@@ -7,6 +7,7 @@ what the app does — same reason indexer.py was unified in PR #3.
 TOP_K = 4
 HYBRID_DEPTH = 20
 RRF_K = 60
+RERANK_DEPTH = 20
 
 
 def scope_filter(scope):
@@ -67,16 +68,37 @@ def rrf_fuse(ranked_lists, k=TOP_K, rrf_k=RRF_K):
     return [first_seen[key] for key in ranked[:k]]
 
 
-def retrieve_hybrid(query_text, *, model, collection, lexical=None, scope="notes", k=TOP_K):
-    """Vector + BM25 retrieval fused with RRF.
+def rerank(query_text, candidates, *, cross_encoder, k=TOP_K):
+    """Second-stage precision: re-sort candidates by cross-encoder relevance.
 
-    Falls back to plain vector retrieval when no lexical index is
-    available (still building, build failed, or empty collection) so the
-    endpoints never crash on a missing keyword leg.
+    The cross-encoder reads (query, chunk) together, so it can separate
+    sibling notes that share vocabulary — exactly what first-stage
+    retrieval can't do. No cross-encoder (still loading, failed, disabled)
+    or nothing to rank → the input order stands.
+    """
+    if cross_encoder is None or not candidates:
+        return candidates[:k]
+    pairs = [(query_text, c["chunk"]) for c in candidates]
+    scores = cross_encoder.predict(pairs)
+    order = sorted(range(len(candidates)), key=lambda i: float(scores[i]), reverse=True)
+    return [{**candidates[i], "rerank_score": float(scores[i])} for i in order[:k]]
+
+
+def retrieve_hybrid(query_text, *, model, collection, lexical=None,
+                    cross_encoder=None, scope="notes", k=TOP_K):
+    """Vector + BM25 fused with RRF, optionally reranked by a cross-encoder.
+
+    Falls back gracefully at each stage: no lexical index → vector-only;
+    no cross-encoder → fused order. Without a cross-encoder the behavior
+    is identical to the pre-reranker version.
     """
     vector = retrieve(query_text, model=model, collection=collection,
                       scope=scope, k=HYBRID_DEPTH)
     if lexical is None or len(lexical) == 0:
-        return vector[:k]
-    keyword = lexical.search(query_text, scope=scope, k=HYBRID_DEPTH)
-    return rrf_fuse([vector, keyword], k=k)
+        fused = vector
+    else:
+        keyword = lexical.search(query_text, scope=scope, k=HYBRID_DEPTH)
+        fused = rrf_fuse([vector, keyword], k=RERANK_DEPTH)
+    if cross_encoder is not None:
+        return rerank(query_text, fused[:RERANK_DEPTH], cross_encoder=cross_encoder, k=k)
+    return fused[:k]
