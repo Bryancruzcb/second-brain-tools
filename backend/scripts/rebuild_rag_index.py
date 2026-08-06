@@ -73,6 +73,12 @@ def main():
             f"{summary['files_reindexed']} file(s) were reindexed but 0 chunks were "
             "written — nothing reached the index."
         )
+    elif summary.get("wipe_failed"):
+        failure = (
+            "the full-rebuild wipe failed, so old-model chunks may still be mixed "
+            "into the index (it was deliberately left unstamped); close anything "
+            "holding the Chroma store and rerun --full."
+        )
 
     if failure:
         print(f"\nFAILED: {failure}")

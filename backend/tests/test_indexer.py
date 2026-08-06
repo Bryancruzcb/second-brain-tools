@@ -116,7 +116,10 @@ def test_failed_wipe_does_not_stamp(vault_env):
     os.environ["EMBEDDING_MODEL"] = "model-b"
     try:
         wrapped = WipeFailingCollection(collection)
-        indexer.index_vault(wrapped, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
+        summary = indexer.index_vault(wrapped, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
         assert collection.metadata["embedding_model"] == "model-a"  # old stamp kept
+        # ...and the failure is visible to callers, not just withheld silently:
+        # rebuild_rag_index.py exits nonzero on this flag.
+        assert summary["wipe_failed"] is True
     finally:
         os.environ["EMBEDDING_MODEL"] = "model-a"

@@ -296,6 +296,7 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
             wiped_ok = True
         except Exception as e:
             log(f"Could not clear existing collection for full rebuild: {e}")
+        summary["wipe_failed"] = not wiped_ok
 
         # Provenance: a full rebuild re-embeds everything with the current
         # model, so it is the only run allowed to assert which model the
@@ -310,7 +311,7 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
         # as one.
         if wiped_ok:
             try:
-                carried = {k: v for k, v in (collection.metadata or {}).items() if k != "hnsw:space"}
+                carried = {k: v for k, v in (collection.metadata or {}).items() if not k.startswith("hnsw:")}
                 collection.modify(metadata={**carried, "embedding_model": configured_model})
             except Exception as e:
                 log(f"Could not stamp embedding model on collection: {e}")

@@ -56,7 +56,7 @@ instruction shipped as the default. Reranking 20 candidates costs
 ~210 ms on CPU, noise next to a local Qwen generation.
 
 One honesty note on precision: rebuilding the index and re-running the
-eval moves the numbers by about one case (±2.5 points hit-rate, ±0.02
+eval moves the numbers by about one case (±2.5 points hit-rate, ±0.03
 MRR) because Chroma's approximate-nearest-neighbor index is
 non-deterministic at build time — within a single build the eval is
 exactly reproducible. Treat the table as a trend, not tenths.
