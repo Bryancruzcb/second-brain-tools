@@ -138,6 +138,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Run it manually with `python scripts/auto_archive.py`, or schedule it daily with Windows Task Scheduler pointing at `wscript.exe scripts/run_hidden.vbs` — that runs `scripts/run_auto_archive.cmd` with no visible console and appends to `scripts/auto_archive.log`.
 
+One caveat: the backend keeps its BM25 keyword index in memory, so if the backend is running while the nightly pass updates the vector index from outside, use **Re-index notes** or restart the backend afterward — until then the keyword leg answers from the pre-update snapshot (including notes the pass may have deleted).
+
 Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
 
 ## Validation

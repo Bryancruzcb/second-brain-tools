@@ -20,8 +20,8 @@ import httpx
 
 import config
 import indexer
-import retrieval
 import lexical
+import retrieval
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -88,10 +88,13 @@ def _load_model_background():
     except Exception as e:
         logger.error(f"Failed to load Sentence Transformer model: {e}")
 
-def _build_lexical_background():
-    """(Re)build the BM25 index; on failure hybrid degrades to vector-only."""
+def _build_lexical_index():
+    """(Re)build the BM25 index; called from a startup thread and again
+    synchronously after each ingestion. On failure the previous index (or
+    vector-only, if none was ever built) keeps serving."""
     global lexical_index
     if chroma_collection is None:
+        logger.warning("Skipping BM25 build: Chroma collection not initialized.")
         return
     try:
         lexical_index = lexical.LexicalIndex.build(chroma_collection)
@@ -103,7 +106,7 @@ def _build_lexical_background():
 async def lifespan(app: FastAPI):
     _load_fast_sync()
     asyncio.create_task(asyncio.to_thread(_load_model_background))
-    asyncio.create_task(asyncio.to_thread(_build_lexical_background))
+    asyncio.create_task(asyncio.to_thread(_build_lexical_index))
     yield
 
 app = FastAPI(title="Second Brain Tools API", version="1.0.0", lifespan=lifespan)
@@ -449,7 +452,7 @@ def run_ingestion_sync():
     )
     # The BM25 index is a snapshot of the collection: rebuild it or the
     # keyword leg keeps answering from the pre-ingestion corpus.
-    _build_lexical_background()
+    _build_lexical_index()
 
 
 @app.post("/api/index")

@@ -57,8 +57,8 @@ class LexicalIndex:
         """Top-k chunks by BM25 score, best first, honoring the scope filter.
 
         Candidate shape matches retrieval.retrieve() but carries "score"
-        (higher better) instead of "distance". Zero-score chunks (no token
-        overlap) are excluded — BM25 has nothing to say about them.
+        (higher better) instead of "distance". Chunks without a positive
+        BM25 score are excluded — BM25 has nothing to say about them.
         """
         if self._bm25 is None:
             return []
