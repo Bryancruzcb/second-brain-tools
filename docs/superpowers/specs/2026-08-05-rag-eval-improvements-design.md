@@ -36,6 +36,11 @@ Both the `/api/query` endpoint and the eval harness call this function, so
 the eval can never drift from what the app actually does — the same reason
 `indexer.py` was unified in PR #3.
 
+Known gap (flagged in PR 1's final review): `/api/search` (⌘K command
+search) still runs its own inline vector query and is not measured by the
+eval. PR 2 must either fold it onto `retrieve()` or state the scope
+limitation explicitly in the README.
+
 ### 2. Eval harness — `backend/eval/`
 
 - **`dataset.jsonl`** — 30–50 cases, one per line:

@@ -40,7 +40,7 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 |---|---|---|
 | Baseline: MiniLM embeddings, 500-word chunks, vector-only | 70.0% | 0.496 |
 
-*Baseline measured 2026-08-05 over 40 cases (16 exact-keyword, 15 paraphrase, 8 chat-scope, 2 multi-source, one expected note labeled per question).*
+*Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
 
 Score it against your own vault:
 
@@ -141,8 +141,8 @@ npx tsc --noEmit
 npm run build
 
 cd ../
-python3 -m py_compile backend/main.py backend/config.py backend/indexer.py scripts/*.py
-python -m pytest backend/tests -q
+python3 -m py_compile backend/main.py backend/config.py backend/indexer.py backend/retrieval.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/run_eval.py scripts/*.py
+python3 -m pytest backend/tests -q
 cargo check --manifest-path core/Cargo.toml
 ```
 
