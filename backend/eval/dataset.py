@@ -26,6 +26,10 @@ def load_dataset(path):
             except json.JSONDecodeError as e:
                 raise DatasetError(f"{path}:{lineno}: invalid JSON: {e}") from e
 
+            if not isinstance(obj, dict):
+                raise DatasetError(
+                    f"{path}:{lineno}: line must be a JSON object, got {type(obj).__name__}")
+
             question = obj.get("question")
             if not isinstance(question, str) or not question.strip():
                 raise DatasetError(f"{path}:{lineno}: 'question' must be a non-empty string")

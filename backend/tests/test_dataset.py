@@ -28,6 +28,12 @@ def test_invalid_json_reports_line_number(tmp_path):
         load_dataset(path)
 
 
+def test_non_object_json_line_rejected(tmp_path):
+    path = write(tmp_path, '[1]\n')
+    with pytest.raises(DatasetError, match=":1:"):
+        load_dataset(path)
+
+
 def test_empty_question_rejected(tmp_path):
     path = write(tmp_path, '{"question": "  ", "expected_sources": ["a.md"]}\n')
     with pytest.raises(DatasetError, match="question"):
