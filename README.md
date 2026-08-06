@@ -42,15 +42,22 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 | + Heading-aware chunking (split at markdown headings, code-fence aware) | 70.0% | 0.529 |
 | + Hybrid retrieval (BM25 keyword leg + reciprocal rank fusion) | 70.0% | 0.592 |
 | + Cross-encoder reranker (ms-marco-MiniLM over the fused top-20) | 80.0% | 0.694 |
+| + bge-small-en-v1.5 embeddings, with the BGE query instruction | 80.0% | 0.713 |
 
-The reranker was aimed at a diagnosis, not added on faith: through the
-first three rows the misses were sibling-note confusion — right folder,
-wrong note, because siblings share the vocabulary first-stage retrieval
-matches on. A cross-encoder reads query and chunk together, and it
-converted four of those twelve misses. Of the eight left, five never make
-the fused top-20 at all (a first-stage recall problem — the embedding
-model is next), three the reranker still gets wrong. Reranking 20
-candidates costs ~210 ms on CPU, noise next to a local Qwen generation.
+Each change was aimed at a measured diagnosis, not added on faith. The
+first three rows improved ranking while hit-rate sat still — the misses
+were sibling-note confusion (right folder, wrong note), which is exactly
+what a cross-encoder fixes: it converted four of those twelve misses.
+The embedding swap then targeted the misses that never reached the fused
+top-20 at all, and the harness caught something subtler: bge *without*
+its query instruction was a regression (77.5%), *with* it a modest win —
+so the instruction shipped as the default. Reranking 20 candidates costs
+~210 ms on CPU, noise next to a local Qwen generation.
+
+Every retrieval knob is an env var: `EMBEDDING_MODEL`,
+`EMBEDDING_QUERY_PREFIX`, `RERANKER_MODEL` (set to `off` on slow CPUs),
+`OLLAMA_MODEL`. Changing the embedding model requires
+`scripts/rebuild_rag_index.py --full`.
 
 *Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
 

@@ -95,10 +95,15 @@ def get_embedding_model() -> str:
 def get_query_prefix() -> str:
     """Instruction prepended to queries (not documents) at embed time.
 
-    Some embedders (the BGE family) are trained with a query-side
-    instruction; EMBEDDING_QUERY_PREFIX overrides, empty by default.
+    BGE-family embedders are trained with this query-side instruction; the
+    eval A/B measured it worth +2.5 points hit-rate over no prefix with
+    bge-small-en-v1.5. EMBEDDING_QUERY_PREFIX overrides (set it empty when
+    using a model without a query instruction).
     """
-    return os.environ.get("EMBEDDING_QUERY_PREFIX", "")
+    return os.environ.get(
+        "EMBEDDING_QUERY_PREFIX",
+        "Represent this sentence for searching relevant passages: ",
+    )
 
 
 def reranker_disabled(name: str) -> bool:
