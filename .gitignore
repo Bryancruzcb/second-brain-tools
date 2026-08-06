@@ -39,3 +39,7 @@ health_cache.json
 *.log
 chat_archiver_stdout.log
 chat_archiver_stderr.log
+
+# Retrieval eval: private dataset + local results stay off GitHub
+backend/eval/dataset.jsonl
+backend/eval/results.json
