@@ -82,9 +82,10 @@ def _load_fast_sync():
 def _load_model_background():
     """Load sentence transformer in background thread."""
     global model
-    logger.info("Loading Sentence Transformer model (all-MiniLM-L6-v2) in background...")
+    name = config.get_embedding_model()
+    logger.info("Loading Sentence Transformer model (%s) in background...", name)
     try:
-        model = SentenceTransformer('all-MiniLM-L6-v2')
+        model = SentenceTransformer(name)
         logger.info("Sentence Transformer model loaded successfully in background.")
     except Exception as e:
         logger.error(f"Failed to load Sentence Transformer model: {e}")
@@ -108,7 +109,7 @@ def _load_reranker_background():
     serves the fused order instead."""
     global cross_encoder
     name = config.get_reranker_model()
-    if name.strip().lower() in ("", "off", "none", "disabled"):
+    if config.reranker_disabled(name):
         logger.info("Reranker disabled via RERANKER_MODEL.")
         return
     logger.info("Loading cross-encoder reranker (%s) in background...", name)

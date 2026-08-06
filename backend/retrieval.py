@@ -3,6 +3,7 @@
 Extracted from main.py's run_query so the eval harness measures exactly
 what the app does — same reason indexer.py was unified in PR #3.
 """
+import config
 
 TOP_K = 4
 HYBRID_DEPTH = 20
@@ -24,7 +25,7 @@ def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
 
     Returns a list of {"id", "source", "title", "chunk", "distance"} dicts.
     """
-    query_embedding = model.encode([query_text]).tolist()
+    query_embedding = model.encode([config.get_query_prefix() + query_text]).tolist()
     results = collection.query(
         query_embeddings=query_embedding,
         n_results=k,
@@ -92,9 +93,10 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
     no cross-encoder → fused order. Without a cross-encoder the behavior
     is identical to the pre-reranker version.
 
-    Caveat: that equivalence holds for k <= RERANK_DEPTH. The fused pool is
-    now built to RERANK_DEPTH rather than k, so a caller asking for k above
-    that gets at most RERANK_DEPTH results where the old code returned k.
+    Caveat: on the fused path that equivalence holds for k <= RERANK_DEPTH.
+    The fused pool is now built to RERANK_DEPTH rather than k, so a caller
+    asking for k above that gets at most RERANK_DEPTH results where the old
+    code returned k.
     """
     vector = retrieve(query_text, model=model, collection=collection,
                       scope=scope, k=HYBRID_DEPTH)

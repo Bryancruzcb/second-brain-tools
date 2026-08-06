@@ -82,13 +82,13 @@ def main():
     import config
     from lexical import LexicalIndex
     collection = chromadb.PersistentClient(path=config.get_chroma_path()).get_collection("second_brain")
-    model = SentenceTransformer("all-MiniLM-L6-v2")  # must match main.py's embedder
+    model = SentenceTransformer(config.get_embedding_model())
     lex = LexicalIndex.build(collection)  # same keyword leg the endpoints serve
 
     # Same reranker the endpoints serve, same kill switch (see main.py).
     reranker_name = config.get_reranker_model()
     cross_encoder = None
-    if reranker_name.strip().lower() not in ("", "off", "none", "disabled"):
+    if not config.reranker_disabled(reranker_name):
         from sentence_transformers import CrossEncoder
         cross_encoder = CrossEncoder(reranker_name)
 

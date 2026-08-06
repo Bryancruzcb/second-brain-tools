@@ -1,8 +1,8 @@
 """Shared configuration resolution for the Second Brain backend.
 
-Centralizes path resolution so main.py, indexer.py, and
-scripts/rebuild_rag_index.py all agree on where the vault and the ChromaDB
-store live, instead of each duplicating (and drifting from) its own copy.
+Centralizes configuration so main.py, indexer.py, eval/run_eval.py, and
+scripts/rebuild_rag_index.py all agree on paths and model choices, instead
+of each duplicating (and drifting from) its own copy.
 """
 import os
 
@@ -80,3 +80,27 @@ def get_reranker_model() -> str:
     the fused order directly (useful on very slow CPUs).
     """
     return os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+
+def get_embedding_model() -> str:
+    """Bi-encoder used to embed chunks and queries (EMBEDDING_MODEL to override).
+
+    Changing this invalidates every stored embedding — run
+    scripts/rebuild_rag_index.py --full afterward or retrieval silently
+    compares vectors from different spaces.
+    """
+    return os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+
+
+def get_query_prefix() -> str:
+    """Instruction prepended to queries (not documents) at embed time.
+
+    Some embedders (the BGE family) are trained with a query-side
+    instruction; EMBEDDING_QUERY_PREFIX overrides, empty by default.
+    """
+    return os.environ.get("EMBEDDING_QUERY_PREFIX", "")
+
+
+def reranker_disabled(name: str) -> bool:
+    """Shared kill-switch semantics for RERANKER_MODEL values."""
+    return name.strip().lower() in ("", "off", "none", "disabled")
