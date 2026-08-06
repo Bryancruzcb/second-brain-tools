@@ -29,8 +29,9 @@ def run(cases, *, model, collection, lexical=None, cross_encoder=None, k=retriev
     A case whose expected sources are entirely absent from the index is
     "ungradable" (stale dataset entry) and excluded from the averages.
 
-    Each row records the notes actually retrieved, so a miss can be diagnosed
-    from results.json instead of by rerunning the query by hand.
+    Each row records the notes actually retrieved and whether an expected
+    source reached the fused pool, so a miss can be diagnosed from
+    results.json instead of by rerunning the query by hand.
     """
     rows = []
     gradable = []
@@ -40,8 +41,18 @@ def run(cases, *, model, collection, lexical=None, cross_encoder=None, k=retriev
         if not (present.get("ids") or []):
             rows.append({"question": case["question"], "status": "ungradable",
                          "rank": None, "expected_sources": expected,
-                         "retrieved": []})
+                         "retrieved": [], "expected_in_pool": None})
             continue
+
+        # Was the expected note even in the pool the reranker saw? Separates a
+        # rerankable miss from one first-stage retrieval never surfaced. Probed
+        # here rather than in retrieval.py so the serving path stays untouched.
+        pool = unique_sources(retrieval.retrieve_hybrid(
+            case["question"], model=model, collection=collection,
+            lexical=lexical, cross_encoder=None, scope=case["scope"],
+            k=retrieval.RERANK_DEPTH,
+        ))
+        expected_in_pool = any(e in pool for e in expected)
 
         candidates = retrieval.retrieve_hybrid(
             case["question"], model=model, collection=collection,
@@ -53,7 +64,8 @@ def run(cases, *, model, collection, lexical=None, cross_encoder=None, k=retriev
         rows.append({"question": case["question"],
                      "status": "hit" if result["hit"] else "miss",
                      "rank": result["rank"], "expected_sources": expected,
-                     "retrieved": retrieved})
+                     "retrieved": retrieved,
+                     "expected_in_pool": expected_in_pool})
 
     summary = aggregate(gradable)
     summary["ungradable"] = sum(1 for r in rows if r["status"] == "ungradable")

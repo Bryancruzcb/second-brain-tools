@@ -57,6 +57,13 @@ def test_eval_end_to_end_on_fixture_vault(indexed_collection):
     assert summary["mrr"] == (1.0 + 1.0 + 0.0) / 3
     assert summary["k"] == 4
 
+    # Auditability: every gradable row records whether the expected note even
+    # reached the fused top-20 the reranker saw. The fixture miss is an
+    # in-pool miss (5 notes, pool of 20), so this pins the wiring both ways.
+    assert hit_row["expected_in_pool"] is True
+    assert miss_row["expected_in_pool"] is True
+    assert by_q["note that does not exist anywhere"]["expected_in_pool"] is None
+
 
 def test_chunks_carry_section_heading_metadata(indexed_collection):
     collection, _, _ = indexed_collection
