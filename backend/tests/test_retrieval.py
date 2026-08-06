@@ -129,3 +129,70 @@ def test_hybrid_fuses_vector_and_lexical():
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=lex, scope="chats", k=2)
     assert out[0]["id"] == "id_b"  # in both lists
     assert lex.last_args == ("q", "chats", retrieval.HYBRID_DEPTH)
+
+
+from tests.fakes import OverlapCrossEncoder
+
+
+def _chunked(cid, text):
+    return {"id": cid, "source": f"{cid}.md", "title": cid, "chunk": text, "distance": 0.1}
+
+
+def test_rerank_reorders_by_cross_encoder_score():
+    cands = [_chunked("a", "nothing relevant here"), _chunked("b", "exact match words")]
+    out = retrieval.rerank("exact match words", cands, cross_encoder=OverlapCrossEncoder(), k=2)
+    assert [c["id"] for c in out] == ["b", "a"]
+    assert out[0]["rerank_score"] == 3.0
+
+
+def test_rerank_truncates_to_k():
+    cands = [_chunked(str(i), f"text {i}") for i in range(6)]
+    assert len(retrieval.rerank("text", cands, cross_encoder=OverlapCrossEncoder(), k=4)) == 4
+
+
+def test_rerank_ties_keep_fused_order():
+    cands = [_chunked("first", "same words"), _chunked("second", "same words")]
+    out = retrieval.rerank("same words", cands, cross_encoder=OverlapCrossEncoder(), k=2)
+    assert [c["id"] for c in out] == ["first", "second"]
+
+
+def test_rerank_none_cross_encoder_falls_back():
+    cands = [_chunked("a", "x"), _chunked("b", "y")]
+    assert retrieval.rerank("q", cands, cross_encoder=None, k=1) == cands[:1]
+
+
+def test_rerank_does_not_mutate_input():
+    cands = [_chunked("a", "match me")]
+    retrieval.rerank("match me", cands, cross_encoder=OverlapCrossEncoder(), k=1)
+    assert "rerank_score" not in cands[0]
+
+
+def test_hybrid_reranks_fused_pool():
+    coll = FakeCollection(CANNED)
+    lex = FakeLexical([
+        {"id": "id_kw", "source": "kw.md", "title": "KW", "chunk": "totally specific answer tokens", "score": 5.0},
+    ])
+    out = retrieval.retrieve_hybrid(
+        "totally specific answer tokens", model=FakeModel(), collection=coll,
+        lexical=lex, cross_encoder=OverlapCrossEncoder(), k=1,
+    )
+    # RRF alone would rank a vector candidate first (rank 1 in the bigger
+    # list); the cross-encoder must promote the keyword hit that actually
+    # matches the query.
+    assert out[0]["id"] == "id_kw"
+
+
+def test_hybrid_vector_fallback_still_reranks():
+    coll = FakeCollection(CANNED)
+    out = retrieval.retrieve_hybrid(
+        "chunk two text", model=FakeModel(), collection=coll,
+        lexical=None, cross_encoder=OverlapCrossEncoder(), k=1,
+    )
+    assert out[0]["id"] == "id_b"  # promoted over id_a (distance order) by overlap
+
+
+def test_hybrid_without_cross_encoder_unchanged():
+    coll = FakeCollection(CANNED)
+    out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
+    assert [c["id"] for c in out] == ["id_a", "id_b"]
+    assert all("rerank_score" not in c for c in out)

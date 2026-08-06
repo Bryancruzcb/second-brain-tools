@@ -23,3 +23,20 @@ class BagOfWordsEmbedder:
             norm = np.linalg.norm(vec)
             out.append(vec / norm if norm > 0 else vec)
         return np.array(out)
+
+
+class OverlapCrossEncoder:
+    """Deterministic cross-encoder double: score = query/chunk token overlap.
+
+    Enough signal for wiring tests — a chunk sharing more words with the
+    query outranks one sharing fewer, mirroring what a real cross-encoder
+    does coarsely — with no model download.
+    """
+
+    def predict(self, pairs):
+        out = []
+        for query, chunk in pairs:
+            q = set(query.lower().split())
+            c = set(chunk.lower().split())
+            out.append(float(len(q & c)))
+        return out

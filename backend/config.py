@@ -1,6 +1,6 @@
 """Shared configuration resolution for the Second Brain backend.
 
-Centralizes path resolution so main.py, rag_query.py, indexer.py, and
+Centralizes path resolution so main.py, indexer.py, and
 scripts/rebuild_rag_index.py all agree on where the vault and the ChromaDB
 store live, instead of each duplicating (and drifting from) its own copy.
 """
@@ -71,3 +71,12 @@ def get_chroma_path() -> str:
         return os.path.abspath(os.path.expanduser(configured_path))
 
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "chroma_db")
+
+
+def get_reranker_model() -> str:
+    """Cross-encoder used to rerank fused retrieval candidates.
+
+    RERANKER_MODEL overrides; set it to "off" to skip reranking and serve
+    the fused order directly (useful on very slow CPUs).
+    """
+    return os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")

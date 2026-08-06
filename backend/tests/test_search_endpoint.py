@@ -57,3 +57,17 @@ def test_search_uses_lexical_leg_when_available(monkeypatch):
     titles = [r["title"] for r in client.get("/api/search", params={"q": "x"}).json()["results"]]
     assert "Lex" in titles
     assert lex.last_args[2] == 20  # HYBRID_DEPTH reaches the lexical leg
+
+
+def test_search_reranks_and_hides_rerank_score(monkeypatch):
+    from tests.fakes import OverlapCrossEncoder
+    coll = FakeCollection(CANNED)
+    monkeypatch.setattr(main, "model", FakeModel())
+    monkeypatch.setattr(main, "chroma_collection", coll)
+    monkeypatch.setattr(main, "lexical_index", None)
+    monkeypatch.setattr(main, "cross_encoder", OverlapCrossEncoder())
+    client = TestClient(main.app)
+
+    results = client.get("/api/search", params={"q": "beta chunk"}).json()["results"]
+    assert results[0]["title"] == "Beta"          # promoted over Alpha by the reranker
+    assert set(results[0].keys()) == {"title", "id", "snippet"}  # rerank_score not leaked

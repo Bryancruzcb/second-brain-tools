@@ -41,12 +41,16 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 | Baseline: MiniLM embeddings, 500-word chunks, vector-only | 70.0% | 0.496 |
 | + Heading-aware chunking (split at markdown headings, code-fence aware) | 70.0% | 0.529 |
 | + Hybrid retrieval (BM25 keyword leg + reciprocal rank fusion) | 70.0% | 0.592 |
+| + Cross-encoder reranker (ms-marco-MiniLM over the fused top-20) | 80.0% | 0.694 |
 
-The flat hit-rate has a diagnosis: the remaining misses are almost all
-sibling-note confusion — retrieval lands in the right folder but picks the
-wrong note inside it, because siblings share vocabulary. Ranking keeps
-improving (MRR), and fixing within-folder discrimination is what a
-reranker is for — that's the next change.
+The reranker was aimed at a diagnosis, not added on faith: through the
+first three rows the misses were sibling-note confusion — right folder,
+wrong note, because siblings share the vocabulary first-stage retrieval
+matches on. A cross-encoder reads query and chunk together, and it
+converted four of those twelve misses. Of the eight left, five never make
+the fused top-20 at all (a first-stage recall problem — the embedding
+model is next), three the reranker still gets wrong. Reranking 20
+candidates costs ~210 ms on CPU, noise next to a local Qwen generation.
 
 *Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
 
