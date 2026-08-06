@@ -76,6 +76,21 @@ def _load_fast_sync():
         # chroma_collection stuck at None forever.
         chroma_collection = chroma_client.get_or_create_collection("second_brain")
         logger.info("ChromaDB collection 'second_brain' loaded successfully.")
+        # Provenance check: stored vectors only mean anything against the model
+        # that produced them. Loud on mismatch, but keep serving — the operator
+        # decides whether degraded search beats no backend at all.
+        stamped_model = (chroma_collection.metadata or {}).get("embedding_model")
+        configured_model = config.get_embedding_model()
+        if stamped_model and stamped_model != configured_model:
+            logger.error(
+                "Embedding model mismatch: index stamped %r but EMBEDDING_MODEL is %r — "
+                "vector search will return garbage until scripts/rebuild_rag_index.py --full is run.",
+                stamped_model, configured_model,
+            )
+        elif not stamped_model:
+            logger.warning(
+                "Index has no embedding-model stamp; run scripts/rebuild_rag_index.py --full to stamp it."
+            )
     except Exception as e:
         logger.error(f"Failed to load ChromaDB collection: {e}")
 
@@ -464,6 +479,17 @@ def run_ingestion_sync():
 
     logger.info("Starting vector ingestion (incremental)...")
     summary = indexer.index_vault(chroma_collection, model, incremental=True, log=logger.info)
+    if summary.get("aborted"):
+        # Nothing was written, so the BM25 snapshot is still current; the only
+        # thing left to do is make the refusal impossible to miss in the log.
+        logger.error("Vector ingestion aborted: %s", summary["aborted"])
+        return
+    if summary.get("batches_failed"):
+        logger.error(
+            "%d embedding batch(es) FAILED during ingestion — the index is incomplete; "
+            "those chunks are missing from search until the next successful run.",
+            summary["batches_failed"],
+        )
     logger.info(
         f"Vector ingestion complete! {summary['files_scanned']} scanned, "
         f"{summary['files_reindexed']} reindexed, {summary['files_skipped']} skipped, "

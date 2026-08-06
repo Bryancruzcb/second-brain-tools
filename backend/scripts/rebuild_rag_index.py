@@ -49,11 +49,34 @@ def main():
     collection = client.get_or_create_collection("second_brain")
 
     model_name = config.get_embedding_model()
+    stamped_model = (collection.metadata or {}).get("embedding_model")
+    print(f"Index stamp: {stamped_model or '(unstamped)'} | configured: {model_name}")
+
     print(f"Loading embedding model ({model_name})...")
     model = SentenceTransformer(model_name)
     print("  Model ready.\n")
 
     summary = indexer.index_vault(collection, model, incremental=not args.full, log=print)
+
+    # Anything that left the index incomplete has to fail the process, or the
+    # nightly scheduled task reports success over a half-written index.
+    failure = None
+    if summary.get("aborted"):
+        failure = f"index aborted: {summary['aborted']}"
+    elif summary["batches_failed"] > 0:
+        failure = (
+            f"{summary['batches_failed']} embedding batch(es) failed — the index is "
+            "incomplete; see the errors above and rerun."
+        )
+    elif summary["chunks_written"] == 0 and summary["files_reindexed"] > 0:
+        failure = (
+            f"{summary['files_reindexed']} file(s) were reindexed but 0 chunks were "
+            "written — nothing reached the index."
+        )
+
+    if failure:
+        print(f"\nFAILED: {failure}")
+        sys.exit(1)
 
     if summary["chunks_written"] == 0 and summary["files_reindexed"] == 0:
         print("\nNo changes to index.")
