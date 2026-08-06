@@ -48,8 +48,9 @@ def main():
     client = chromadb.PersistentClient(path=db_path)
     collection = client.get_or_create_collection("second_brain")
 
-    print("Loading embedding model (all-MiniLM-L6-v2)...")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model_name = config.get_embedding_model()
+    print(f"Loading embedding model ({model_name})...")
+    model = SentenceTransformer(model_name)
     print("  Model ready.\n")
 
     summary = indexer.index_vault(collection, model, incremental=not args.full, log=print)

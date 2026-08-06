@@ -15,6 +15,10 @@ FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 @pytest.fixture()
 def indexed_collection(monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", os.path.join(FIXTURES, "vault"))
+    # Pin the query prefix off: the bag-of-words embedder is content-sensitive,
+    # so the ranking assertions below must not drift with the shipped default
+    # (or a stray .env entry pulled in by load_dotenv at main import).
+    monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "")
     client = chromadb.EphemeralClient()
     collection = client.get_or_create_collection("eval_e2e")
     embedder = BagOfWordsEmbedder()
@@ -56,6 +60,13 @@ def test_eval_end_to_end_on_fixture_vault(indexed_collection):
     assert summary["hit_rate"] == 2 / 3
     assert summary["mrr"] == (1.0 + 1.0 + 0.0) / 3
     assert summary["k"] == 4
+
+    # Auditability: every gradable row records whether the expected note even
+    # reached the fused top-20 the reranker saw. The fixture miss is an
+    # in-pool miss (5 notes, pool of 20), so this pins the wiring both ways.
+    assert hit_row["expected_in_pool"] is True
+    assert miss_row["expected_in_pool"] is True
+    assert by_q["note that does not exist anywhere"]["expected_in_pool"] is None
 
 
 def test_chunks_carry_section_heading_metadata(indexed_collection):

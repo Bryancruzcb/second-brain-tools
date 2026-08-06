@@ -196,3 +196,24 @@ def test_hybrid_without_cross_encoder_unchanged():
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
     assert [c["id"] for c in out] == ["id_a", "id_b"]
     assert all("rerank_score" not in c for c in out)
+
+
+class RecordingModel:
+    def __init__(self):
+        self.seen = []
+
+    def encode(self, texts):
+        import numpy as np
+        self.seen.extend(texts)
+        return np.zeros((len(texts), 4), dtype=np.float32)
+
+
+def test_query_prefix_applies_to_vector_encode_only(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "query: ")
+    rec = RecordingModel()
+    lex = FakeLexical([
+        {"id": "id_l", "source": "l.md", "title": "L", "chunk": "text", "score": 1.0},
+    ])
+    retrieval.retrieve_hybrid("find me", model=rec, collection=FakeCollection(CANNED), lexical=lex, k=2)
+    assert rec.seen == ["query: find me"]          # vector leg sees the prefix
+    assert lex.last_args[0] == "find me"           # BM25 leg does not
