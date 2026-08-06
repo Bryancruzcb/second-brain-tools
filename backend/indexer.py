@@ -340,13 +340,14 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
 
         chunks = chunk_text(content)
         for i, chunk in enumerate(chunks):
-            pending_docs.append(chunk)
+            pending_docs.append(chunk["text"])
             pending_metas.append({
                 "source": rel_path,
                 "title": title,
                 "tags": tags_str,
                 "category": category,
                 "mtime": mtime,
+                "heading": chunk["heading"],
             })
             pending_ids.append(f"{rel_path}_chunk_{i}")
 

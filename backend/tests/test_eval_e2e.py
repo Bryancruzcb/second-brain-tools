@@ -39,3 +39,11 @@ def test_eval_end_to_end_on_fixture_vault(indexed_collection):
     assert summary["hit_rate"] == 1.0
     assert summary["mrr"] == 1.0
     assert summary["k"] == 4
+
+
+def test_chunks_carry_section_heading_metadata(indexed_collection):
+    collection, _ = indexed_collection
+    got = collection.get(include=["metadatas"])
+    headings = {m["source"]: m.get("heading") for m in got["metadatas"]}
+    assert headings["Sourdough Starter.md"] == "Sourdough Starter"
+    assert headings["Rust Borrow Checker.md"] == "Rust Borrow Checker"
