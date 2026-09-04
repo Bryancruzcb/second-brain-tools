@@ -51,6 +51,8 @@ def main():
     model_name = config.get_embedding_model()
     stamped_model = (collection.metadata or {}).get("embedding_model")
     print(f"Index stamp: {stamped_model or '(unstamped)'} | configured: {model_name}")
+    stamped_scheme = (collection.metadata or {}).get("chunk_scheme")
+    print(f"Chunk scheme: {stamped_scheme or '(unstamped, plain)'} | configured: {config.get_chunk_scheme()}")
 
     print(f"Loading embedding model ({model_name})...")
     model = SentenceTransformer(model_name)

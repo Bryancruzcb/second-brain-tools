@@ -123,3 +123,69 @@ def test_failed_wipe_does_not_stamp(vault_env):
         assert summary["wipe_failed"] is True
     finally:
         os.environ["EMBEDDING_MODEL"] = "model-a"
+
+
+# ── chunk scheme: context headers ───────────────────────────────────────────
+
+def test_context_header_scheme_prefixes_documents_and_stamps(vault_env, monkeypatch):
+    monkeypatch.setenv("CHUNK_SCHEME", "context-header")
+    collection = vault_env
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
+    assert summary["batches_failed"] == 0
+    assert collection.metadata["chunk_scheme"] == "context-header"
+    assert collection.metadata["embedding_model"] == "model-a"  # both stamps, one modify
+    got = collection.get(include=["documents", "metadatas"])
+    assert got["documents"]
+    for doc, meta in zip(got["documents"], got["metadatas"]):
+        assert meta["context"]
+        assert doc.startswith(meta["context"] + "\n\n")
+    by_source = {m["source"]: m["context"] for m in got["metadatas"]}
+    # Root-level note whose only heading repeats the title: the header is
+    # the title alone, not "Sourdough Starter > Sourdough Starter".
+    assert by_source["Sourdough Starter.md"] == "Sourdough Starter"
+
+
+def test_plain_scheme_stamps_plain_and_writes_no_context(vault_env, monkeypatch):
+    monkeypatch.delenv("CHUNK_SCHEME", raising=False)
+    collection = vault_env
+    indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
+    assert collection.metadata["chunk_scheme"] == "plain"
+    got = collection.get(include=["documents", "metadatas"])
+    assert all("context" not in m for m in got["metadatas"])
+    assert any(d.startswith("# Sourdough Starter") for d in got["documents"])
+
+
+def test_incremental_aborts_on_chunk_scheme_mismatch(vault_env, monkeypatch):
+    monkeypatch.delenv("CHUNK_SCHEME", raising=False)
+    collection = vault_env
+    indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=False, log=lambda *_: None)
+    before = collection.count()
+
+    monkeypatch.setenv("CHUNK_SCHEME", "context-header")
+    os.utime(os.path.join(FIXTURES, "vault", "Sourdough Starter.md"), None)
+
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=lambda *_: None)
+    assert "aborted" in summary
+    assert "plain" in summary["aborted"] and "context-header" in summary["aborted"]
+    assert "rebuild_rag_index.py --full" in summary["aborted"]
+    assert summary["chunks_written"] == 0
+    assert collection.count() == before
+
+
+def test_unstamped_scheme_with_plain_config_is_silent(vault_env, monkeypatch):
+    monkeypatch.delenv("CHUNK_SCHEME", raising=False)
+    collection = vault_env
+    messages = []
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=messages.append)
+    assert "aborted" not in summary
+    assert not any("scheme" in str(m).lower() for m in messages)
+
+
+def test_unstamped_scheme_with_header_config_warns_but_proceeds(vault_env, monkeypatch):
+    monkeypatch.setenv("CHUNK_SCHEME", "context-header")
+    collection = vault_env
+    messages = []
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=messages.append)
+    assert "aborted" not in summary
+    assert summary["chunks_written"] >= 5
+    assert any("scheme" in str(m).lower() for m in messages)

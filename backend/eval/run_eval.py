@@ -23,6 +23,29 @@ DEFAULT_DATASET = os.path.join(EVAL_DIR, "dataset.jsonl")
 RESULTS_PATH = os.path.join(EVAL_DIR, "results.json")
 
 
+def stamp_mismatch(metadata, *, configured_model, configured_scheme):
+    """Why this index cannot be scored under the current config, or None.
+
+    Scoring queries from one embedding model against chunks embedded by
+    another, or labelling a plain index's numbers as a context-header run,
+    produces scores that look real and mean nothing. A missing model stamp
+    is legal (pre-stamp indexes exist; main() warns about them). A missing
+    scheme stamp means the index predates schemes, which makes it plain.
+    """
+    metadata = metadata or {}
+    stamped_model = metadata.get("embedding_model")
+    if stamped_model and stamped_model != configured_model:
+        return (f"Embedding model mismatch: index stamped '{stamped_model}' but EMBEDDING_MODEL "
+                f"is '{configured_model}'. These scores would be meaningless; run "
+                "scripts/rebuild_rag_index.py --full first.")
+    stamped_scheme = metadata.get("chunk_scheme") or "plain"
+    if stamped_scheme != configured_scheme:
+        return (f"Chunk scheme mismatch: index stamped '{stamped_scheme}' but CHUNK_SCHEME "
+                f"is '{configured_scheme}'. The scores would carry a scheme the index was "
+                "not built with; run scripts/rebuild_rag_index.py --full first.")
+    return None
+
+
 def run(cases, *, model, collection, lexical=None, cross_encoder=None, k=retrieval.TOP_K):
     """Score every case. Returns (per_case_rows, summary).
 
@@ -99,11 +122,12 @@ def main():
     # produces numbers that look real and mean nothing. Refuse rather than
     # publish them.
     configured_model = config.get_embedding_model()
-    stamped_model = (collection.metadata or {}).get("embedding_model")
-    if stamped_model and stamped_model != configured_model:
-        print(f"Embedding model mismatch: index stamped '{stamped_model}' but EMBEDDING_MODEL "
-              f"is '{configured_model}'. These scores would be meaningless — run "
-              "scripts/rebuild_rag_index.py --full first.")
+    metadata = collection.metadata or {}
+    stamped_model = metadata.get("embedding_model")
+    problem = stamp_mismatch(metadata, configured_model=configured_model,
+                             configured_scheme=config.get_chunk_scheme())
+    if problem:
+        print(problem)
         sys.exit(1)
     if not stamped_model:
         print("WARNING: index has no embedding-model stamp; assuming it was built with "

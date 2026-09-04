@@ -24,3 +24,15 @@ def test_reranker_disabled_values():
     for value in ("", "off", "OFF", " none ", "Disabled"):
         assert config.reranker_disabled(value)
     assert not config.reranker_disabled("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+
+def test_chunk_scheme_default_override_and_fallback(monkeypatch):
+    monkeypatch.delenv("CHUNK_SCHEME", raising=False)
+    assert config.get_chunk_scheme() == "plain"
+    monkeypatch.setenv("CHUNK_SCHEME", "context-header")
+    assert config.get_chunk_scheme() == "context-header"
+    monkeypatch.setenv("CHUNK_SCHEME", " Context-Header ")
+    assert config.get_chunk_scheme() == "context-header"
+    # An unknown value must not silently invent a third scheme.
+    monkeypatch.setenv("CHUNK_SCHEME", "bogus")
+    assert config.get_chunk_scheme() == "plain"

@@ -200,6 +200,41 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
     return chunks
 
 
+CONTEXT_HEADER_MAX_CHARS = 200
+
+
+def context_header(rel_path, title, heading):
+    """One line naming where a chunk comes from: folder path, title, heading.
+
+    "02 Projects/Data Science Project/decisions.md" with heading
+    "is_delayed definition" becomes
+    "02 Projects > Data Science Project > decisions > is_delayed definition".
+    Empty parts and a part that repeats the one before it are dropped, so a
+    root note whose only heading is its own title yields just the title.
+    Whitespace collapses to single spaces and the result is capped at
+    CONTEXT_HEADER_MAX_CHARS, so a runaway heading cannot crowd out the
+    chunk text under the cross-encoder's 512-token limit.
+    """
+    folder = os.path.dirname(rel_path.replace("\\", "/"))
+    parts = [p for p in folder.split("/") if p] + [title or "", heading or ""]
+    kept = []
+    for part in parts:
+        part = " ".join(part.split())
+        if not part or (kept and part == kept[-1]):
+            continue
+        kept.append(part)
+    return " > ".join(kept)[:CONTEXT_HEADER_MAX_CHARS].rstrip()
+
+
+def _aborted_summary(reason):
+    """The empty summary an aborted incremental run returns."""
+    return {
+        "files_scanned": 0, "files_skipped": 0, "files_reindexed": 0,
+        "files_pruned": 0, "chunks_written": 0, "batches_failed": 0,
+        "aborted": reason,
+    }
+
+
 def _should_skip_dir(name: str) -> bool:
     return name in EXCLUDE_DIRS or name.startswith(".")
 
@@ -233,14 +268,20 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
     model aborts without writing (continuing would mix vector spaces). An
     unstamped index only warns — pre-stamp indexes are legal, and incremental
     runs never stamp, since they do not re-embed what is already stored.
+    The chunk scheme (config.get_chunk_scheme) is stamped and checked the
+    same way; an index with no scheme stamp predates schemes and counts as
+    plain, so it only warns when a non-plain scheme is configured.
 
     Returns a summary dict: files_scanned, files_skipped, files_reindexed,
     files_pruned, chunks_written, batches_failed — plus "aborted" (a string
-    reason) if and only if the model-mismatch abort fired.
+    reason) if and only if a stamp-mismatch abort fired.
     """
     vault_path = config.get_vault_path()
     configured_model = config.get_embedding_model()
-    stamped_model = (collection.metadata or {}).get("embedding_model")
+    configured_scheme = config.get_chunk_scheme()
+    metadata = collection.metadata or {}
+    stamped_model = metadata.get("embedding_model")
+    stamped_scheme = metadata.get("chunk_scheme")
     if incremental and stamped_model and stamped_model != configured_model:
         # Continuing would embed new chunks with a different model into the
         # same vector space — silent, permanent corruption. Refuse.
@@ -249,13 +290,21 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
             f"configured '{configured_model}'; run scripts/rebuild_rag_index.py --full"
         )
         log(f"ABORTING incremental index: {reason}")
-        return {
-            "files_scanned": 0, "files_skipped": 0, "files_reindexed": 0,
-            "files_pruned": 0, "chunks_written": 0, "batches_failed": 0,
-            "aborted": reason,
-        }
+        return _aborted_summary(reason)
     if incremental and not stamped_model:
         log("Index has no embedding-model stamp; run scripts/rebuild_rag_index.py --full to stamp it.")
+    if incremental and stamped_scheme and stamped_scheme != configured_scheme:
+        # Header-prefixed and plain chunks in one collection would rank
+        # against each other on different text. Refuse, same as the model.
+        reason = (
+            f"chunk scheme mismatch: index stamped '{stamped_scheme}', "
+            f"configured '{configured_scheme}'; run scripts/rebuild_rag_index.py --full"
+        )
+        log(f"ABORTING incremental index: {reason}")
+        return _aborted_summary(reason)
+    if incremental and not stamped_scheme and configured_scheme != "plain":
+        log(f"Index has no chunk-scheme stamp (treated as plain) but CHUNK_SCHEME is "
+            f"'{configured_scheme}'; run scripts/rebuild_rag_index.py --full to rebuild and stamp it.")
 
     log(f"Scanning vault at {vault_path}...")
 
@@ -312,7 +361,11 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
         if wiped_ok:
             try:
                 carried = {k: v for k, v in (collection.metadata or {}).items() if not k.startswith("hnsw:")}
-                collection.modify(metadata={**carried, "embedding_model": configured_model})
+                collection.modify(metadata={
+                    **carried,
+                    "embedding_model": configured_model,
+                    "chunk_scheme": configured_scheme,
+                })
             except Exception as e:
                 log(f"Could not stamp embedding model on collection: {e}")
 
@@ -384,15 +437,23 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
 
         chunks = chunk_text(content)
         for i, chunk in enumerate(chunks):
-            pending_docs.append(chunk["text"])
-            pending_metas.append({
+            text = chunk["text"]
+            meta = {
                 "source": rel_path,
                 "title": title,
                 "tags": tags_str,
                 "category": category,
                 "mtime": mtime,
                 "heading": chunk["heading"],
-            })
+            }
+            if configured_scheme == "context-header":
+                # The header rides inside the document so the embedder, BM25
+                # and the reranker all see it; "context" lets readers strip it.
+                header = context_header(rel_path, title, chunk["heading"])
+                text = f"{header}\n\n{text}"
+                meta["context"] = header
+            pending_docs.append(text)
+            pending_metas.append(meta)
             pending_ids.append(f"{rel_path}_chunk_{i}")
 
         # A file that yields no chunks (empty/whitespace-only) and had nothing

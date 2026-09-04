@@ -163,6 +163,26 @@ def get_query_prefix() -> str:
     )
 
 
+CHUNK_SCHEMES = ("plain", "context-header")
+
+
+def get_chunk_scheme() -> str:
+    """How chunk text is composed at index time (CHUNK_SCHEME to override).
+
+    "plain" stores the chunk as cut from the note. "context-header" prepends
+    one line of identity, folder path > note title > section heading, before
+    the chunk is embedded, so the embedder, the BM25 leg and the reranker all
+    see which note a passage belongs to. 4,215 of the index's 4,321 chunks
+    are chat transcripts, so a question about a note otherwise competes
+    against a wall of near-duplicate session exports that share its
+    vocabulary. Changing the scheme changes every stored document: run
+    scripts/rebuild_rag_index.py --full afterwards. Unknown values fall back
+    to "plain".
+    """
+    value = os.environ.get("CHUNK_SCHEME", "plain").strip().lower()
+    return value if value in CHUNK_SCHEMES else "plain"
+
+
 def reranker_disabled(name: str) -> bool:
     """Shared kill-switch semantics for RERANKER_MODEL values."""
     return name.strip().lower() in ("", "off", "none", "disabled")

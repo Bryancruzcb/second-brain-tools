@@ -170,18 +170,33 @@ def resolve_vault_file(relative_path: str) -> str:
 
 
 def get_indexed_note_text(source: str) -> str:
-    """Return locally indexed note text when a cloud file is unavailable."""
+    """Return locally indexed note text when a cloud file is unavailable.
+
+    Chunks stored under the context-header scheme start with a one-line
+    identity header, kept in the "context" metadata; it is stripped here so
+    the fallback reads like the note rather than like the index.
+    """
     global chroma_collection
     if chroma_collection is None:
         return ""
     try:
         result = chroma_collection.get(
             where={"source": source},
-            include=["documents"],
+            include=["documents", "metadatas"],
         )
         documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+        cleaned = []
+        for index, document in enumerate(documents):
+            if not document:
+                continue
+            meta = metadatas[index] if index < len(metadatas) else None
+            header = (meta or {}).get("context")
+            if header and document.startswith(header + "\n\n"):
+                document = document[len(header) + 2:]
+            cleaned.append(document)
         # Preserve chunk order while removing any exact duplicates.
-        return "\n\n".join(dict.fromkeys(document for document in documents if document))
+        return "\n\n".join(dict.fromkeys(cleaned))
     except Exception as error:
         logger.warning("Could not read indexed fallback for %s: %s", source, error)
         return ""
