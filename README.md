@@ -76,6 +76,18 @@ cp eval/dataset.example.jsonl eval/dataset.jsonl   # then write real cases
 python -m eval.run_eval
 ```
 
+The published number is kept honest by a committed scorecard,
+`backend/eval/scorecard.json`: the metrics, the retrieval settings they were
+measured under, and a census of the index, with no questions and no note
+paths. A test compares it with the shipped settings and with the block below,
+so changing a retrieval setting without re-running the eval fails CI. The
+nightly archive job re-scores the private set after each incremental index
+update and prints a drift warning when the hit-rate falls by two cases or more.
+
+<!-- eval-scorecard:start -->
+(no scorecard recorded yet)
+<!-- eval-scorecard:end -->
+
 ## Architecture
 
 1. **`core` — Rust**  
