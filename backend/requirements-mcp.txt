@@ -1,0 +1,8 @@
+# MCP server only. Deliberately NOT folded into requirements.txt: mcp_server.py
+# runs as its own process and this dependency has no business in the backend
+# container image or in the CI test job.
+#
+# The official Python SDK (`mcp`), not the third-party `fastmcp` package.
+# FastMCP 1.0 was contributed into this SDK and lives at mcp.server.fastmcp.
+mcp>=1.2,<2
+httpx>=0.27

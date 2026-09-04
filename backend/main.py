@@ -462,6 +462,32 @@ def get_health():
         "last_scan_time": last_scan_time
     }
 
+@app.get("/api/ready")
+def get_ready():
+    """Which retrieval components have finished loading.
+
+    /api/health answers 200 from a cached blob the instant the process starts,
+    so it cannot tell a warm backend from one still loading models. That gap
+    matters because retrieval degrades *silently*: retrieve_hybrid falls back
+    to vector-only with no rerank when lexical_index or cross_encoder is still
+    None, which is the configuration that measured 70% hit-rate, not 80%. A
+    caller sees plausible results at the wrong quality and no error.
+
+    The frontend polls /api/health and is unaffected. Anything that is not the
+    frontend -- the MCP server, a container smoke test, a load balancer --
+    should gate on this instead.
+    """
+    global model, chroma_collection, lexical_index, cross_encoder
+    components = {
+        "embedding_model": model is not None,
+        "chroma_collection": chroma_collection is not None,
+        "lexical_index": lexical_index is not None,
+        # A disabled reranker is a deliberate configuration, not a cold start.
+        "reranker": cross_encoder is not None
+        or config.reranker_disabled(config.get_reranker_model()),
+    }
+    return {"ready": all(components.values()), "components": components}
+
 @app.post("/api/health/scan")
 def trigger_scan(background_tasks: BackgroundTasks):
     global is_scanning
