@@ -60,6 +60,8 @@ def test_eval_end_to_end_on_fixture_vault(indexed_collection):
     assert summary["hit_rate"] == 2 / 3
     assert summary["mrr"] == (1.0 + 1.0 + 0.0) / 3
     assert summary["k"] == 4
+    # hit@4 is always reported under by_k, matching the primary numbers here.
+    assert summary["by_k"] == {"4": {"hit_rate": 2 / 3, "mrr": (1.0 + 1.0 + 0.0) / 3}}
 
     # Auditability: every gradable row records whether the expected note even
     # reached the fused top-20 the reranker saw. The fixture miss is an
@@ -75,3 +77,15 @@ def test_chunks_carry_section_heading_metadata(indexed_collection):
     headings = {m["source"]: m.get("heading") for m in got["metadatas"]}
     assert headings["Sourdough Starter.md"] == "Sourdough Starter"
     assert headings["Rust Borrow Checker.md"] == "Rust Borrow Checker"
+
+
+def test_run_reports_every_requested_k_from_one_retrieval(indexed_collection):
+    collection, embedder, lex = indexed_collection
+    cases = load_dataset(os.path.join(FIXTURES, "dataset.jsonl"))
+    rows, summary = run(cases, model=embedder, collection=collection, lexical=lex,
+                        cross_encoder=OverlapCrossEncoder(), k=4, ks=[1, 4])
+    assert set(summary["by_k"]) == {"1", "4"}
+    assert summary["by_k"]["4"] == {"hit_rate": summary["hit_rate"], "mrr": summary["mrr"]}
+    assert summary["by_k"]["1"]["hit_rate"] <= summary["by_k"]["4"]["hit_rate"]
+    # Rows keep the primary-k shape: at most four notes behind four chunks.
+    assert all(len(r["retrieved"]) <= 4 for r in rows)
