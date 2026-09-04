@@ -181,11 +181,14 @@ def test_unstamped_scheme_with_plain_config_is_silent(vault_env, monkeypatch):
     assert not any("scheme" in str(m).lower() for m in messages)
 
 
-def test_unstamped_scheme_with_header_config_warns_but_proceeds(vault_env, monkeypatch):
+def test_unstamped_scheme_with_header_config_aborts(vault_env, monkeypatch):
+    # An index with no scheme stamp predates schemes, so it is plain. Adding
+    # header-prefixed chunks to it incrementally would mix the two.
     monkeypatch.setenv("CHUNK_SCHEME", "context-header")
     collection = vault_env
-    messages = []
-    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=messages.append)
-    assert "aborted" not in summary
-    assert summary["chunks_written"] >= 5
-    assert any("scheme" in str(m).lower() for m in messages)
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=lambda *_: None)
+    assert "aborted" in summary
+    assert "plain (unstamped)" in summary["aborted"] and "context-header" in summary["aborted"]
+    assert "rebuild_rag_index.py --full" in summary["aborted"]
+    assert summary["chunks_written"] == 0
+    assert collection.count() == 0

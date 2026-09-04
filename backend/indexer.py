@@ -269,8 +269,9 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
     unstamped index only warns — pre-stamp indexes are legal, and incremental
     runs never stamp, since they do not re-embed what is already stored.
     The chunk scheme (config.get_chunk_scheme) is stamped and checked the
-    same way; an index with no scheme stamp predates schemes and counts as
-    plain, so it only warns when a non-plain scheme is configured.
+    same way, except that an index with no scheme stamp predates schemes
+    and counts as plain, so configuring any other scheme against it aborts
+    too.
 
     Returns a summary dict: files_scanned, files_skipped, files_reindexed,
     files_pruned, chunks_written, batches_failed — plus "aborted" (a string
@@ -293,18 +294,16 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
         return _aborted_summary(reason)
     if incremental and not stamped_model:
         log("Index has no embedding-model stamp; run scripts/rebuild_rag_index.py --full to stamp it.")
-    if incremental and stamped_scheme and stamped_scheme != configured_scheme:
+    if incremental and (stamped_scheme or "plain") != configured_scheme:
         # Header-prefixed and plain chunks in one collection would rank
         # against each other on different text. Refuse, same as the model.
+        # No stamp means the index predates schemes, which makes it plain.
         reason = (
-            f"chunk scheme mismatch: index stamped '{stamped_scheme}', "
+            f"chunk scheme mismatch: index stamped '{stamped_scheme or 'plain (unstamped)'}', "
             f"configured '{configured_scheme}'; run scripts/rebuild_rag_index.py --full"
         )
         log(f"ABORTING incremental index: {reason}")
         return _aborted_summary(reason)
-    if incremental and not stamped_scheme and configured_scheme != "plain":
-        log(f"Index has no chunk-scheme stamp (treated as plain) but CHUNK_SCHEME is "
-            f"'{configured_scheme}'; run scripts/rebuild_rag_index.py --full to rebuild and stamp it.")
 
     log(f"Scanning vault at {vault_path}...")
 
