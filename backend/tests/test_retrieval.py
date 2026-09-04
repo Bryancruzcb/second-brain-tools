@@ -217,3 +217,48 @@ def test_query_prefix_applies_to_vector_encode_only(monkeypatch):
     retrieval.retrieve_hybrid("find me", model=rec, collection=FakeCollection(CANNED), lexical=lex, k=2)
     assert rec.seen == ["query: find me"]          # vector leg sees the prefix
     assert lex.last_args[0] == "find me"           # BM25 leg does not
+
+
+# ── per-note chunk cap ────────────────────────────────────────────────────
+
+MAGNET = {
+    "ids": [["a1", "a2", "a3", "b1"]],
+    "documents": [["magnet one", "magnet two", "magnet three", "other"]],
+    "metadatas": [[{"source": "a.md", "title": "A"}] * 3 + [{"source": "b.md", "title": "B"}]],
+    "distances": [[0.1, 0.2, 0.3, 0.4]],
+}
+
+
+def test_cap_per_source_keeps_order_and_limits_chunks_per_note():
+    ranked = [_cand("b1", "b.md"), _cand("b2", "b.md"), _cand("a1", "a.md"),
+              _cand("b3", "b.md"), _cand("c1", "c.md")]
+    assert [c["id"] for c in retrieval.cap_per_source(ranked, 1)] == ["b1", "a1", "c1"]
+    assert [c["id"] for c in retrieval.cap_per_source(ranked, 2)] == ["b1", "b2", "a1", "c1"]
+    assert retrieval.cap_per_source(ranked, 0) == ranked  # 0 means no cap
+
+
+def test_hybrid_serves_at_most_one_chunk_per_note_by_default(monkeypatch):
+    monkeypatch.delenv("MAX_CHUNKS_PER_NOTE", raising=False)
+    out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=FakeCollection(MAGNET), k=2)
+    assert [c["id"] for c in out] == ["a1", "b1"]  # a2/a3 skipped, b.md reaches the list
+
+
+def test_hybrid_cap_applies_after_reranking(monkeypatch):
+    monkeypatch.delenv("MAX_CHUNKS_PER_NOTE", raising=False)
+    out = retrieval.retrieve_hybrid(
+        "other", model=FakeModel(), collection=FakeCollection(MAGNET),
+        cross_encoder=OverlapCrossEncoder(), k=3,
+    )
+    # The reranker promotes b1 ("other" overlaps); the cap then admits one
+    # a.md chunk, in reranked order, so the list stops at two notes even
+    # though k asked for three chunks.
+    assert [c["id"] for c in out] == ["b1", "a1"]
+
+
+def test_hybrid_cap_is_env_configurable(monkeypatch):
+    monkeypatch.setenv("MAX_CHUNKS_PER_NOTE", "0")
+    out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=FakeCollection(MAGNET), k=3)
+    assert [c["id"] for c in out] == ["a1", "a2", "a3"]
+    monkeypatch.setenv("MAX_CHUNKS_PER_NOTE", "2")
+    out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=FakeCollection(MAGNET), k=3)
+    assert [c["id"] for c in out] == ["a1", "a2", "b1"]

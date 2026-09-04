@@ -87,19 +87,43 @@ def rerank(query_text, candidates, *, cross_encoder, k=TOP_K):
     return [{**candidates[i], "rerank_score": float(scores[i])} for i in order[:k]]
 
 
+def cap_per_source(candidates, cap):
+    """Keep at most ``cap`` chunks per note, preserving order; 0 means no cap.
+
+    Long generic notes put several chunks in the reranked top-k, so without
+    a cap a bigger k shows Qwen more of the same notes. Measured 2026-09-04
+    at depth 30: served hit-rate 80.0% at every k from 4 to 10 uncapped,
+    80.0 / 82.5 / 85.0% at k=4 / 6 / 8 with one chunk per note.
+    """
+    if cap <= 0:
+        return list(candidates)
+    seen = {}
+    out = []
+    for c in candidates:
+        n = seen.get(c["source"], 0)
+        if n < cap:
+            out.append(c)
+            seen[c["source"]] = n + 1
+    return out
+
+
 def retrieve_hybrid(query_text, *, model, collection, lexical=None,
-                    cross_encoder=None, scope="notes", k=TOP_K):
-    """Vector + BM25 fused with RRF, optionally reranked by a cross-encoder.
+                    cross_encoder=None, scope="notes", k=TOP_K, max_per_source=None):
+    """Vector + BM25 fused with RRF, optionally reranked by a cross-encoder,
+    then served with at most ``max_per_source`` chunks per note (default:
+    config.get_max_chunks_per_note(), read per call like the query prefix).
 
     Falls back gracefully at each stage: no lexical index → vector-only;
-    no cross-encoder → fused order. Without a cross-encoder the behavior
-    is identical to the pre-reranker version.
+    no cross-encoder → fused order. The whole RERANK_DEPTH pool is ranked
+    before the cap and the cut to k, so the cap admits the next-best note
+    rather than truncating to fewer than k results whenever the pool has
+    enough distinct notes.
 
-    Caveat: on the fused path that equivalence holds for k <= RERANK_DEPTH.
-    The fused pool is now built to RERANK_DEPTH rather than k, so a caller
-    asking for k above that gets at most RERANK_DEPTH results where the old
-    code returned k.
+    Caveat: on the fused path a caller asking for k above RERANK_DEPTH gets
+    at most RERANK_DEPTH results.
     """
+    if max_per_source is None:
+        max_per_source = config.get_max_chunks_per_note()
     vector = retrieve(query_text, model=model, collection=collection,
                       scope=scope, k=HYBRID_DEPTH)
     if lexical is None or len(lexical) == 0:
@@ -107,6 +131,7 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
     else:
         keyword = lexical.search(query_text, scope=scope, k=HYBRID_DEPTH)
         fused = rrf_fuse([vector, keyword], k=RERANK_DEPTH)
+    pool = fused[:RERANK_DEPTH]
     if cross_encoder is not None:
-        return rerank(query_text, fused[:RERANK_DEPTH], cross_encoder=cross_encoder, k=k)
-    return fused[:k]
+        pool = rerank(query_text, pool, cross_encoder=cross_encoder, k=len(pool))
+    return cap_per_source(pool, max_per_source)[:k]

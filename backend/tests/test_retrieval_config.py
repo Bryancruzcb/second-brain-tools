@@ -57,3 +57,15 @@ def test_retrieval_module_constants_follow_env(monkeypatch):
     assert retrieval.TOP_K == config.get_top_k()
     assert retrieval.HYBRID_DEPTH == config.get_hybrid_depth()
     assert retrieval.RERANK_DEPTH == config.get_rerank_depth()
+
+
+def test_max_chunks_per_note_default_zero_and_garbage(monkeypatch):
+    monkeypatch.delenv("MAX_CHUNKS_PER_NOTE", raising=False)
+    assert config.get_max_chunks_per_note() == 1
+    monkeypatch.setenv("MAX_CHUNKS_PER_NOTE", "0")
+    assert config.get_max_chunks_per_note() == 0   # explicit "no cap"
+    monkeypatch.setenv("MAX_CHUNKS_PER_NOTE", "2")
+    assert config.get_max_chunks_per_note() == 2
+    for bad in ("-1", "many", ""):
+        monkeypatch.setenv("MAX_CHUNKS_PER_NOTE", bad)
+        assert config.get_max_chunks_per_note() == 1

@@ -75,6 +75,26 @@ def get_top_k() -> int:
     return _positive_int_env("TOP_K", 6)
 
 
+def get_max_chunks_per_note() -> int:
+    """Chunks one note may occupy in the served list (MAX_CHUNKS_PER_NOTE).
+
+    Long generic notes place several chunks in the reranked top-k, so raising
+    TOP_K alone showed Qwen more of the same notes: measured 2026-09-04 at
+    depth 30, the served hit-rate stayed 80.0% from k=4 to k=10 with no cap.
+    With one chunk per note the served list matches the note-level view:
+    80.0% at k=4, 82.5% at 6, 85.0% at 8. 0 disables the cap; anything
+    unparsable falls back to 1.
+    """
+    raw = os.environ.get("MAX_CHUNKS_PER_NOTE")
+    if raw is None:
+        return 1
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1
+    return value if value >= 0 else 1
+
+
 def get_hybrid_depth() -> int:
     """Candidates fetched per retrieval leg before fusion (HYBRID_DEPTH).
 
