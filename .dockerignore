@@ -1,0 +1,38 @@
+# Docker build context excludes.
+#
+# .gitignore does not apply to build contexts. Without this file,
+# `docker build -f backend/Dockerfile .` uploads the whole repo root to the
+# daemon on every build: backend/venv (1.2 GB), frontend/node_modules, .git,
+# and the 195 MB Chroma index. That is minutes per build on Windows and a
+# common cause of daemon OOM.
+
+# Virtualenvs and installed packages
+**/venv/
+**/.venv/
+**/node_modules/
+
+# Build output
+frontend/.next/
+frontend/out/
+core/target/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local data. The vector index, health cache and private eval artifacts must
+# never be baked into an image: chroma.sqlite3 stores the full text of every
+# indexed chunk, most of which are exported AI chat transcripts.
+backend/chroma_db/
+backend/health_cache.json
+backend/eval/dataset.jsonl
+backend/eval/results.json
+.data/
+
+# Repo metadata, docs and local secrets
+.git/
+.github/
+.vscode/
+docs/
+*.md
+*.log
+.env

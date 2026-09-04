@@ -6,3 +6,8 @@ uvicorn==0.51.0
 httpx>=0.27
 pydantic==2.13.4
 python-dotenv==1.2.2
+# main.py imports both at module scope. They arrived transitively through
+# sentence-transformers, which is not a contract -- a dependency drop there
+# breaks the container on first import.
+numpy==2.4.6
+scikit-learn==1.9.0
