@@ -62,6 +62,48 @@ jobs:
       - name: Backend Tests
         run: python -m pytest backend/tests -q
 
+  # ── Backend Container Verification ──────────────────────────────────────────
+  # The image is the only documented deploy artifact and nothing built it until
+  # this job existed, so the Dockerfile broke silently while CI stayed green.
+  docker-build:
+    name: Backend Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          load: true
+          tags: second-brain-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Import Smoke Test
+        # Compiling is not the bar. This imports main.py exactly as uvicorn
+        # would, which exercises every COPY line and every runtime dependency.
+        # It touches no vault and opens no ChromaDB: _load_fast_sync runs in
+        # the lifespan, not at import.
+        run: |
+          docker run --rm --entrypoint python second-brain-backend:ci \
+            -c "import main; print('backend imports OK')"
+
+      - name: Assert CPU-only Torch
+        # A CUDA resolution still imports and still passes the smoke test. It
+        # just adds ~2.5 GB of wheels that cannot run here, so assert it
+        # explicitly rather than discovering it in a registry bill.
+        run: |
+          docker run --rm --entrypoint python second-brain-backend:ci -c "
+          import torch, sys
+          print('torch', torch.__version__)
+          sys.exit(0 if torch.__version__.endswith('+cpu') else 1)"
+
   # ── Next.js Frontend Verification ───────────────────────────────────────────
   nextjs-check:
     name: Next.js Frontend
