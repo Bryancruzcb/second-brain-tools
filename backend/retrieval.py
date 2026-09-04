@@ -5,10 +5,12 @@ what the app does — same reason indexer.py was unified in PR #3.
 """
 import config
 
-TOP_K = 4
-HYBRID_DEPTH = 20
+# Resolved once at import, the same moment uvicorn, the eval and the sweep
+# script read them; see config.get_top_k() and friends for the numbers.
+TOP_K = config.get_top_k()
+HYBRID_DEPTH = config.get_hybrid_depth()
 RRF_K = 60
-RERANK_DEPTH = 20
+RERANK_DEPTH = config.get_rerank_depth()
 
 
 def scope_filter(scope):
