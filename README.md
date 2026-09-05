@@ -85,7 +85,12 @@ nightly archive job re-scores the private set after each incremental index
 update and prints a drift warning when the hit-rate falls by two cases or more.
 
 <!-- eval-scorecard:start -->
-(no scorecard recorded yet)
+Recorded 2026-09-04 over 40 cases against an index of 4,321 chunks from 304 files (63 notes, 241 chat transcripts): `BAAI/bge-small-en-v1.5` embeddings with its query instruction, each leg fetched to depth 30, the fused top 30 reranked by `cross-encoder/ms-marco-MiniLM-L-6-v2`, 6 chunks served, at most 1 per note.
+
+| Chunks shown | Hit-rate | MRR |
+|---|---|---|
+| 4 | 80.0% | 0.717 |
+| 6 (shipped) | 82.5% | 0.722 |
 <!-- eval-scorecard:end -->
 
 ## Architecture
