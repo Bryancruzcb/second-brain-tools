@@ -28,6 +28,7 @@ Both of these came from running it against my own vault and watching it stall.
 - **Ask Qwen** with multi-note context chips, local retrieval, source links, clear loading/error states, and no hosted AI dependency.
 - **Command search** with `⌘K`, semantic results, direct note opening, and a quick path from a search phrase into Qwen.
 - **Vault tools** for creating notes, saving web clips, refreshing graph/health data, and rebuilding the AI search index.
+- **MCP server** (`backend/mcp_server.py`) on the official Python SDK over stdio, so Claude Desktop, Claude Code, Cursor, or VS Code can call the vault's hybrid search as a tool. It is a thin client over `GET /api/search`, so the index and both torch models stay in one process, and it checks `GET /api/ready` first: that endpoint reports whether the embedding model, Chroma collection, lexical index, and reranker have actually loaded, where `/api/health` answers 200 before they have. This is the one path where note text leaves the machine, because the caller is a hosted model.
 
 ## Retrieval quality
 
@@ -131,7 +132,7 @@ Recorded 2026-09-04 over 40 cases against an index of 4,321 chunks from 304 file
 1. **`core` — Rust**  
    Walks the vault and parses Markdown, wikilinks, tags, and structure. Reads sequentially to survive OneDrive; parses in parallel with Rayon.
 2. **`backend` — FastAPI / Python**  
-   Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama.
+   Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama. Ships a `Dockerfile` that CI builds on every push, import-tests `main.py` inside the image, and asserts the torch wheel is CPU-only.
 3. **`frontend` — Next.js / React Three Fiber**  
    Provides the desktop workspace, responsive layouts, Markdown tools, chat, and WebGL graph.
 4. **`clipper` — Chrome extension**  
