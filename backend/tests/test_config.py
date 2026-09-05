@@ -36,3 +36,9 @@ def test_chunk_scheme_default_override_and_fallback(monkeypatch):
     # An unknown value must not silently invent a third scheme.
     monkeypatch.setenv("CHUNK_SCHEME", "bogus")
     assert config.get_chunk_scheme() == "plain"
+
+def test_reranker_onnx_file_defaults_to_empty(monkeypatch):
+    monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
+    assert config.get_reranker_onnx_file() == ""
+    monkeypatch.setenv("RERANKER_ONNX_FILE", " onnx/model_quantized.onnx ")
+    assert config.get_reranker_onnx_file() == "onnx/model_quantized.onnx"

@@ -9,6 +9,8 @@ Runs, in order:
   5. rebuild_chat_indices.py
   6. vault_health_checker.py
   7. backend/scripts/rebuild_rag_index.py (incremental, via the backend venv)
+  8. backend/eval/run_eval.py --check (re-scores the private eval set against
+     the committed scorecard and warns on drift; skips on machines without it)
 Then backs up the Obsidian vault to a dated zip and prunes old backups.
 
 All paths are resolved relative to this file / sb_common — nothing is
@@ -47,7 +49,7 @@ def write_success_marker():
         print(f"Could not write success marker: {e}", file=sys.stderr)
 
 
-def run_script(python_exe, script_path):
+def run_script(python_exe, script_path, args=(), cwd=None):
     """Run a script with the given interpreter, printing indented output.
 
     Returns True on success (exit code 0 and the script exists), False otherwise.
@@ -59,8 +61,23 @@ def run_script(python_exe, script_path):
         print(f"Script not found, skipping: {script_path}", file=sys.stderr)
         return False
 
+    return _run(name, [python_exe, script_path, *args], cwd=cwd)
+
+
+def run_module(python_exe, module, args=(), cwd=None, env_extra=None):
+    """Run `python -m module` from cwd with the same reporting as run_script."""
+    print(f"Running script: {module}...")
+    env = {**os.environ, **(env_extra or {})}
+    return _run(module, [python_exe, "-m", module, *args], cwd=cwd, env=env)
+
+
+def _run(name, cmd, cwd=None, env=None):
     try:
-        res = subprocess.run([python_exe, script_path], capture_output=True, text=True)
+        # Children print vault filenames and eval questions; decode as UTF-8
+        # with replacement so a stray character never turns a step into a
+        # decode error in this process.
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", cwd=cwd, env=env)
         if res.returncode == 0:
             print(f"Success: {name}")
             if res.stdout:
@@ -167,7 +184,22 @@ def main():
 
     print("")
 
-    # 3. Run Obsidian Vault backup
+    # 3. Re-score retrieval against the private eval set, if this machine has
+    #    one, and warn when the number drifts from the committed scorecard.
+    #    A drift warning is information for the next PR, not a failure; the
+    #    step only fails if the eval itself crashes.
+    steps_run += 1
+    if not run_module(venv_python, "eval.run_eval", args=("--check",),
+                      cwd=os.path.join(REPO_ROOT, "backend"),
+                      env_extra={"PYTHONUTF8": "1", "TOKENIZERS_PARALLELISM": "false",
+                                 # Cached models only; without these huggingface_hub
+                                 # can die with "client has been closed" even offline.
+                                 "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}):
+        failures += 1
+
+    print("")
+
+    # 4. Run Obsidian Vault backup
     vault_dir = sb_common.get_vault_path()
     backup_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Obsidian Vault Backup')
 
@@ -177,7 +209,7 @@ def main():
 
     print("")
 
-    # 4. Clean up older backups
+    # 5. Clean up older backups
     steps_run += 1
     if not prune_old_backups(backup_dir, keep_limit=7):
         failures += 1

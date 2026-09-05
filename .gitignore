@@ -43,3 +43,6 @@ chat_archiver_stderr.log
 # Retrieval eval: private dataset + local results stay off GitHub
 backend/eval/dataset.jsonl
 backend/eval/results.json
+backend/eval/history.jsonl
+# Reranker sweep outputs hold private note text (see backend/eval/sweep_rerankers.py)
+backend/eval/sweeps/

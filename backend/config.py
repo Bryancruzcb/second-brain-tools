@@ -139,6 +139,21 @@ def get_reranker_model() -> str:
     return os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
+def get_reranker_onnx_file() -> str:
+    """ONNX export of RERANKER_MODEL to serve instead of the torch weights.
+
+    Empty (the default) loads RERANKER_MODEL through sentence-transformers.
+    Set it to a file inside the model repo, e.g. "onnx/model_quantized.onnx"
+    with RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2, to rerank through
+    onnxruntime. Measured 2026-09-04 on the 40-case eval at depth 30: that
+    int8 export of the default model's weights hit the same 32 cases at
+    k=4, 6 and 8 and reranked in 0.9 s median against 1.5 s for the torch
+    model. The official repo's own onnx/model_quint8_avx2.onnx lost a case
+    at k=4 for a 12% saving, so it is not the one to pick.
+    """
+    return os.environ.get("RERANKER_ONNX_FILE", "").strip()
+
+
 def get_embedding_model() -> str:
     """Bi-encoder used to embed chunks and queries (EMBEDDING_MODEL to override).
 
