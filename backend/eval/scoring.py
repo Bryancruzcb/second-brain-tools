@@ -31,6 +31,16 @@ def score_case(retrieved_sources, expected_sources, k=4):
     return {"hit": False, "reciprocal_rank": 0.0, "rank": None}
 
 
+def score_case_at(candidates, expected_sources, ks):
+    """Score one case at several k from a single best-first chunk list.
+
+    Each k is applied to the chunks before deduping to notes, which is
+    exactly what a retrieval run at that k would have handed the model, so
+    hit@4 taken from a k=6 run equals hit@4 from a k=4 run.
+    """
+    return {k: score_case(unique_sources(candidates[:k]), expected_sources, k=k) for k in ks}
+
+
 def aggregate(case_results):
     """Mean hit-rate and MRR over gradable cases; zeros when empty."""
     if not case_results:

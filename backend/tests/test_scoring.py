@@ -50,3 +50,13 @@ def test_aggregate_means():
 
 def test_aggregate_empty_is_zero():
     assert aggregate([]) == {"hit_rate": 0.0, "mrr": 0.0, "cases": 0}
+
+
+def test_score_case_at_applies_k_to_chunks_before_deduping():
+    from eval.scoring import score_case_at
+    candidates = [{"source": s} for s in ["a.md", "a.md", "a.md", "a.md", "b.md", "c.md"]]
+    scored = score_case_at(candidates, ["b.md"], ks=[4, 6])
+    # Four chunks all from a.md: a k=4 run never showed b.md, so it is a miss
+    # there even though b.md is the second unique note overall.
+    assert scored[4] == {"hit": False, "reciprocal_rank": 0.0, "rank": None}
+    assert scored[6] == {"hit": True, "reciprocal_rank": 0.5, "rank": 2}
