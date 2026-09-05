@@ -181,8 +181,7 @@ def main():
     reranker_name = config.get_reranker_model()
     cross_encoder = None
     if not config.reranker_disabled(reranker_name):
-        from sentence_transformers import CrossEncoder
-        cross_encoder = CrossEncoder(reranker_name)
+        cross_encoder = retrieval.load_reranker(reranker_name)
 
     rows, summary = run(cases, model=model, collection=collection, lexical=lex,
                         cross_encoder=cross_encoder, k=args.k)

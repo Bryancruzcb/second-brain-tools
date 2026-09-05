@@ -87,6 +87,60 @@ def rerank(query_text, candidates, *, cross_encoder, k=TOP_K):
     return [{**candidates[i], "rerank_score": float(scores[i])} for i in order[:k]]
 
 
+class OnnxCrossEncoder:
+    """A cross-encoder served from an ONNX export: predict(pairs) -> scores.
+
+    onnxruntime is already a chromadb dependency, so a quantised export of
+    the reranker costs no new package. Tokenisation mirrors
+    sentence_transformers.CrossEncoder (pair input, padding, longest-first
+    truncation at max_length), and rerank() only ever calls predict().
+    """
+
+    def __init__(self, session, tokenizer, max_length=512):
+        self.session = session
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.input_names = [i.name for i in session.get_inputs()]
+
+    @classmethod
+    def from_hub(cls, model_name, onnx_file, max_length=512):
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from transformers import AutoTokenizer
+        path = hf_hub_download(model_name, onnx_file)
+        session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+        return cls(session, AutoTokenizer.from_pretrained(model_name), max_length)
+
+    def predict(self, pairs, batch_size=32, **_):
+        import numpy as np
+        scores = []
+        for i in range(0, len(pairs), batch_size):
+            batch = pairs[i:i + batch_size]
+            enc = self.tokenizer([q for q, _ in batch], [d for _, d in batch], padding=True,
+                                 truncation=True, max_length=self.max_length, return_tensors="np")
+            ids = np.asarray(enc["input_ids"], dtype=np.int64)
+            feed = {}
+            for name in self.input_names:
+                feed[name] = np.asarray(enc[name], dtype=np.int64) if name in enc else np.zeros_like(ids)
+            logits = np.asarray(self.session.run(None, feed)[0])
+            scores.extend(float(x) for x in (logits[:, 0] if logits.ndim == 2 else logits.reshape(-1)))
+        return scores
+
+
+def load_reranker(name=None):
+    """The configured cross-encoder, shared by the API and the eval.
+
+    sentence-transformers by default; an ONNX export of the same repo when
+    RERANKER_ONNX_FILE is set (see config.get_reranker_onnx_file).
+    """
+    name = name or config.get_reranker_model()
+    onnx_file = config.get_reranker_onnx_file()
+    if onnx_file:
+        return OnnxCrossEncoder.from_hub(name, onnx_file, max_length=512)
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder(name)
+
+
 def cap_per_source(candidates, cap):
     """Keep at most ``cap`` chunks per note, preserving order; 0 means no cap.
 

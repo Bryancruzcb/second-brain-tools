@@ -262,3 +262,69 @@ def test_hybrid_cap_is_env_configurable(monkeypatch):
     monkeypatch.setenv("MAX_CHUNKS_PER_NOTE", "2")
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=FakeCollection(MAGNET), k=3)
     assert [c["id"] for c in out] == ["a1", "a2", "b1"]
+
+
+# ── reranker loading, torch or ONNX ──────────────────────────────────────
+
+class _FakeInput:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeSession:
+    def __init__(self):
+        self.calls = []
+
+    def get_inputs(self):
+        return [_FakeInput("input_ids"), _FakeInput("attention_mask"), _FakeInput("token_type_ids")]
+
+    def run(self, _outputs, feed):
+        import numpy as np
+        self.calls.append(sorted(feed))
+        n = feed["input_ids"].shape[0]
+        return [np.arange(n, dtype=np.float32).reshape(n, 1)]
+
+
+class _FakeTokenizer:
+    def __call__(self, queries, docs, padding, truncation, max_length, return_tensors):
+        import numpy as np
+        n = len(queries)
+        # No token_type_ids on purpose: the encoder must fill what the session wants.
+        return {"input_ids": np.ones((n, 3), dtype=np.int64),
+                "attention_mask": np.ones((n, 3), dtype=np.int64)}
+
+
+def test_onnx_cross_encoder_batches_and_fills_missing_inputs():
+    session = _FakeSession()
+    ce = retrieval.OnnxCrossEncoder(session, _FakeTokenizer(), max_length=512)
+    scores = ce.predict([("q", "d")] * 5, batch_size=2)
+    assert scores == [0.0, 1.0, 0.0, 1.0, 0.0]
+    assert session.calls == [["attention_mask", "input_ids", "token_type_ids"]] * 3
+
+
+def test_load_reranker_uses_sentence_transformers_by_default(monkeypatch):
+    monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
+    calls = []
+
+    class FakeCrossEncoder:
+        def __init__(self, name, **kwargs):
+            calls.append((name, kwargs))
+
+    import sentence_transformers
+    monkeypatch.setattr(sentence_transformers, "CrossEncoder", FakeCrossEncoder)
+    ce = retrieval.load_reranker("some/model")
+    assert isinstance(ce, FakeCrossEncoder)
+    assert calls == [("some/model", {})]
+
+
+def test_load_reranker_uses_onnx_export_when_configured(monkeypatch):
+    monkeypatch.setenv("RERANKER_ONNX_FILE", "onnx/model_quantized.onnx")
+    seen = {}
+
+    def fake_from_hub(cls, name, onnx_file, max_length=512):
+        seen.update(name=name, file=onnx_file, max_length=max_length)
+        return "onnx-encoder"
+
+    monkeypatch.setattr(retrieval.OnnxCrossEncoder, "from_hub", classmethod(fake_from_hub))
+    assert retrieval.load_reranker("some/model") == "onnx-encoder"
+    assert seen == {"name": "some/model", "file": "onnx/model_quantized.onnx", "max_length": 512}
