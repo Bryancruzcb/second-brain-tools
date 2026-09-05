@@ -51,10 +51,67 @@ def get_ollama_num_ctx() -> int:
     conversation history is included. 8K fits history + retrieved snippets
     + a 1K answer comfortably on CPU-only hardware.
     """
+    return _positive_int_env("OLLAMA_NUM_CTX", 8192)
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    """Parse an env var as a positive int; anything else yields the default."""
     try:
-        return int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
+        value = int(os.environ.get(name, default))
     except ValueError:
-        return 8192
+        return default
+    return value if value > 0 else default
+
+
+def get_top_k() -> int:
+    """Chunks handed to the answer model per query (TOP_K to override).
+
+    Measured 2026-09-04 on the 40-case eval at fusion depth 30: hit-rate
+    80.0% at k=4, 82.5% at k=6, 85.0% at k=8. Six is the default because
+    six chunks (about 3,800 tokens) plus a full conversation history still
+    fit the 8,192-token OLLAMA_NUM_CTX default; eight (about 5,100 tokens)
+    needs OLLAMA_NUM_CTX=16384.
+    """
+    return _positive_int_env("TOP_K", 6)
+
+
+def get_max_chunks_per_note() -> int:
+    """Chunks one note may occupy in the served list (MAX_CHUNKS_PER_NOTE).
+
+    Long generic notes place several chunks in the reranked top-k, so raising
+    TOP_K alone showed Qwen more of the same notes: measured 2026-09-04 at
+    depth 30, the served hit-rate stayed 80.0% from k=4 to k=10 with no cap.
+    With one chunk per note the served list matches the note-level view:
+    80.0% at k=4, 82.5% at 6, 85.0% at 8. 0 disables the cap; anything
+    unparsable falls back to 1.
+    """
+    raw = os.environ.get("MAX_CHUNKS_PER_NOTE")
+    if raw is None:
+        return 1
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1
+    return value if value >= 0 else 1
+
+
+def get_hybrid_depth() -> int:
+    """Candidates fetched per retrieval leg before fusion (HYBRID_DEPTH).
+
+    Pool recall on the eval set: 87.5% at 20, 90.0% at 30, 92.5% at 40,
+    95.0% at 80. Delivered hit-rate stops moving past 30 while the
+    reranker's cost keeps growing with the pool, so 30 is the knee.
+    """
+    return _positive_int_env("HYBRID_DEPTH", 30)
+
+
+def get_rerank_depth() -> int:
+    """Size of the fused pool the cross-encoder scores (RERANK_DEPTH).
+
+    Kept equal to HYBRID_DEPTH: the measured configuration fuses two
+    30-deep legs and reranks the top 30 of that union.
+    """
+    return _positive_int_env("RERANK_DEPTH", 30)
 
 
 def get_chroma_path() -> str:
