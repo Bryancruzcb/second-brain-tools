@@ -85,12 +85,20 @@ copy lives outside the repo during the run and is committed as
 
 - [x] Freeze the index copy and reproduce the baseline (77.5% / 0.715)
 - [x] Item 1: env-driven knobs, tests first, suite green
-- [ ] Item 1: k=6 / k=4 / k=8 evals reproduce the brief's table
-- [ ] Item 1: README retrieval-quality section re-measured, PR opened
-- [ ] Item 2: sweep script, pools dumped once, five models scored
-- [ ] Item 2: interleaved timing for any candidate that clears 82.5%
-- [ ] Item 2: results written down, default changed only on both gates
-- [ ] Item 3: header composition behind a flag, tests first
-- [ ] Item 3: two rebuilds, two evals, decision on the 5-point rule
-- [ ] Item 4: scorecard, CI test, README block, nightly drift step
+- [x] Item 1: k=6 / k=4 / k=8 evals. Depth 30 reproduced (80.0% at k=4); the
+      brief's by-k gains turned out to be note-level counts, so a per-note
+      chunk cap was added and verified (82.5% at 6, 85.0% at 8)
+- [x] Item 1: README retrieval-quality section re-measured, PR #15 opened
+      (CI green; the harness blocked the merge, so Bryan merges)
+- [x] Item 2: sweep script, pools dumped once; scored L-6, L-12, their ONNX
+      exports and jina-turbo's; the two DeBERTa candidates abandoned as
+      unusably slow on this CPU
+- [x] Item 2: interleaved timing rounds for L-6, L-12 and the L-6 int8 export
+- [x] Item 2: results written down in docs/eval; default reranker unchanged;
+      int8 export of the current model shipped opt-in (RERANKER_ONNX_FILE)
+- [x] Item 3: header composition behind CHUNK_SCHEME, tests first
+- [x] Item 3: two rebuilds, two evals: one case worse, headers stay off
+      (draft PR #16)
+- [x] Item 4: scorecard, CI test, README block, nightly drift step, recorded
+      (PR #17)
 - [ ] Trail audited against the transcript, reviewed by a second model
