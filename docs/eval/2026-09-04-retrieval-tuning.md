@@ -42,6 +42,7 @@ the whole reranked pool.
 | Xenova/ms-marco-MiniLM-L-6-v2 [onnx/model.onnx] |  | 512 | 80.0% | 80.0% | 80.0% | 80.0% | 82.5% | 85.0% | 0.717 | 1540 | 1704 | 40 | 1 |
 | cross-encoder/ms-marco-MiniLM-L-6-v2 | 22.7 | 512 | 80.0% | 80.0% | 80.0% | 80.0% | 82.5% | 85.0% | 0.717 | 1661 | 2412 | 120 | 3 |
 | cross-encoder/ms-marco-MiniLM-L-12-v2 [onnx/model_quint8_avx2.onnx] |  | 512 | 80.0% | 82.5% | 82.5% | 80.0% | 85.0% | 85.0% | 0.656 | 2688 | 5084 | 40 | 1 |
+| cross-encoder/ms-marco-MiniLM-L-6-v2 [onnx/model_quint8_avx2.onnx] |  | 512 | 77.5% | 80.0% | 80.0% | 77.5% | 82.5% | 85.0% | 0.727 | 1328 | 1443 | 40 | 1 |
 | jinaai/jina-reranker-v1-turbo-en [onnx/model.onnx] |  | 1024 | 75.0% | 80.0% | 85.0% | 80.0% | 82.5% | 87.5% | 0.594 | 5200 | 5977 | 40 | 1 |
 | jinaai/jina-reranker-v1-turbo-en [onnx/model_int8.onnx] |  | 512 | 72.5% | 75.0% | 82.5% | 75.0% | 82.5% | 85.0% | 0.552 | 1334 | 1428 | 40 | 1 |
 | jinaai/jina-reranker-v1-turbo-en [onnx/model.onnx] |  | 512 | 72.5% | 77.5% | 82.5% | 77.5% | 82.5% | 85.0% | 0.556 | 2107 | 2202 | 40 | 1 |
@@ -62,24 +63,30 @@ Gates from the plan: beat 80.0% served@4 by a whole case and stay under
   Its int8 export gives the case back (80.0%) and saves only 17%. Rejected.
 - jina-turbo trails the current model at every served cut (72.5% at k=4
   and 512 tokens, 75.0% at 1024). Rejected.
-- The int8 ONNX export of the current model (Xenova mirror, same weights)
-  hits exactly the same 32 cases at k=4, 6 and 8 and reranks in
-  898 ms median against 1661 ms, pooled over three interleaved rounds.
-  The fp32 export runs at torch speed, so the gain is the quantisation.
-  Shipped as opt-in: `RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2` plus
+- Two int8 exports of the current model behave differently. The official
+  repo's `onnx/model_quint8_avx2.onnx` loses a case at k=4
+  (77.5%) for a 12% saving (1328 ms). The Xenova mirror's
+  `onnx/model_quantized.onnx` (same weights, a different quantisation
+  recipe) hits exactly the same 32 cases at k=4, 6 and 8 and reranks in
+  887 ms median in the quiet round against 1515 ms for torch. The fp32
+  export runs at torch speed, so the gain is the quantisation. Shipped as
+  opt-in: `RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2` plus
   `RERANKER_ONNX_FILE=onnx/model_quantized.onnx`; the harness run through
   that production path scores 82.5% at k=6 on the frozen index, the
   same as the torch model. The default stays torch because the rankings
-  are not byte-identical and the export comes from a community mirror.
+  are not byte-identical and the file comes from a community mirror.
 
 The default reranker therefore does not change. No model between 22M and
 278M parameters beats it within budget on this CPU.
 
-One reading note on the latency columns. Absolute medians rose from round
-to round as the laptop warmed under ninety minutes of full-CPU load (the
-current model went 1515, 1657, 1790 ms across the three rounds), which is why
-the rounds interleave the models: the ratios between models hold within a
-round even as the absolute numbers drift.
+One reading note on the latency columns. Round 1 ran on a quiet machine;
+during rounds 2 and 3 the session also ran git, gh and a small script in
+the foreground, which broke the nothing-else-runs-while-timing rule, and
+the current model's median went 1515, 1657, 1790 ms across the rounds (the
+jump in round 3 lands at the query where those commands ran). The pooled
+medians in the table therefore overstate the control; the quiet numbers
+to quote are 1515 ms (current), 3224 ms (L-12, 2.1x) and 887 ms
+(int8, 41% less). The verdicts hold in every round.
 
 ## 3. Contextual chunk headers (draft PR #16)
 
@@ -91,15 +98,18 @@ scratch paths, scored with the shipped config:
 | plain | 82.5% | 85.0% | 0.730 | 37 / 40 |
 | context-header | 80.0% | 82.5% | 0.701 | 36 / 40 |
 
-One case lost, none gained. The scheme stays off. The pools also showed
+One rebuild per scheme cannot resolve a one-case difference: the README
+already discloses that rebuilding moves the eval by about one case, and
+both the header's lost case and the plain build's gained case sit inside
+that. The supported reading is that headers showed no measurable gain and
+came nowhere near the two-case bar. The scheme stays off. The pools also showed
 that the scope filter already keeps every chat chunk out of note-scope
 pools, so the corpus skew (4,215 of 4,321 chunks are transcripts) can only
 touch the eight chat-scope cases; the 32 note cases compete among 63
 notes and 106 chunks.
 
-The fresh plain rebuild scored one case above the frozen copy of the live
-index with no code change. That is the rebuild jitter the README
-discloses; the README and the scorecard keep the frozen-copy numbers.
+The README and the scorecard keep the frozen-copy numbers (80.0% / 82.5%
+at k=4 / 6), not the fresh build's.
 
 ## 4. Where the misses are now
 

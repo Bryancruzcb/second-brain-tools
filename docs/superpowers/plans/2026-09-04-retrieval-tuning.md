@@ -24,8 +24,10 @@ the reranker leaves them outside the top 4.
    model. Otherwise the negative result is written down and the default stays.
    Candidates: ms-marco-MiniLM-L-12-v2 (33M), mxbai-rerank-xsmall-v1 (71M),
    jina-reranker-v1-turbo-en (38M), mxbai-rerank-base-v1 (184M). ONNX
-   quantisation of the current model is left out: same weights cannot beat
-   80.0%, it only buys latency.
+   quantisation of the current model was first left out (same weights
+   cannot beat 80.0%, it only buys latency) and reinstated once L-12 failed
+   the latency gate, because latency was then the only lever left; it
+   ended up shipping as an opt-in path.
 3. **Contextual chunk headers.** Folder path, note title and section heading
    prepended to each chunk at index time, behind `CHUNK_SCHEME`, default off.
    Two fresh full rebuilds into scratch Chroma paths, one per scheme, scored
