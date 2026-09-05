@@ -31,6 +31,7 @@ def effective_config():
         "hybrid_depth": _cfg.get_hybrid_depth(),
         "rerank_depth": _cfg.get_rerank_depth(),
         "top_k": _cfg.get_top_k(),
+        "max_chunks_per_note": _cfg.get_max_chunks_per_note(),
         # Arrives with the contextual-chunk-header work; "plain" until then.
         "chunk_scheme": getattr(_cfg, "get_chunk_scheme", lambda: "plain")(),
     }
@@ -82,12 +83,14 @@ def render_readme_block(card):
     else:
         rerank = f"the fused top {cfg['rerank_depth']} reranked by `{cfg['reranker_model']}`"
     scheme = "" if cfg["chunk_scheme"] == "plain" else f", chunk scheme `{cfg['chunk_scheme']}`"
+    cap = cfg.get("max_chunks_per_note", 0)
+    per_note = f", at most {cap} per note" if cap else ""
     lines = [
         f"Recorded {card['recorded_at']} over {ds['cases']} cases against an index of "
         f"{idx['chunks']:,} chunks from {idx['sources']:,} files ({idx['notes']} notes, "
         f"{idx['chats']} chat transcripts): `{cfg['embedding_model']}` embeddings {prefix}, "
         f"each leg fetched to depth {cfg['hybrid_depth']}, {rerank}, "
-        f"{cfg['top_k']} chunks served{scheme}.",
+        f"{cfg['top_k']} chunks served{per_note}{scheme}.",
         "",
         "| Chunks shown | Hit-rate | MRR |",
         "|---|---|---|",

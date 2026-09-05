@@ -191,7 +191,10 @@ def main():
     steps_run += 1
     if not run_module(venv_python, "eval.run_eval", args=("--check",),
                       cwd=os.path.join(REPO_ROOT, "backend"),
-                      env_extra={"PYTHONUTF8": "1", "TOKENIZERS_PARALLELISM": "false"}):
+                      env_extra={"PYTHONUTF8": "1", "TOKENIZERS_PARALLELISM": "false",
+                                 # Cached models only; without these huggingface_hub
+                                 # can die with "client has been closed" even offline.
+                                 "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}):
         failures += 1
 
     print("")

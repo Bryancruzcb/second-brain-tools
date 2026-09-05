@@ -56,7 +56,8 @@ def test_scorecard_has_exactly_the_published_schema(monkeypatch):
     assert set(card) == {"recorded_at", "config", "index", "dataset", "metrics"}
     assert card["recorded_at"] == "2026-09-04"
     assert set(card["config"]) == {"embedding_model", "query_prefix", "reranker_model",
-                                   "hybrid_depth", "rerank_depth", "top_k", "chunk_scheme"}
+                                   "hybrid_depth", "rerank_depth", "top_k", "max_chunks_per_note",
+                                   "chunk_scheme"}
     assert card["index"] == INDEX
     assert card["dataset"] == DATASET
     assert card["metrics"] == {"k": 6, "hit_rate": 0.825, "mrr": 0.73, "by_k": SUMMARY["by_k"]}
