@@ -10,4 +10,7 @@ python-dotenv==1.2.2
 # sentence-transformers, which is not a contract -- a dependency drop there
 # breaks the container on first import.
 numpy==2.4.6
+# retrieval.OnnxCrossEncoder serves RERANKER_ONNX_FILE through onnxruntime.
+# chromadb already depends on it; the pin makes that a contract.
+onnxruntime==1.27.0
 scikit-learn==1.9.0

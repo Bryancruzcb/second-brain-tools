@@ -127,10 +127,11 @@ def _load_reranker_background():
     if config.reranker_disabled(name):
         logger.info("Reranker disabled via RERANKER_MODEL.")
         return
-    logger.info("Loading cross-encoder reranker (%s) in background...", name)
+    onnx_file = config.get_reranker_onnx_file()
+    logger.info("Loading cross-encoder reranker (%s%s) in background...",
+                name, f", ONNX {onnx_file}" if onnx_file else "")
     try:
-        from sentence_transformers import CrossEncoder
-        cross_encoder = CrossEncoder(name)
+        cross_encoder = retrieval.load_reranker(name)
         logger.info("Cross-encoder reranker loaded.")
     except Exception as e:
         logger.error(f"Failed to load reranker (serving fused order): {e}")

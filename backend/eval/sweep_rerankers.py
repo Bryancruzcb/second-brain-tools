@@ -201,49 +201,10 @@ def latency_stats(samples):
     }
 
 
-class OnnxCrossEncoder:
-    """CrossEncoder stand-in over an ONNX export: predict(pairs) -> scores.
-
-    onnxruntime is already in the venv as a chromadb dependency, so a
-    quantised export of the same weights can be timed without optimum.
-    Tokenisation mirrors sentence_transformers.CrossEncoder (pair input,
-    padding, longest-first truncation at max_length).
-    """
-
-    def __init__(self, session, tokenizer, max_length=512):
-        self.session = session
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-        self.input_names = [i.name for i in session.get_inputs()]
-
-    @classmethod
-    def from_hub(cls, model_name, onnx_file, max_length=512):
-        import onnxruntime as ort
-        from huggingface_hub import hf_hub_download
-        from transformers import AutoTokenizer
-        path = hf_hub_download(model_name, onnx_file)
-        session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-        return cls(session, AutoTokenizer.from_pretrained(model_name), max_length)
-
-    def predict(self, pairs, batch_size=32, **_):
-        import numpy as np
-        scores = []
-        for i in range(0, len(pairs), batch_size):
-            batch = pairs[i:i + batch_size]
-            enc = self.tokenizer([q for q, _ in batch], [d for _, d in batch], padding=True,
-                                 truncation=True, max_length=self.max_length, return_tensors="np")
-            ids = np.asarray(enc["input_ids"], dtype=np.int64)
-            feed = {}
-            for name in self.input_names:
-                feed[name] = np.asarray(enc[name], dtype=np.int64) if name in enc else np.zeros_like(ids)
-            logits = np.asarray(self.session.run(None, feed)[0])
-            scores.extend(float(x) for x in (logits[:, 0] if logits.ndim == 2 else logits.reshape(-1)))
-        return scores
-
-
 def load_cross_encoder(name, max_length, trust_remote_code=False, onnx_file=None):
     """One reranker for this process. Returns (encoder, params in millions or None)."""
     if onnx_file:
+        from retrieval import OnnxCrossEncoder  # lazy: retrieval binds depths at import
         return OnnxCrossEncoder.from_hub(name, onnx_file, max_length), None
     from sentence_transformers import CrossEncoder
     kwargs = {"max_length": max_length}
