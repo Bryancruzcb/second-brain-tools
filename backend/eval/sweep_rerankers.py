@@ -201,7 +201,50 @@ def latency_stats(samples):
     }
 
 
-def load_cross_encoder(name, max_length, trust_remote_code=False):
+class OnnxCrossEncoder:
+    """CrossEncoder stand-in over an ONNX export: predict(pairs) -> scores.
+
+    onnxruntime is already in the venv as a chromadb dependency, so a
+    quantised export of the same weights can be timed without optimum.
+    Tokenisation mirrors sentence_transformers.CrossEncoder (pair input,
+    padding, longest-first truncation at max_length).
+    """
+
+    def __init__(self, session, tokenizer, max_length=512):
+        self.session = session
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.input_names = [i.name for i in session.get_inputs()]
+
+    @classmethod
+    def from_hub(cls, model_name, onnx_file, max_length=512):
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from transformers import AutoTokenizer
+        path = hf_hub_download(model_name, onnx_file)
+        session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+        return cls(session, AutoTokenizer.from_pretrained(model_name), max_length)
+
+    def predict(self, pairs, batch_size=32, **_):
+        import numpy as np
+        scores = []
+        for i in range(0, len(pairs), batch_size):
+            batch = pairs[i:i + batch_size]
+            enc = self.tokenizer([q for q, _ in batch], [d for _, d in batch], padding=True,
+                                 truncation=True, max_length=self.max_length, return_tensors="np")
+            ids = np.asarray(enc["input_ids"], dtype=np.int64)
+            feed = {}
+            for name in self.input_names:
+                feed[name] = np.asarray(enc[name], dtype=np.int64) if name in enc else np.zeros_like(ids)
+            logits = np.asarray(self.session.run(None, feed)[0])
+            scores.extend(float(x) for x in (logits[:, 0] if logits.ndim == 2 else logits.reshape(-1)))
+        return scores
+
+
+def load_cross_encoder(name, max_length, trust_remote_code=False, onnx_file=None):
+    """One reranker for this process. Returns (encoder, params in millions or None)."""
+    if onnx_file:
+        return OnnxCrossEncoder.from_hub(name, onnx_file, max_length), None
     from sentence_transformers import CrossEncoder
     kwargs = {"max_length": max_length}
     if trust_remote_code:
@@ -281,6 +324,8 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--max-length", type=int, default=512)
     s.add_argument("--trust-remote-code", action="store_true")
+    s.add_argument("--onnx-file", default=None,
+                   help="score a cached ONNX export of --model instead, e.g. onnx/model_quint8_avx2.onnx")
     s.add_argument("--ks", default=",".join(map(str, DEFAULT_KS)))
     s.add_argument("--rounds", type=int, default=1)
     s.add_argument("--tag", default="")
@@ -307,18 +352,21 @@ def main(argv=None):
         with open(args.pools, encoding="utf-8") as f:
             pools = json.load(f)
         t0 = time.perf_counter()
-        ce, params_m = load_cross_encoder(args.model, args.max_length, args.trust_remote_code)
+        ce, params_m = load_cross_encoder(args.model, args.max_length, args.trust_remote_code,
+                                          onnx_file=args.onnx_file)
         load_s = time.perf_counter() - t0
         ks = tuple(int(k) for k in args.ks.split(","))
         out = score_pools(pools, ce, ks=ks, rounds=args.rounds)
-        out.update({"model": args.model, "params_m": params_m, "max_length": args.max_length,
+        label = f"{args.model} [{args.onnx_file}]" if args.onnx_file else args.model
+        out.update({"model": label, "params_m": params_m, "max_length": args.max_length,
                     "load_s": load_s, "depth": pools["depth"], "pools_file": os.path.basename(args.pools),
                     "tag": args.tag, "scored_at": _dt.datetime.now().isoformat(timespec="seconds")})
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=1)
         m = out["metrics"]
-        print(f"{args.model} ({params_m:.1f}M, max_len {args.max_length}, load {load_s:.1f}s): "
+        size = f"{params_m:.1f}M" if params_m is not None else "onnx"
+        print(f"{label} ({size}, max_len {args.max_length}, load {load_s:.1f}s): "
               + " ".join(f"served@{k} {100 * m['reranked_served'][str(k)]['hit_rate']:.1f}%" for k in ks)
               + f" | median {out['latency_ms']['median']:.0f} ms p95 {out['latency_ms']['p95']:.0f} ms "
               f"over {out['latency_ms']['n']} timed calls -> {args.out}")

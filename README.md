@@ -169,7 +169,7 @@ npx tsc --noEmit
 npm run build
 
 cd ../
-python3 -m py_compile backend/main.py backend/config.py backend/indexer.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/run_eval.py scripts/*.py
+python3 -m py_compile backend/main.py backend/config.py backend/indexer.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/run_eval.py backend/eval/sweep_rerankers.py scripts/*.py
 python3 -m pytest backend/tests -q
 cargo check --manifest-path core/Cargo.toml
 ```
