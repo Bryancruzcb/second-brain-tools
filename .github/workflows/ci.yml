@@ -57,7 +57,7 @@ jobs:
           pip install -r backend/requirements-dev.txt
 
       - name: Python Syntax Verification
-        run: python -m py_compile backend/main.py backend/config.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py
+        run: python -m py_compile backend/main.py backend/config.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/run_eval.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py
 
       - name: Backend Tests
         run: python -m pytest backend/tests -q
