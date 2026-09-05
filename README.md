@@ -31,10 +31,13 @@ Both of these came from running it against my own vault and watching it stall.
 
 ## Retrieval quality
 
-Retrieval is scored against a private set of real questions about my own
-vault: each case asks whether the note that actually answers the question
-shows up in the top 4 chunks handed to Qwen. The harness is public
-(`backend/eval/`); the dataset stays local because it's my personal notes.
+Retrieval is scored against a private set of 40 real questions about my own
+vault, 32 about notes and 8 about chat transcripts: each case asks whether
+the note that actually answers the question is among the chunks handed to
+Qwen. The harness is public (`backend/eval/`); the dataset stays local
+because it's my personal notes.
+
+The August sequence, hit-rate@4 and MRR@4 on the index of that day:
 
 | Change | hit-rate@4 | MRR@4 |
 |---|---|---|
@@ -45,28 +48,58 @@ shows up in the top 4 chunks handed to Qwen. The harness is public
 | + bge-small-en-v1.5 embeddings, with the BGE query instruction | 80.0% | 0.713 |
 
 Each change was aimed at a measured diagnosis, not added on faith. The
-first three rows improved ranking while hit-rate sat still — the misses
+first three rows improved ranking while hit-rate sat still: the misses
 were sibling-note confusion (right folder, wrong note), which is exactly
-what a cross-encoder fixes: it converted four of those twelve misses.
+what a cross-encoder fixes, and it converted four of those twelve misses.
 The embedding swap then targeted the misses that never reached the fused
-top-20 at all — it pulled one of those five into the pool — and the
-harness caught something subtler: bge *without* its query instruction was
-a hit-rate regression (77.5%), *with* it a modest win — so the
-instruction shipped as the default. Reranking 20 candidates costs
-~210 ms on CPU, noise next to a local Qwen generation.
+top-20 at all, pulled one of those five into the pool, and the harness
+caught something subtler: bge *without* its query instruction was a
+hit-rate regression (77.5%), *with* it a modest win, so the instruction
+shipped as the default.
+
+### Re-measured 2026-09-04
+
+By September the same pipeline scored 77.5% / 0.715 on the same
+questions. The corpus had grown underneath it (4,321 chunks, 4,215 of them
+chat transcripts) and nothing was watching. Two changes, both measured on
+one frozen copy of that index:
+
+| Configuration | hit-rate@4 | hit-rate@6 | MRR@4 |
+|---|---|---|---|
+| Shipped in August: depth 20, 4 chunks | 77.5% | | 0.715 |
+| Depth 30 | 80.0% | 80.0% | 0.717 |
+| Depth 30, one chunk per note, 6 chunks served (shipped now) | 80.0% | 82.5% | 0.717 |
+
+Fetching 30 candidates per leg instead of 20 lifts pool recall from 87.5%
+to 90.0% and converts one miss; going deeper than 30 costs reranker time
+and converts nothing (still 80.0% at depth 80). Showing more chunks did not
+help by itself: at depth 30 the served hit-rate was 80.0% at 4, 6 and 8
+chunks with the same eight misses, because the extra slots went to further
+chunks of the same long, generic notes (one interview-prep note appears in
+32 of the 40 candidate pools). Capping each note to one chunk turns the
+extra slots into extra notes: 82.5% at 6 chunks and 85.0% at 8.
+Six ships because six chunks plus a full conversation history still fit
+the 8,192-token context; eight needs `OLLAMA_NUM_CTX=16384`.
+
+Reranking 30 candidates with `cross-encoder/ms-marco-MiniLM-L-6-v2` takes
+about 1.5 s median on this laptop's CPU (Core Ultra 7 155H); an earlier
+version of this section claimed ~210 ms, which no longer reproduces.
 
 One honesty note on precision: rebuilding the index and re-running the
 eval moves the numbers by about one case (±2.5 points hit-rate, ±0.03
 MRR) because Chroma's approximate-nearest-neighbor index is
-non-deterministic at build time — within a single build the eval is
-exactly reproducible. Treat the table as a trend, not tenths.
+non-deterministic at build time; within a single build the eval is
+exactly reproducible. Treat the tables as a trend, not tenths.
 
 Every retrieval knob is an env var: `EMBEDDING_MODEL`,
 `EMBEDDING_QUERY_PREFIX`, `RERANKER_MODEL` (set to `off` on slow CPUs),
-`OLLAMA_MODEL`. Changing the embedding model requires a full re-embed:
-`python scripts/rebuild_rag_index.py --full` from `backend/`.
+`HYBRID_DEPTH`, `RERANK_DEPTH`, `TOP_K`, `MAX_CHUNKS_PER_NOTE` (0 disables
+the cap), `OLLAMA_MODEL`. Changing the embedding model requires a full
+re-embed: `python scripts/rebuild_rag_index.py --full` from `backend/`.
 
-*Baseline measured 2026-08-05 over 40 cases — 32 note-scope and 8 chat-scope, mixing exact-keyword and paraphrase phrasings. Two cases accept either of two related notes; the rest label a single expected note.*
+*The August rows were measured 2026-08-05/06; the September table on
+2026-09-04. Two cases accept either of two related notes; the rest label
+a single expected note.*
 
 Score it against your own vault:
 
