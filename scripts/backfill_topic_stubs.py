@@ -92,7 +92,10 @@ def main() -> int:
             rel = os.path.relpath(path, vault)
             source = source_from_rel(rel)
             excerpt = excerpt_from_transcript(path) or title
-            text_for_match = f"{title}\n{excerpt}"
+            # Parent folder under the source (Coding/School/Personal) as a soft hint.
+            parts = rel.replace("\\\\", "/").split("/")
+            category_hint = parts[2] if len(parts) >= 3 else None
+            text_for_match = f"{title}\n{excerpt}\n{category_hint or ''}"
 
             route = topic_router.match_route(text_for_match)
             if not route:
@@ -106,6 +109,7 @@ def main() -> int:
                 short_id=short_id,
                 first_prompt=excerpt,
                 transcript_path=path,
+                category=category_hint,
             )
             if result:
                 written += 1

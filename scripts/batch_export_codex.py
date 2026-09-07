@@ -163,6 +163,7 @@ def main():
                 short_id=short_id,
                 first_prompt=first_prompt,
                 transcript_path=output_path,
+                category=category,
             )
             if routed and routed.get("project"):
                 project_link = routed["project"]

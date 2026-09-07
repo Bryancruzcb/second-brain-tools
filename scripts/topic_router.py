@@ -176,13 +176,17 @@ def route_chat(
     first_prompt: str,
     transcript_path: str | None = None,
     transcript_link: str | None = None,
+    category: str | None = None,
 ) -> dict[str, Any] | None:
     """Classify a chat and write a topic stub when it matches a route.
 
     Pass transcript_path (absolute) and/or transcript_link (vault wikilink).
     Returns {"route", "stub_path", "project"} or None if no topic matched.
     """
-    text = f"{title}\n{first_prompt}"
+    parts = [title, first_prompt]
+    if category:
+        parts.append(str(category))
+    text = "\n".join(p for p in parts if p)
     cfg = _load_config()
     route = match_route(text, cfg)
     if not route:

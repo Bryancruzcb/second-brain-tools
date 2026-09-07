@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "stub_subdir": "AI Chat Links",
   "routes": [
     {
@@ -19,7 +19,11 @@
         "vault health",
         "bm25",
         "ollama",
-        "ask qwen"
+        "ask qwen",
+        "topic_routes",
+        "topic stub",
+        "chat export",
+        "obsidian vault"
       ]
     },
     {
@@ -30,7 +34,12 @@
         "creatorflow",
         "creator flow",
         "roblox",
-        "fable strategic"
+        "fable strategic",
+        "fable5",
+        "handoff-motion",
+        "motion-engine",
+        "creatorflow-hero",
+        "creatorflow-rewrite"
       ]
     },
     {
@@ -59,7 +68,157 @@
         "data science",
         "pandas",
         "sklearn",
-        "jupyter"
+        "jupyter",
+        "open portal",
+        "city open data"
+      ]
+    },
+    {
+      "id": "study-os",
+      "title": "study-os",
+      "folder": "02 Projects/study-os",
+      "keywords": [
+        "study-os",
+        "study os",
+        "studyos",
+        "ui of study"
+      ]
+    },
+    {
+      "id": "weekly-worker",
+      "title": "weekly-worker-agent",
+      "folder": "02 Projects/weekly-worker-agent",
+      "keywords": [
+        "weekly-worker",
+        "weekly worker",
+        "weekly_worker_agent",
+        "internship digest",
+        "worker agent"
+      ]
+    },
+    {
+      "id": "deadline-compliance",
+      "title": "Deadline Compliance Tool",
+      "folder": "02 Projects/Deadline Compliance Tool",
+      "keywords": [
+        "deadline compliance",
+        "compliance tool",
+        "market scan"
+      ]
+    },
+    {
+      "id": "animated-readme",
+      "title": "Animated Profile README",
+      "folder": "02 Projects/Animated Profile README",
+      "keywords": [
+        "animated profile",
+        "profile readme",
+        "readme design spec"
+      ]
+    },
+    {
+      "id": "aegis-eval",
+      "title": "aegis-eval",
+      "folder": "02 Projects/aegis-eval",
+      "keywords": [
+        "aegis-eval",
+        "aegis eval",
+        "aegis"
+      ]
+    },
+    {
+      "id": "electron-notebook",
+      "title": "electron-notebook-prototype",
+      "folder": "02 Projects/electron-notebook-prototype",
+      "keywords": [
+        "electron-notebook",
+        "electron notebook",
+        "notebook prototype"
+      ]
+    },
+    {
+      "id": "cs146",
+      "title": "CS 146",
+      "folder": "03 School/Computer Science/CS 146 Data Structures and Algorithms",
+      "keywords": [
+        "cs 146",
+        "cs146",
+        "data structures and algorithms",
+        "practice problems",
+        "javafx",
+        "ams 10",
+        "ams10",
+        "lab12",
+        "sjsu cs"
+      ]
+    },
+    {
+      "id": "school",
+      "title": "School",
+      "folder": "03 School",
+      "keywords": [
+        "homework",
+        "essay",
+        "thesis",
+        "sjsu",
+        "grading rubric",
+        "course_files_export",
+        "declaration of independence",
+        "school notes",
+        "cs 46",
+        "cs46a",
+        "cs46b",
+        "school"
+      ]
+    },
+    {
+      "id": "career",
+      "title": "Career",
+      "folder": "04 Career",
+      "keywords": [
+        "interview prep",
+        "interview",
+        "resume",
+        "contra",
+        "upwork",
+        "internship",
+        "portfolio",
+        "linkedin",
+        "career ideas",
+        "system design interview",
+        "behavioral interview",
+        "rag_ai_system_design",
+        "ai devops application",
+        "career",
+        "job application"
+      ]
+    },
+    {
+      "id": "ai-learning",
+      "title": "AI Learning",
+      "folder": "04 Career/AI Learning",
+      "keywords": [
+        "build your own llm",
+        "ai engineering projects",
+        "15_ai_engineering",
+        "prompt caching",
+        "fine tuning",
+        "transformer from scratch"
+      ]
+    },
+    {
+      "id": "agent-tooling",
+      "title": "Agent Tooling",
+      "folder": "02 Projects/Agent Tooling",
+      "keywords": [
+        "claude doctor",
+        "claude security",
+        "claude code",
+        "codex agent",
+        "skill install",
+        "mcp server",
+        "cursor cloud agent",
+        "update config skill"
       ]
     }
   ]
