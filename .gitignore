@@ -37,6 +37,7 @@ Icon
 chroma_db/
 health_cache.json
 *.log
+scripts/.auto_archive_last_success
 chat_archiver_stdout.log
 chat_archiver_stderr.log
 
