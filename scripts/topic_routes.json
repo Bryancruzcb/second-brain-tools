@@ -1,6 +1,7 @@
 {
-  "version": 2,
+  "version": 3,
   "stub_subdir": "AI Chat Links",
+  "default_route_id": "chat-inbox",
   "routes": [
     {
       "id": "second-brain",
@@ -23,7 +24,8 @@
         "topic_routes",
         "topic stub",
         "chat export",
-        "obsidian vault"
+        "obsidian vault",
+        "obsidian merge"
       ]
     },
     {
@@ -213,13 +215,44 @@
       "keywords": [
         "claude doctor",
         "claude security",
-        "claude code",
-        "codex agent",
-        "skill install",
         "mcp server",
+        "skill install",
+        "update config skill",
         "cursor cloud agent",
-        "update config skill"
+        "claude plugins",
+        "in-app-browser-context",
+        "playwright-mcp"
       ]
+    },
+    {
+      "id": "github-dev",
+      "title": "GitHub Dev",
+      "folder": "02 Projects/GitHub Dev",
+      "keywords": [
+        "github actions",
+        "pull request",
+        "git push",
+        "git commit",
+        "gh pr",
+        "origin/main"
+      ]
+    },
+    {
+      "id": "media-tools",
+      "title": "Media Tools",
+      "folder": "02 Projects/Media Tools",
+      "keywords": [
+        "ffmpeg",
+        "screenshot",
+        "image 1",
+        "screen recording"
+      ]
+    },
+    {
+      "id": "chat-inbox",
+      "title": "Chat Inbox",
+      "folder": "02 Projects/Chat Inbox",
+      "keywords": []
     }
   ]
 }

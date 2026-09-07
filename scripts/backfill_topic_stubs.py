@@ -2,13 +2,14 @@
 backfill_topic_stubs.py — create topic link stubs for existing AI chat transcripts.
 
 Walks 05 AI Chats/, keeps only exporter-written transcripts, matches topic_routes.json,
-and writes/updates stubs under 02 Projects/<Topic>/AI Chat Links/.
+and writes/updates stubs under topic folders (including Chat Inbox default).
 """
 from __future__ import annotations
 
 import os
 import re
 import sys
+from pathlib import Path
 
 import sb_common
 import topic_router
@@ -20,7 +21,7 @@ FNAME_RE = re.compile(
 
 
 def source_from_rel(rel: str) -> str:
-    parts = rel.replace("\\", "/").split("/")
+    parts = Path(rel).parts
     if len(parts) >= 2 and parts[0] == "05 AI Chats":
         return parts[1]
     return "Unknown"
@@ -92,15 +93,14 @@ def main() -> int:
             rel = os.path.relpath(path, vault)
             source = source_from_rel(rel)
             excerpt = excerpt_from_transcript(path) or title
-            # Parent folder under the source (Coding/School/Personal) as a soft hint.
-            parts = rel.replace("\\\\", "/").split("/")
-            category_hint = parts[2] if len(parts) >= 3 else None
+            parts = Path(rel).parts
+            # 05 AI Chats / <Source> / <Category> / file.md
+            category_hint = parts[2] if len(parts) >= 4 else None
             text_for_match = f"{title}\n{excerpt}\n{category_hint or ''}"
 
-            route = topic_router.match_route(text_for_match)
-            if not route:
-                continue
-            matched += 1
+            keyword_route = topic_router.match_route(text_for_match)
+            if keyword_route:
+                matched += 1
 
             result = topic_router.route_chat(
                 source=source,
@@ -113,14 +113,14 @@ def main() -> int:
             )
             if result:
                 written += 1
-                tid = route.get("id", "?")
+                tid = (result.get("route") or {}).get("id", "?")
                 by_topic[tid] = by_topic.get(tid, 0) + 1
 
     print("=== topic stub backfill ===")
     print(f"scanned md files:     {scanned}")
     print(f"exporter transcripts: {transcripts}")
     print(f"skipped hand-written: {skipped_non_export}")
-    print(f"topic matches:        {matched}")
+    print(f"keyword topic hits:   {matched}")
     print(f"stubs written:        {written}")
     for tid, n in sorted(by_topic.items(), key=lambda x: (-x[1], x[0])):
         print(f"  {tid}: {n}")

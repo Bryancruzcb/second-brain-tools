@@ -209,7 +209,7 @@ Run it manually with `python scripts/auto_archive.py`, or schedule it daily with
 
 ### Topic stubs for project folders
 
-Exported chats still live under `05 AI Chats/`. When a session matches `scripts/topic_routes.json`, the exporters also write a small link stub under `02 Projects/<Topic>/AI Chat Links/` pointing back at the transcript. Edit that JSON to add projects and keywords.
+Exported chats still live under `05 AI Chats/`. When a session matches `scripts/topic_routes.json`, the exporters also write a small link stub under `02 Projects/<Topic>/AI Chat Links/` pointing back at the transcript. Edit that JSON to add projects and keywords. Unmatched chats go to `02 Projects/Chat Inbox/AI Chat Links` (`default_route_id`).
 
 One caveat: the backend keeps its BM25 keyword index in memory, so if the backend is running while the nightly pass updates the vector index from outside, use **Re-index notes** or restart the backend afterward — until then the keyword leg answers from the pre-update snapshot (including notes the pass may have deleted).
 

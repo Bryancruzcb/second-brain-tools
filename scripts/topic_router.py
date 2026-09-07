@@ -190,7 +190,11 @@ def route_chat(
     cfg = _load_config()
     route = match_route(text, cfg)
     if not route:
-        return None
+        default_id = cfg.get("default_route_id")
+        if default_id:
+            route = next((r for r in cfg.get("routes", []) if r.get("id") == default_id), None)
+        if not route:
+            return None
 
     link = transcript_link
     if not link and transcript_path:
