@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "stub_subdir": "AI Chat Links",
+  "routes": [
+    {
+      "id": "second-brain",
+      "title": "Second Brain",
+      "folder": "02 Projects/Second Brain",
+      "keywords": [
+        "second brain",
+        "second-brain",
+        "second-brain-tools",
+        "rag system",
+        "local rag",
+        "vector index",
+        "chroma",
+        "auto_archive",
+        "auto-archive",
+        "vault health",
+        "bm25",
+        "ollama",
+        "ask qwen"
+      ]
+    },
+    {
+      "id": "creatorflow",
+      "title": "CreatorFlow",
+      "folder": "02 Projects/CreatorFlow",
+      "keywords": [
+        "creatorflow",
+        "creator flow",
+        "roblox",
+        "fable strategic"
+      ]
+    },
+    {
+      "id": "signal-path",
+      "title": "signal-path",
+      "folder": "02 Projects/signal-path",
+      "keywords": [
+        "signal-path",
+        "signal path"
+      ]
+    },
+    {
+      "id": "quickbite",
+      "title": "quickbite",
+      "folder": "02 Projects/quickbite",
+      "keywords": [
+        "quickbite",
+        "quick bite"
+      ]
+    },
+    {
+      "id": "data-science",
+      "title": "Data Science Project",
+      "folder": "02 Projects/Data Science Project",
+      "keywords": [
+        "data science",
+        "pandas",
+        "sklearn",
+        "jupyter"
+      ]
+    }
+  ]
+}

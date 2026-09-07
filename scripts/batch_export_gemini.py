@@ -128,13 +128,27 @@ def export_sessions(brain_dir, vault_dir, index_path, source_type):
 
         # Parse and save
         parse_gemini_jsonl(log_file, output_path, f"{raw_title} ({short_id})")
+        project_link = sb_common.detect_project_link(first_prompt)
+        try:
+            import topic_router
+            routed = topic_router.route_chat(
+                source=("Gemini" if source_type == "desktop" else "Gemini CLI"),
+                title=raw_title,
+                date_str=date_str,
+                short_id=short_id,
+                first_prompt=first_prompt,
+                transcript_path=output_path,
+            )
+            if routed and routed.get("project"):
+                project_link = routed["project"]
+        except Exception as e:
+            print(f"topic_router skipped: {e}")
         if refresh_path:
             print(f"Refreshed {source_type}: {os.path.basename(output_path)}")
             continue
         print(f"Exported {source_type}: {file_name} -> {category}")
 
         rel_link = f"05 AI Chats/{'Gemini' if source_type == 'desktop' else 'Gemini CLI'}/{category}/{file_name.replace('.md', '')}"
-        project_link = sb_common.detect_project_link(first_prompt)
 
         exported_entries.append({
             "date": date_str,

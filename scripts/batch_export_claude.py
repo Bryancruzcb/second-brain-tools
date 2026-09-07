@@ -199,6 +199,21 @@ def main():
 
         # Parse and save
         parse_jsonl(full_path, output_path, f"{raw_title} ({short_id})")
+        project_link = sb_common.detect_project_link(first_prompt)
+        try:
+            import topic_router
+            routed = topic_router.route_chat(
+                source="Claude",
+                title=raw_title,
+                date_str=date_str,
+                short_id=short_id,
+                first_prompt=first_prompt,
+                transcript_path=output_path,
+            )
+            if routed and routed.get("project"):
+                project_link = routed["project"]
+        except Exception as e:
+            print(f"topic_router skipped: {e}")
         if refresh_path:
             # Existing index row still points at this file; the nightly
             # rebuild_chat_indices pass regenerates rows from disk anyway.
@@ -209,7 +224,6 @@ def main():
         # Record for index
         # Format link: [[05 AI Chats/Claude/Coding/2026-07-14 - ...|Short Title]]
         rel_link = f"05 AI Chats/Claude/{category}/{os.path.splitext(file_name)[0]}"
-        project_link = sb_common.detect_project_link(first_prompt)
 
         exported_entries.append({
             "date": date_str,

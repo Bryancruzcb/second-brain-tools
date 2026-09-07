@@ -53,14 +53,19 @@ def detect_category(first_prompt: str) -> str:
 
 
 def detect_project_link(text: str) -> str:
-    lowered = text.lower()
-    if "signal-path" in lowered:
-        return "[[signal-path]]"
-    if "creatorflow" in lowered or "roblox" in lowered:
-        return "[[CreatorFlow]]"
-    if "quickbite" in lowered:
-        return "[[quickbite]]"
-    return ""
+    """Project wikilink for chat indexes; backed by topic_routes.json."""
+    try:
+        import topic_router
+        return topic_router.project_wikilink(text)
+    except Exception:
+        lowered = text.lower()
+        if "signal-path" in lowered:
+            return "[[signal-path]]"
+        if "creatorflow" in lowered or "roblox" in lowered:
+            return "[[CreatorFlow]]"
+        if "quickbite" in lowered:
+            return "[[quickbite]]"
+        return ""
 
 
 EXPORT_MARKER = "# Chat Transcript:"

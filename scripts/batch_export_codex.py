@@ -153,13 +153,27 @@ def main():
         output_path = refresh_path or os.path.join(vault_dir, category, file_name)
 
         parse_codex_jsonl(fp, output_path, f"{raw_title} ({short_id})")
+        project_link = sb_common.detect_project_link(first_prompt)
+        try:
+            import topic_router
+            routed = topic_router.route_chat(
+                source="Codex",
+                title=raw_title,
+                date_str=date_str,
+                short_id=short_id,
+                first_prompt=first_prompt,
+                transcript_path=output_path,
+            )
+            if routed and routed.get("project"):
+                project_link = routed["project"]
+        except Exception as e:
+            print(f"topic_router skipped: {e}")
         if refresh_path:
             print(f"Refreshed Codex: {os.path.basename(output_path)}")
             continue
         print(f"Exported Codex: {file_name} -> {category}")
 
         rel_link = f"05 AI Chats/Codex/{category}/{file_name.replace('.md', '')}"
-        project_link = sb_common.detect_project_link(first_prompt)
 
         exported_entries.append({
             "date": date_str,
