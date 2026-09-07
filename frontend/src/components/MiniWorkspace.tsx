@@ -1,13 +1,31 @@
 "use client";
 
-import { notes, recentNoteIds } from "@/data/mock";
-
-const sidebarNotes = recentNoteIds.slice(0, 5).map(
-  (id) => notes.find((n) => n.id === id)!,
-);
-const active = notes.find((n) => n.id === "n1")!;
+import { useEffect, useState } from "react";
+import { fetchRecent, recentToNote } from "@/lib/api";
+import type { Note } from "@/types";
 
 export function MiniWorkspace() {
+  const [sidebarNotes, setSidebarNotes] = useState<Note[]>([]);
+  const [status, setStatus] = useState<"loading" | "ok" | "down">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRecent()
+      .then((res) => {
+        if (cancelled) return;
+        setSidebarNotes((res.notes || []).slice(0, 5).map(recentToNote));
+        setStatus("ok");
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("down");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const active = sidebarNotes[0];
+
   return (
     <div className="flex h-[420px] bg-white text-[13px] leading-snug sm:h-[460px]">
       <aside className="hidden w-[200px] shrink-0 border-r border-hairline bg-[#fafafa] md:flex md:flex-col">
@@ -27,6 +45,12 @@ export function MiniWorkspace() {
           </div>
         </div>
         <div className="flex-1 overflow-hidden px-1.5">
+          {status === "loading" && (
+            <div className="px-2.5 py-2 text-[12px] text-muted">Loading…</div>
+          )}
+          {status === "down" && (
+            <div className="px-2.5 py-2 text-[12px] text-muted">Backend offline</div>
+          )}
           {sidebarNotes.map((n, i) => (
             <div
               key={n.id}
@@ -51,39 +75,24 @@ export function MiniWorkspace() {
         <div className="flex items-center justify-between border-b border-hairline px-5 py-3">
           <div className="min-w-0">
             <div className="truncate text-[14px] font-semibold tracking-[-0.02em]">
-              {active.title}
+              {active?.title || (status === "down" ? "Vault offline" : "Atlas")}
             </div>
             <div className="mono mt-0.5 truncate text-[11px] text-muted">
-              {active.path}
+              {active?.path || "localhost:3000/vault"}
             </div>
-          </div>
-          <div className="hidden gap-1.5 sm:flex">
-            {active.tags.map((t) => (
-              <span key={t} className="tag-chip">
-                {t}
-              </span>
-            ))}
           </div>
         </div>
         <div className="flex-1 overflow-hidden px-5 py-4">
           <div className="space-y-2 text-[13px] leading-relaxed text-muted">
-            <p className="font-medium text-ink/80">Principles</p>
-            <p>• Capture in the moment</p>
-            <p>• Link while the idea is fresh</p>
-            <p>• Review weekly</p>
-          </div>
-          <div className="mt-5 rounded-xl border border-hairline bg-[#fafafa] p-3">
-            <div className="text-[13px] text-muted">Links</div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {["Vault health taxonomy", "Graph reading modes"].map((t) => (
-                <span
-                  key={t}
-                  className="rounded-md border border-hairline bg-white px-2 py-1 text-[12px] text-ink/80"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
+            {active?.excerpt ? (
+              <p className="line-clamp-6 text-ink/80">{active.excerpt}</p>
+            ) : (
+              <>
+                <p className="font-medium text-ink/80">Live vault</p>
+                <p>• Recent notes from FastAPI</p>
+                <p>• Map · Repair · Ask below</p>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -106,13 +115,7 @@ export function MiniWorkspace() {
             <circle cx="145" cy="200" r="5.5" fill="#5E6AD2" fillOpacity="0.35" />
             <circle cx="95" cy="230" r="5" fill="#5E6AD2" fillOpacity="0.3" />
             <text x="90" y="145" textAnchor="middle" fill="#1D1D1F" fontSize="9" fontWeight="500">
-              Capture
-            </text>
-            <text x="50" y="48" textAnchor="middle" fill="#6E6E73" fontSize="8">
-              Health
-            </text>
-            <text x="140" y="58" textAnchor="middle" fill="#6E6E73" fontSize="8">
-              Graph
+              Vault
             </text>
           </svg>
         </div>

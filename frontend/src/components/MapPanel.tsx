@@ -1,74 +1,14 @@
 "use client";
 
-import { graphEdges, graphNodes, notes } from "@/data/mock";
+import { useEffect, useMemo, useState } from "react";
+import { ApiError, fetchGraph, layoutGraph } from "@/lib/api";
+import type { GraphNode } from "@/types";
 import { GlowOutline } from "./GlowOutline";
 
 type Props = {
   activeId: string | null;
   onNodeClick: (id: string) => void;
   sectionGlow?: boolean;
-};
-
-const clusterMeta: Record<
-  string,
-  { label: string; fill: string; cx: number; cy: number; rx: number; ry: number }
-> = {
-  systems: {
-    label: "Systems",
-    fill: "rgba(94, 106, 210, 0.07)",
-    cx: 310,
-    cy: 150,
-    rx: 110,
-    ry: 78,
-  },
-  learning: {
-    label: "Learning",
-    fill: "rgba(52, 168, 83, 0.06)",
-    cx: 195,
-    cy: 78,
-    rx: 72,
-    ry: 48,
-  },
-  ai: {
-    label: "AI",
-    fill: "rgba(94, 106, 210, 0.05)",
-    cx: 155,
-    cy: 235,
-    rx: 70,
-    ry: 52,
-  },
-  graph: {
-    label: "Graph",
-    fill: "rgba(201, 137, 42, 0.07)",
-    cx: 485,
-    cy: 215,
-    rx: 72,
-    ry: 55,
-  },
-  meetings: {
-    label: "Meetings",
-    fill: "rgba(110, 110, 115, 0.06)",
-    cx: 355,
-    cy: 285,
-    rx: 70,
-    ry: 48,
-  },
-  inbox: {
-    label: "Inbox",
-    fill: "rgba(217, 83, 79, 0.05)",
-    cx: 88,
-    cy: 115,
-    rx: 58,
-    ry: 42,
-  },
-  templates: {
-    label: "Templates",
-    fill: "rgba(110, 110, 115, 0.05)",
-    cx: 560,
-    cy: 135,
-    rx: 62,
-    ry: 44,
-  },
 };
 
 function wrapTitle(title: string, maxChars = 16): string[] {
@@ -90,9 +30,59 @@ function wrapTitle(title: string, maxChars = 16): string[] {
   return [line1, line2];
 }
 
+type Laid = {
+  nodes: GraphNode[];
+  edges: [string, string][];
+  labels: Record<string, string>;
+  totalNodes: number;
+  shownNodes: number;
+};
+
 export function MapPanel({ activeId, onNodeClick, sectionGlow }: Props) {
-  const byId = Object.fromEntries(graphNodes.map((n) => [n.id, n]));
-  const linkedCount = new Set(graphEdges.flat()).size;
+  const [laid, setLaid] = useState<Laid | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const g = await fetchGraph();
+        if (cancelled) return;
+        setLaid(layoutGraph(g.nodes || [], g.edges || []));
+      } catch (e) {
+        if (cancelled) return;
+        setError(
+          e instanceof ApiError ? e.message : "Could not load vault graph.",
+        );
+        setLaid(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const byId = useMemo(() => {
+    if (!laid) return {} as Record<string, GraphNode>;
+    return Object.fromEntries(laid.nodes.map((n) => [n.id, n]));
+  }, [laid]);
+
+  const linkedCount = laid
+    ? new Set(laid.edges.flat()).size
+    : 0;
+
+  const subtitle = loading
+    ? "Loading vault graph…"
+    : error
+      ? "Backend unavailable"
+      : laid
+        ? `Vault · ${laid.totalNodes} notes · showing ${laid.shownNodes} · ${linkedCount} linked`
+        : "No graph data";
 
   return (
     <GlowOutline
@@ -105,8 +95,8 @@ export function MapPanel({ activeId, onNodeClick, sectionGlow }: Props) {
       <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-4">
         <div className="min-w-0">
           <h3 className="text-[16px] font-medium tracking-[-0.02em]">Map</h3>
-          <p className="mt-0.5 text-[12px] font-medium text-muted">
-            Demo vault · {graphNodes.length} notes · {linkedCount} linked
+          <p className="mt-0.5 truncate text-[12px] font-medium text-muted">
+            {subtitle}
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-[var(--accent-softer)] px-2.5 py-1 text-[12px] font-medium text-[var(--accent)]">
@@ -114,6 +104,19 @@ export function MapPanel({ activeId, onNodeClick, sectionGlow }: Props) {
         </span>
       </div>
       <div className="relative flex-1 bg-white" style={{ minHeight: 380 }}>
+        {error ? (
+          <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-[13px] text-[#b42318]">
+            {error}
+          </div>
+        ) : loading || !laid ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[13px] text-muted">
+            Loading map…
+          </div>
+        ) : laid.nodes.length === 0 ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[13px] text-muted">
+            No notes in the graph yet. Run an index/scan on the backend.
+          </div>
+        ) : (
         <svg
           viewBox="0 0 640 400"
           className="absolute inset-0 h-full w-full"
@@ -128,32 +131,7 @@ export function MapPanel({ activeId, onNodeClick, sectionGlow }: Props) {
           </defs>
           <rect width="640" height="400" fill="url(#dots)" />
 
-          {Object.entries(clusterMeta).map(([key, c]) => (
-            <g key={key} pointerEvents="none">
-              <ellipse
-                cx={c.cx}
-                cy={c.cy}
-                rx={c.rx}
-                ry={c.ry}
-                fill={c.fill}
-                stroke="rgba(210, 210, 215, 0.55)"
-                strokeWidth="1"
-              />
-              <text
-                x={c.cx - c.rx + 10}
-                y={c.cy - c.ry + 14}
-                fill="#A1A1A6"
-                fontSize="10"
-                fontWeight={550}
-                fontFamily="Inter, system-ui, sans-serif"
-                letterSpacing="0.02em"
-              >
-                {c.label}
-              </text>
-            </g>
-          ))}
-
-          {graphEdges.map(([a, b]) => {
+          {laid.edges.map(([a, b]) => {
             const na = byId[a];
             const nb = byId[b];
             if (!na || !nb) return null;
@@ -172,10 +150,10 @@ export function MapPanel({ activeId, onNodeClick, sectionGlow }: Props) {
             );
           })}
 
-          {graphNodes.map((node) => {
-            const note = notes.find((n) => n.id === node.id);
+          {laid.nodes.map((node) => {
+            const title = laid.labels[node.id] ?? node.id;
             const active = activeId === node.id;
-            const lines = wrapTitle(note?.title ?? node.id, 18);
+            const lines = wrapTitle(title, 18);
             return (
               <g
                 key={node.id}
@@ -248,6 +226,7 @@ export function MapPanel({ activeId, onNodeClick, sectionGlow }: Props) {
             );
           })}
         </svg>
+        )}
       </div>
     </div>
     </GlowOutline>

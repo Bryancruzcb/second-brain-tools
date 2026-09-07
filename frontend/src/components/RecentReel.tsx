@@ -1,7 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type PointerEvent } from "react";
-import { healthIssues, notes, recentNoteIds } from "@/data/mock";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+  ApiError,
+  fetchHealth,
+  fetchNote,
+  fetchRecent,
+  mapHealthIssues,
+  recentToNote,
+} from "@/lib/api";
 import { relativeDay } from "@/lib/format";
 import type { HealthIssue, Note } from "@/types";
 import { GlowOutline } from "./GlowOutline";
@@ -34,20 +41,145 @@ export function RecentReel({
   onSelect,
   sectionGlow,
 }: Props) {
-  const selected = selectedId ? notes.find((n) => n.id === selectedId) : null;
+  const [reelNotes, setReelNotes] = useState<Note[]>([]);
+  const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([]);
+  const [detailCache, setDetailCache] = useState<Record<string, Note>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [recent, health] = await Promise.all([
+          fetchRecent(),
+          fetchHealth().catch(() => null),
+        ]);
+        if (cancelled) return;
+        setReelNotes((recent.notes || []).map(recentToNote));
+        if (health) setHealthIssues(mapHealthIssues(health.data || {}));
+      } catch (e) {
+        if (cancelled) return;
+        setError(
+          e instanceof ApiError
+            ? e.message
+            : "Could not load recent notes.",
+        );
+        setReelNotes([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // When selection is outside the recent reel (map/health), fetch a stub card
+  useEffect(() => {
+    if (!selectedId) return;
+    if (reelNotes.some((n) => n.id === selectedId)) return;
+    if (detailCache[selectedId]) {
+      setReelNotes((prev) => {
+        if (prev.some((n) => n.id === selectedId)) return prev;
+        return [detailCache[selectedId], ...prev];
+      });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const n = await fetchNote(selectedId);
+        if (cancelled) return;
+        const note: Note = {
+          id: selectedId,
+          title: n.title,
+          path: selectedId,
+          tags: [],
+          excerpt: n.content.replace(/\s+/g, " ").trim().slice(0, 160),
+          body: n.content,
+          updatedAt: new Date().toISOString(),
+          links: [],
+          backlinks: [],
+        };
+        setDetailCache((c) => ({ ...c, [selectedId]: note }));
+        setReelNotes((prev) => {
+          if (prev.some((x) => x.id === selectedId)) return prev;
+          return [note, ...prev];
+        });
+      } catch {
+        /* leave reel as-is; expand may still fail gracefully */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, reelNotes, detailCache]);
+
+  // Load full note body when selected
+  useEffect(() => {
+    if (!selectedId) return;
+    const cached = detailCache[selectedId];
+    if (cached && cached.body && cached.body.length > 200) return;
+    let cancelled = false;
+    setDetailLoading(true);
+    (async () => {
+      try {
+        const n = await fetchNote(selectedId);
+        if (cancelled) return;
+        const base =
+          reelNotes.find((x) => x.id === selectedId) ||
+          cached ||
+          ({
+            id: selectedId,
+            title: n.title,
+            path: selectedId,
+            tags: [],
+            excerpt: "",
+            body: "",
+            updatedAt: new Date().toISOString(),
+            links: [],
+            backlinks: [],
+          } as Note);
+        const note: Note = {
+          ...base,
+          title: n.title || base.title,
+          body: n.content,
+          excerpt:
+            base.excerpt ||
+            n.content.replace(/\s+/g, " ").trim().slice(0, 160),
+        };
+        setDetailCache((c) => ({ ...c, [selectedId]: note }));
+        setReelNotes((prev) =>
+          prev.map((x) => (x.id === selectedId ? { ...x, ...note } : x)),
+        );
+      } catch {
+        /* keep preview */
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selected =
+    (selectedId && (detailCache[selectedId] || reelNotes.find((n) => n.id === selectedId))) ||
+    null;
   const repairIssue: HealthIssue | null =
     repairIssueId && selected
       ? (healthIssues.find((h) => h.id === repairIssueId) ?? null)
       : null;
 
-  const reelNotes: Note[] = (() => {
-    const base = recentNoteIds
-      .map((id) => notes.find((n) => n.id === id))
-      .filter((n): n is Note => Boolean(n));
-    if (selected && !base.some((n) => n.id === selected.id)) {
-      return [selected, ...base];
+  const displayNotes: Note[] = (() => {
+    if (selected && !reelNotes.some((n) => n.id === selected.id)) {
+      return [selected, ...reelNotes];
     }
-    return base;
+    return reelNotes;
   })();
 
   const reelRef = useRef<HTMLDivElement>(null);
@@ -60,7 +192,6 @@ export function RecentReel({
     moved: false,
   });
 
-  // Soft-scroll expand panel into view whenever a note opens
   useEffect(() => {
     if (!selected) return;
     const t = window.setTimeout(() => {
@@ -72,7 +203,6 @@ export function RecentReel({
   const onPointerDown = useCallback((e: PointerEvent) => {
     const el = reelRef.current;
     if (!el) return;
-    // Reset each press; do NOT capture yet — wait for real drag movement
     drag.current = {
       active: true,
       dragging: false,
@@ -89,13 +219,12 @@ export function RecentReel({
 
     if (!drag.current.dragging) {
       if (Math.abs(dx) < DRAG_THRESHOLD_PX) return;
-      // Movement exceeded threshold — start drag-scroll and capture
       drag.current.dragging = true;
       drag.current.moved = true;
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
-        /* ignore if capture fails */
+        /* ignore */
       }
     }
 
@@ -127,8 +256,16 @@ export function RecentReel({
         <h2 className="text-[28px] font-medium tracking-[-0.03em] text-ink sm:text-[32px]">
           Recent
         </h2>
+        {error && (
+          <p className="mt-2 text-[13px] text-[#b42318]">{error}</p>
+        )}
       </div>
 
+      {loading ? (
+        <p className="px-1 text-[13px] text-muted">Loading recent notes…</p>
+      ) : displayNotes.length === 0 && !error ? (
+        <p className="px-1 text-[13px] text-muted">No recent notes from the vault.</p>
+      ) : (
       <div
         ref={reelRef}
         className="reel"
@@ -137,7 +274,7 @@ export function RecentReel({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {reelNotes.map((note) => (
+        {displayNotes.map((note) => (
           <NoteCard
             key={note.id}
             note={note}
@@ -149,6 +286,7 @@ export function RecentReel({
           />
         ))}
       </div>
+      )}
 
       <div
         ref={expandRef}
@@ -186,6 +324,9 @@ export function RecentReel({
                 <span className="text-[12px] text-muted">
                   {relativeDay(selected.updatedAt)}
                 </span>
+                {detailLoading && (
+                  <span className="text-[12px] text-muted">Loading…</span>
+                )}
               </div>
 
               {repairIssue && (
@@ -209,53 +350,9 @@ export function RecentReel({
                 </div>
               )}
 
-              <div className="prose-note mt-6 border-t border-hairline pt-6">
-                {selected.body}
+              <div className="prose-note mt-6 whitespace-pre-wrap border-t border-hairline pt-6">
+                {selected.body || "No content."}
               </div>
-              {(selected.links.length > 0 || selected.backlinks.length > 0) && (
-                <div className="mt-6 flex flex-wrap gap-6 border-t border-hairline pt-5 text-[13px]">
-                  {selected.links.length > 0 && (
-                    <div>
-                      <div className="mb-2 text-[13px] text-muted">Links</div>
-                      <div className="flex flex-wrap gap-2">
-                        {selected.links.map((id) => {
-                          const n = notes.find((x) => x.id === id);
-                          return n ? (
-                            <button
-                              key={id}
-                              type="button"
-                              className="rounded-md border border-hairline bg-[#fafafa] px-2.5 py-1 text-ink/80 transition hover:border-[var(--accent)] hover:text-[var(--accent)] focus-ring"
-                              onClick={() => onSelect(id)}
-                            >
-                              {n.title}
-                            </button>
-                          ) : null;
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {selected.backlinks.length > 0 && (
-                    <div>
-                      <div className="mb-2 text-[13px] text-muted">Mentions</div>
-                      <div className="flex flex-wrap gap-2">
-                        {selected.backlinks.map((id) => {
-                          const n = notes.find((x) => x.id === id);
-                          return n ? (
-                            <button
-                              key={id}
-                              type="button"
-                              className="rounded-md border border-hairline bg-[#fafafa] px-2.5 py-1 text-ink/80 transition hover:border-[var(--accent)] hover:text-[var(--accent)] focus-ring"
-                              onClick={() => onSelect(id)}
-                            >
-                              {n.title}
-                            </button>
-                          ) : null;
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </article>
           ) : (
             <div className="h-0" />

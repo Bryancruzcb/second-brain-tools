@@ -12,7 +12,7 @@ const GLOW_MS = 1400;
 export function ProductPage() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [repairIssueId, setRepairIssueId] = useState<string | null>(null);
-  const [mapFocusId, setMapFocusId] = useState<string | null>("n1");
+  const [mapFocusId, setMapFocusId] = useState<string | null>(null);
   const [askContextId, setAskContextId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SectionId | null>(null);
   const [glowSection, setGlowSection] = useState<SectionId | null>(null);

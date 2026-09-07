@@ -20,6 +20,7 @@ import httpx
 
 import config
 import indexer
+import health_hygiene
 import lexical
 import retrieval
 
@@ -201,7 +202,7 @@ def build_graph_from_chroma() -> Dict[str, Any]:
     """
     global chroma_collection
     if chroma_collection is None:
-        return {"nodes": [], "edges": []}
+        return {'nodes': [], 'edges': [], 'broken_links': [], 'orphaned_notes': [], 'tagless_notes': []}
 
     try:
         # Fetch all chunks (no query — just get everything)
@@ -306,12 +307,18 @@ def build_graph_from_chroma() -> Dict[str, Any]:
                 
         edges = explicit_edges + ghost_edges
 
-        logger.info(f"ChromaDB graph: {len(nodes)} nodes, {len(edges)} edges.")
-        return {"nodes": nodes, "edges": edges}
+        hygiene = health_hygiene.derive_hygiene_from_chunks(nodes, metadatas, documents)
+        logger.info(
+            f"ChromaDB graph: {len(nodes)} nodes, {len(edges)} edges; "
+            f"broken={len(hygiene['broken_links'])}, "
+            f"orphans={len(hygiene['orphaned_notes'])}, "
+            f"tagless={len(hygiene['tagless_notes'])}."
+        )
+        return {"nodes": nodes, "edges": edges, **hygiene}
 
     except Exception as e:
         logger.error(f"Failed to build graph from ChromaDB: {e}")
-        return {"nodes": [], "edges": []}
+        return {'nodes': [], 'edges': [], 'broken_links': [], 'orphaned_notes': [], 'tagless_notes': []}
 
 
 import shutil
@@ -320,19 +327,15 @@ def run_health_scan_sync():
     global health_cache, is_scanning, last_scan_time
     is_scanning = True
     try:
-        # Check system PATH first (e.g. inside Docker), fallback to workspace
-        binary_path = shutil.which("vault-core")
-        if not binary_path:
-            home_dir = os.path.expanduser("~")
-            binary_path = os.path.join(home_dir, "IdeaProjects/second-brain-tools/core/target/release/vault-core")
+        binary_path = health_hygiene.find_vault_core_binary()
 
         rust_data = None
-        if binary_path and os.path.exists(binary_path):
-            logger.info("Running background vault-core health checker...")
+        if binary_path:
+            logger.info("Running background vault-core health checker (%s)...", binary_path)
             try:
                 result = subprocess.run(
                     [binary_path, "--json"],
-                    capture_output=True, text=True, timeout=3
+                    capture_output=True, text=True, timeout=120
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     rust_data = json.loads(result.stdout)
@@ -347,24 +350,32 @@ def run_health_scan_sync():
         else:
             logger.warning("vault-core binary not found. Falling back to ChromaDB.")
 
-        # Always build graph from ChromaDB (fast, local, reliable)
+        # Always build graph from ChromaDB (fast, local, reliable).
+        # Chroma path also derives broken/orphan/tagless when vault-core is down.
         graph = build_graph_from_chroma()
 
         if rust_data:
-            # Merge: use Rust stats but always use the ChromaDB graph
-            data = {**rust_data, **graph}
+            # Prefer Rust hygiene lists; always use the ChromaDB graph for viz.
+            data = {
+                **rust_data,
+                **graph,
+                "broken_links": rust_data.get("broken_links", graph.get("broken_links", [])),
+                "orphaned_notes": rust_data.get("orphaned_notes", graph.get("orphaned_notes", [])),
+                "tagless_notes": rust_data.get("tagless_notes", graph.get("tagless_notes", [])),
+            }
         else:
-            # Full ChromaDB fallback for stats too
+            # Full ChromaDB fallback for stats + hygiene (no more hard-coded [])
             chroma_note_count = len(graph["nodes"])
-            chroma_edge_count = len(graph["edges"])
+            chroma_edge_count = sum(1 for e in graph["edges"] if not e.get("is_ghost"))
             data = {
                 "total_notes": chroma_note_count,
                 "total_links": chroma_edge_count,
                 "avg_links_per_note": round(chroma_edge_count / chroma_note_count, 2) if chroma_note_count else 0.0,
-                "broken_links": health_cache.get("broken_links", []),
-                "orphaned_notes": [],
-                "tagless_notes": [],
-                **graph
+                "broken_links": graph.get("broken_links", []),
+                "orphaned_notes": graph.get("orphaned_notes", []),
+                "tagless_notes": graph.get("tagless_notes", []),
+                "nodes": graph.get("nodes", []),
+                "edges": graph.get("edges", []),
             }
 
         health_cache = data

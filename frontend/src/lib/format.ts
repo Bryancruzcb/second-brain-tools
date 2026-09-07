@@ -9,7 +9,7 @@ export function formatTouched(iso: string): string {
 
 export function relativeDay(iso: string): string {
   const d = new Date(iso);
-  const now = new Date("2026-09-06T18:28:00-07:00");
+  const now = new Date();
   const diff = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
   if (diff <= 0) return "Today";
   if (diff === 1) return "Yesterday";
