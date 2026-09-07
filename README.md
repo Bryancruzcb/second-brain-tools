@@ -18,7 +18,7 @@ Both of these came from running it against my own vault and watching it stall.
 
 ![Demo of the vault UI](docs/demo.gif)
 
-*Above: the demo gif may show the previous shell. The current UI is Night Atlas (Notes / Map / Repair / Ask) — open a recent note, inspect the neighborhood map, triage Repair issues, and ask Qwen for a grounded answer with sources.*
+*Night Atlas: Notes, Map, Repair, and Ask — open a recent note, inspect the neighborhood map, triage Repair issues, and ask Qwen for a grounded answer with sources.*
 
 ## What it includes
 
