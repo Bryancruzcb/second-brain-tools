@@ -3,7 +3,8 @@ topic_router.py — map exported AI chats to related vault topic folders.
 
 Transcripts stay under 05 AI Chats/. For a matching topic, we write/update a
 small stub note in that topic's AI Chat Links/ folder that points at the
-transcript. Edit topic_routes.json to add projects/keywords.
+transcript. Keywords win first; otherwise embeddings pick a topic (or Chat Inbox).
+Confident matches auto-append learned_keywords into topic_routes.json.
 """
 from __future__ import annotations
 
@@ -13,6 +14,11 @@ import re
 from typing import Any
 
 import sb_common
+
+try:
+    import topic_embed
+except Exception:  # pragma: no cover
+    topic_embed = None  # type: ignore
 
 ROUTES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "topic_routes.json")
 
@@ -188,13 +194,50 @@ def route_chat(
         parts.append(str(category))
     text = "\n".join(p for p in parts if p)
     cfg = _load_config()
+
+    score = 1.0  # keyword hits count as strong
+    how = "keyword"
     route = match_route(text, cfg)
-    if not route:
+
+    if route is None and topic_embed is not None:
+        route, score = topic_embed.embed_match(text, cfg)
+        how = "embed"
+        if route is not None:
+            print(f"Topic embed: {route.get('id')} score={score:.3f}")
+
+    if route is None:
         default_id = cfg.get("default_route_id")
         if default_id:
             route = next((r for r in cfg.get("routes", []) if r.get("id") == default_id), None)
+            how = "inbox"
+            score = 0.0
         if not route:
             return None
+
+    # Grow keyword map automatically for confident non-inbox assignments.
+    if topic_embed is not None and route.get("id") != "chat-inbox":
+        learn_score = score if how == "embed" else topic_embed.LEARN_THRESHOLD
+        # For keyword hits, still try learning at learn threshold using embed score if available.
+        if how == "keyword" and topic_embed is not None:
+            try:
+                _, emb_score = topic_embed.embed_match(text, cfg, threshold=0.0)
+                learn_score = max(learn_score, emb_score)
+            except Exception:
+                learn_score = topic_embed.LEARN_THRESHOLD
+        try:
+            added = topic_embed.learn_keywords(
+                text, route, cfg, score=learn_score, source=how
+            )
+            if added:
+                print(f"Topic keywords learned for {route.get('id')}: {added}")
+                # refresh route from disk so stub uses updated title map
+                cfg = _load_config()
+                route = next(
+                    (r for r in cfg.get("routes", []) if r.get("id") == route.get("id")),
+                    route,
+                )
+        except Exception as e:
+            print(f"topic keyword learn skipped: {e}")
 
     link = transcript_link
     if not link and transcript_path:

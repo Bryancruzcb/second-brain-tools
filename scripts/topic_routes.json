@@ -22,10 +22,15 @@
         "ollama",
         "ask qwen",
         "topic_routes",
-        "topic stub",
-        "chat export",
         "obsidian vault",
-        "obsidian merge"
+        "obsidian merge",
+        "merge tasks",
+        "brain tools"
+      ],
+      "description": "Personal Obsidian vault, local RAG, chat archive, Chroma retrieval, second-brain-tools.",
+      "learned_keywords": [
+        "merge tasks",
+        "brain tools"
       ]
     },
     {
@@ -41,7 +46,28 @@
         "handoff-motion",
         "motion-engine",
         "creatorflow-hero",
-        "creatorflow-rewrite"
+        "creatorflow-rewrite",
+        "roblox plugin",
+        "senior creative",
+        "creative technologist",
+        "motion design",
+        "fable subscription",
+        "exercise creatorflow",
+        "creatorflow release",
+        "creatorflow repo",
+        "release gate"
+      ],
+      "description": "CreatorFlow Roblox creative tooling, Fable motion handoffs, creator product work.",
+      "learned_keywords": [
+        "roblox plugin",
+        "senior creative",
+        "creative technologist",
+        "motion design",
+        "fable subscription",
+        "exercise creatorflow",
+        "creatorflow release",
+        "creatorflow repo",
+        "release gate"
       ]
     },
     {
@@ -50,7 +76,12 @@
       "folder": "02 Projects/signal-path",
       "keywords": [
         "signal-path",
-        "signal path"
+        "signal path",
+        "path review"
+      ],
+      "description": "signal-path project engineering and reviews.",
+      "learned_keywords": [
+        "path review"
       ]
     },
     {
@@ -59,7 +90,12 @@
       "folder": "02 Projects/quickbite",
       "keywords": [
         "quickbite",
-        "quick bite"
+        "quick bite",
+        "folder quickbite"
+      ],
+      "description": "quickbite food or product project.",
+      "learned_keywords": [
+        "folder quickbite"
       ]
     },
     {
@@ -72,7 +108,16 @@
         "sklearn",
         "jupyter",
         "open portal",
-        "city open data"
+        "city open data",
+        "science because",
+        "computer science",
+        "science student"
+      ],
+      "description": "Data science notebooks, pandas, city open data analysis.",
+      "learned_keywords": [
+        "science because",
+        "computer science",
+        "science student"
       ]
     },
     {
@@ -84,7 +129,9 @@
         "study os",
         "studyos",
         "ui of study"
-      ]
+      ],
+      "description": "study-os learning OS / study UI product.",
+      "learned_keywords": []
     },
     {
       "id": "weekly-worker",
@@ -96,7 +143,9 @@
         "weekly_worker_agent",
         "internship digest",
         "worker agent"
-      ]
+      ],
+      "description": "weekly-worker-agent internship digest automation.",
+      "learned_keywords": []
     },
     {
       "id": "deadline-compliance",
@@ -106,7 +155,9 @@
         "deadline compliance",
         "compliance tool",
         "market scan"
-      ]
+      ],
+      "description": "Deadline compliance tool market and product research.",
+      "learned_keywords": []
     },
     {
       "id": "animated-readme",
@@ -116,7 +167,9 @@
         "animated profile",
         "profile readme",
         "readme design spec"
-      ]
+      ],
+      "description": "Animated GitHub profile README design.",
+      "learned_keywords": []
     },
     {
       "id": "aegis-eval",
@@ -125,7 +178,16 @@
       "keywords": [
         "aegis-eval",
         "aegis eval",
-        "aegis"
+        "aegis",
+        "eval harness",
+        "eval eval",
+        "harness then"
+      ],
+      "description": "aegis-eval evaluation harness work.",
+      "learned_keywords": [
+        "eval harness",
+        "eval eval",
+        "harness then"
       ]
     },
     {
@@ -136,7 +198,9 @@
         "electron-notebook",
         "electron notebook",
         "notebook prototype"
-      ]
+      ],
+      "description": "electron-notebook-prototype desktop notes app.",
+      "learned_keywords": []
     },
     {
       "id": "cs146",
@@ -146,12 +210,16 @@
         "cs 146",
         "cs146",
         "data structures and algorithms",
-        "practice problems",
         "javafx",
         "ams 10",
         "ams10",
         "lab12",
-        "sjsu cs"
+        "sjsu cs",
+        "javafx property"
+      ],
+      "description": "SJSU CS 146 data structures and algorithms coursework.",
+      "learned_keywords": [
+        "javafx property"
       ]
     },
     {
@@ -165,12 +233,20 @@
         "sjsu",
         "grading rubric",
         "course_files_export",
-        "declaration of independence",
         "school notes",
         "cs 46",
         "cs46a",
         "cs46b",
-        "school"
+        "school",
+        "high school",
+        "year sjsu",
+        "sjsu student"
+      ],
+      "description": "School coursework, homework, essays, SJSU classes.",
+      "learned_keywords": [
+        "high school",
+        "year sjsu",
+        "sjsu student"
       ]
     },
     {
@@ -189,10 +265,15 @@
         "career ideas",
         "system design interview",
         "behavioral interview",
-        "rag_ai_system_design",
-        "ai devops application",
         "career",
-        "job application"
+        "job application",
+        "these ideas",
+        "resume before"
+      ],
+      "description": "Jobs, resumes, interviews, internships, portfolio, Contra/Upwork.",
+      "learned_keywords": [
+        "these ideas",
+        "resume before"
       ]
     },
     {
@@ -202,11 +283,12 @@
       "keywords": [
         "build your own llm",
         "ai engineering projects",
-        "15_ai_engineering",
         "prompt caching",
         "fine tuning",
         "transformer from scratch"
-      ]
+      ],
+      "description": "Learning LLMs, AI engineering projects, transformers.",
+      "learned_keywords": []
     },
     {
       "id": "agent-tooling",
@@ -221,7 +303,40 @@
         "cursor cloud agent",
         "claude plugins",
         "in-app-browser-context",
-        "playwright-mcp"
+        "playwright-mcp",
+        "skill helps",
+        "install packdocxpdf",
+        "code quality",
+        "update config",
+        "config skill",
+        "skill modify",
+        "code configuration",
+        "code plugin",
+        "skills folder",
+        "skills steps",
+        "install these",
+        "uidesign skills",
+        "design skills",
+        "in-app-browser-context source",
+        "doctor doctor"
+      ],
+      "description": "Claude Code skills, MCP servers, agent plugin/tooling setup.",
+      "learned_keywords": [
+        "skill helps",
+        "install packdocxpdf",
+        "code quality",
+        "update config",
+        "config skill",
+        "skill modify",
+        "code configuration",
+        "code plugin",
+        "skills folder",
+        "skills steps",
+        "install these",
+        "uidesign skills",
+        "design skills",
+        "in-app-browser-context source",
+        "doctor doctor"
       ]
     },
     {
@@ -234,7 +349,14 @@
         "git push",
         "git commit",
         "gh pr",
-        "origin/main"
+        "origin/main",
+        "request interrupted",
+        "commit callender"
+      ],
+      "description": "Git, GitHub PRs, commits, CI workflows.",
+      "learned_keywords": [
+        "request interrupted",
+        "commit callender"
       ]
     },
     {
@@ -245,14 +367,25 @@
         "ffmpeg",
         "screenshot",
         "image 1",
-        "screen recording"
+        "screen recording",
+        "install ffmpeg",
+        "block image"
+      ],
+      "description": "ffmpeg, screenshots, images, screen recordings.",
+      "learned_keywords": [
+        "install ffmpeg",
+        "block image"
       ]
     },
     {
       "id": "chat-inbox",
       "title": "Chat Inbox",
       "folder": "02 Projects/Chat Inbox",
-      "keywords": []
+      "keywords": [],
+      "description": "Unsorted AI chats awaiting a better topic.",
+      "learned_keywords": []
     }
-  ]
+  ],
+  "embed_assign_threshold": 0.5,
+  "embed_learn_threshold": 0.58
 }
