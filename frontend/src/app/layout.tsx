@@ -1,31 +1,31 @@
-import type { Metadata } from 'next';
-import { IBM_Plex_Mono, Instrument_Sans } from 'next/font/google';
-import './globals.css';
+import type { Metadata } from "next";
+import { Inter, Geist_Mono } from "next/font/google";
+import "./globals.css";
 
-const instrumentSans = Instrument_Sans({
-  subsets: ['latin'],
-  variable: '--font-instrument',
-  display: 'swap',
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
-const plexMono = IBM_Plex_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-plex-mono',
-  display: 'swap',
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: 'Second Brain — Local Knowledge Engine',
-  description: 'Explore, repair, and ask questions across your private Obsidian vault with a local 3D graph and Qwen RAG assistant.',
+  title: "Atlas",
+  description: "Local notes and graph for your Obsidian vault.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${instrumentSans.variable} ${plexMono.variable}`}>
-      <body>
-        {children}
-      </body>
+    <html
+      lang="en"
+      className={`${inter.variable} ${geistMono.variable} antialiased`}
+    >
+      <body className="min-h-screen bg-page text-ink">{children}</body>
     </html>
   );
 }
