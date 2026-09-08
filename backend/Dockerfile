@@ -40,14 +40,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend application source code.
 #
-# main.py imports config, indexer, lexical and retrieval at module scope. All
-# four have to be here or the container dies on first import. seed_real_structure.py
+# main.py imports config, indexer, health_hygiene, lexical and retrieval at module scope. All
+# five have to be here or the container dies on first import. seed_real_structure.py
 # moved to backend/scripts/ and is not a runtime dependency, so it is gone.
 COPY backend/main.py .
 COPY backend/config.py .
 COPY backend/indexer.py .
 COPY backend/lexical.py .
 COPY backend/retrieval.py .
+COPY backend/health_hygiene.py .
 
 # Environment variables
 ENV PORT=8000
