@@ -1,4 +1,4 @@
-﻿"""Unit tests for NOTES_CHAT_GUARD and SIBLING_DISAMBIG (default OFF)."""
+﻿"""Unit tests for NOTES_CHAT_GUARD and SIBLING_DISAMBIG (default ON)."""
 import retrieval
 
 
@@ -15,15 +15,14 @@ def _cand(cid, source, title=None, chunk=None, rrf=None):
     return out
 
 
-def test_notes_chat_guard_disabled_by_default(monkeypatch):
+def test_notes_chat_guard_enabled_by_default(monkeypatch):
     monkeypatch.delenv("NOTES_CHAT_GUARD", raising=False)
     import config
-    assert config.notes_chat_guard_enabled() is False
-    cands = [
-        _cand("n", "03 School/School Notes.md", "School Notes"),
-        _cand("c", "03 School/AI Chat Links/2026-05-16 - foo - abc.md", "foo"),
-    ]
-    assert retrieval.filter_notes_chat_guard(cands, "notes") == cands
+    assert config.notes_chat_guard_enabled() is True
+    note = _cand("n", "03 School/School Notes.md", "School Notes")
+    stub = _cand("c", "03 School/AI Chat Links/2026-05-16 - foo - abc.md", "foo")
+    out = retrieval.filter_notes_chat_guard([note, stub], "notes")
+    assert [c["id"] for c in out] == ["n"]
 
 
 def test_notes_chat_guard_filters_chat_stubs_on_notes_scope(monkeypatch):
@@ -49,10 +48,20 @@ def test_notes_chat_guard_fail_open_if_all_filtered(monkeypatch):
     assert out == [stub]
 
 
-def test_sibling_disambig_disabled_by_default(monkeypatch):
+def test_sibling_disambig_enabled_by_default(monkeypatch):
     monkeypatch.delenv("SIBLING_DISAMBIG", raising=False)
     import config
-    assert config.sibling_disambig_enabled() is False
+    assert config.sibling_disambig_enabled() is True
+    missed = _cand("m", "03 School/CS146/Questions I Missed.md", "Questions I Missed", rrf=0.03)
+    home = _cand("h", "03 School/CS146/Course Home.md", "Course Home", rrf=0.02)
+    out = retrieval.sibling_disambiguate(
+        "errors when they reach for the wrong container for the job", [missed, home]
+    )
+    assert out[0]["id"] == "h"
+
+
+def test_sibling_disambig_noop_when_disabled(monkeypatch):
+    monkeypatch.setenv("SIBLING_DISAMBIG", "0")
     missed = _cand("m", "03 School/CS146/Questions I Missed.md", "Questions I Missed", rrf=0.03)
     home = _cand("h", "03 School/CS146/Course Home.md", "Course Home", rrf=0.02)
     out = retrieval.sibling_disambiguate(
@@ -95,8 +104,8 @@ def test_sibling_disambig_boosts_resume_title(monkeypatch):
 
 def test_hybrid_applies_notes_chat_guard_before_rerank(monkeypatch):
     monkeypatch.setenv("NOTES_CHAT_GUARD", "1")
-    monkeypatch.delenv("SIBLING_DISAMBIG", raising=False)
-    monkeypatch.delenv("QUERY_REWRITE", raising=False)
+    monkeypatch.setenv("SIBLING_DISAMBIG", "0")
+    monkeypatch.setenv("QUERY_REWRITE", "0")
     from tests.test_retrieval import FakeCollection, FakeModel, FakeLexical
     from tests.fakes import OverlapCrossEncoder
 

@@ -188,38 +188,45 @@ def get_query_prefix() -> str:
 
 
 
-def _env_flag_enabled(name: str) -> bool:
-    """True only for explicit on-values: 1, true, yes, on (case-insensitive)."""
-    return os.environ.get(name, "").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    """Parse a boolean env flag.
+
+    Unset uses `default`. Explicit on-values: 1, true, yes, on.
+    Anything else (including empty / 0 / false / no / off) is False.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 def query_rewrite_enabled() -> bool:
     """Whether retrieval should expand the query via local Ollama.
 
-    QUERY_REWRITE defaults OFF. Only explicit on-values enable it so A/B
-    and shipped safety stay opt-in: 1, true, yes, on (case-insensitive).
+    QUERY_REWRITE defaults ON (shipped 2026-09-07 after 40/40 hit@8).
+    Set QUERY_REWRITE=0 to disable. Generation still uses the original text.
     """
-    return _env_flag_enabled("QUERY_REWRITE")
+    return _env_flag("QUERY_REWRITE", default=True)
 
 
 def notes_chat_guard_enabled() -> bool:
     """When scope=notes, drop chat/transcript stub chunks before CE.
 
-    NOTES_CHAT_GUARD defaults OFF. Topic-stub notes under AI Chat Links
+    NOTES_CHAT_GUARD defaults ON. Topic-stub notes under AI Chat Links
     otherwise pollute note-scope pools even though category!=chat.
+    Set NOTES_CHAT_GUARD=0 to disable.
     """
-    return _env_flag_enabled("NOTES_CHAT_GUARD")
+    return _env_flag("NOTES_CHAT_GUARD", default=True)
 
 
 def sibling_disambig_enabled() -> bool:
     """Light title/path boost + sibling penalty after RRF, before CE.
 
-    SIBLING_DISAMBIG defaults OFF. Prefer specific hub notes (Course Home,
+    SIBLING_DISAMBIG defaults ON. Prefer specific hub notes (Course Home,
     architecture.md) over same-folder siblings when the query has anchors.
+    Set SIBLING_DISAMBIG=0 to disable.
     """
-    return _env_flag_enabled("SIBLING_DISAMBIG")
+    return _env_flag("SIBLING_DISAMBIG", default=True)
 
 
 def reranker_disabled(name: str) -> bool:

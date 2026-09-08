@@ -1,6 +1,6 @@
 """Query rewrite for hybrid retrieval (BM25 + dense), behind QUERY_REWRITE.
 
-Default OFF. When enabled, a short local-Ollama rewrite expands the user query
+Default ON. A short local-Ollama rewrite expands the user query
 for retrieval only; generation keeps the original text. Fail-open on any error.
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ Domain hints: city portal→app/application/UI; read code before changing→insp
 
 
 def query_rewrite_enabled() -> bool:
-    """True only when QUERY_REWRITE is an explicit on-value (default OFF)."""
+    """True when QUERY_REWRITE is on (default ON; set 0/false/off to disable)."""
     return config.query_rewrite_enabled()
 
 

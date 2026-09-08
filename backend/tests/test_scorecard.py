@@ -18,7 +18,8 @@ from eval.scorecard import (
 )
 
 KNOB_ENV = ("TOP_K", "HYBRID_DEPTH", "RERANK_DEPTH", "EMBEDDING_MODEL",
-            "EMBEDDING_QUERY_PREFIX", "RERANKER_MODEL", "CHUNK_SCHEME")
+            "EMBEDDING_QUERY_PREFIX", "RERANKER_MODEL", "CHUNK_SCHEME",
+            "QUERY_REWRITE", "NOTES_CHAT_GUARD", "SIBLING_DISAMBIG")
 RECORD_HINT = ("run `python -m eval.run_eval --record` from backend/ "
                "and commit backend/eval/scorecard.json")
 
@@ -57,7 +58,8 @@ def test_scorecard_has_exactly_the_published_schema(monkeypatch):
     assert card["recorded_at"] == "2026-09-04"
     assert set(card["config"]) == {"embedding_model", "query_prefix", "reranker_model",
                                    "hybrid_depth", "rerank_depth", "top_k", "max_chunks_per_note",
-                                   "chunk_scheme"}
+                                   "chunk_scheme", "query_rewrite", "notes_chat_guard",
+                                   "sibling_disambig"}
     assert card["index"] == INDEX
     assert card["dataset"] == DATASET
     assert card["metrics"] == {"k": 8, "hit_rate": 0.85, "mrr": 0.731, "by_k": SUMMARY["by_k"]}
@@ -76,15 +78,24 @@ def test_effective_config_reads_env_and_defaults(monkeypatch):
     assert cfg["reranker_model"] == "Xenova/ms-marco-MiniLM-L-6-v2"
     assert cfg["query_prefix"] is True
     assert cfg["chunk_scheme"] == "heading-aware"
+    assert cfg["query_rewrite"] is True
+    assert cfg["notes_chat_guard"] is True
+    assert cfg["sibling_disambig"] is True
     monkeypatch.setenv("TOP_K", "6")
     monkeypatch.setenv("RERANKER_MODEL", "some/other-model")
     monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "")
     monkeypatch.setenv("CHUNK_SCHEME", "plain")
+    monkeypatch.setenv("QUERY_REWRITE", "0")
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "off")
+    monkeypatch.setenv("SIBLING_DISAMBIG", "false")
     cfg = effective_config()
     assert cfg["top_k"] == 6
     assert cfg["reranker_model"] == "some/other-model"
     assert cfg["query_prefix"] is False
     assert cfg["chunk_scheme"] == "plain"
+    assert cfg["query_rewrite"] is False
+    assert cfg["notes_chat_guard"] is False
+    assert cfg["sibling_disambig"] is False
 
 
 # ── README block ────────────────────────────────────────────────────────────

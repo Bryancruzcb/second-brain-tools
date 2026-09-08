@@ -22,7 +22,7 @@ slots go to further chunks of the same long notes. The brief's by-k table
 unique notes across the reranked pool; a cap of one chunk per note makes
 the served list match that count. Shipped that day: depth 30, `TOP_K=6`,
 `MAX_CHUNKS_PER_NOTE=1`. Promoted 2026-09-07: `TOP_K=8` with
-`OLLAMA_NUM_CTX=16384`.
+`OLLAMA_NUM_CTX=16384`. Promoted later the same day: `QUERY_REWRITE`, `NOTES_CHAT_GUARD`, and `SIBLING_DISAMBIG` default ON (local A/B: 40/40 hit@8).
 
 ## 2. Reranker trial
 

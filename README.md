@@ -97,8 +97,10 @@ exactly reproducible. Treat the tables as a trend, not tenths.
 Every retrieval knob is an env var: `EMBEDDING_MODEL`,
 `EMBEDDING_QUERY_PREFIX`, `RERANKER_MODEL` (set to `off` on slow CPUs),
 `HYBRID_DEPTH`, `RERANK_DEPTH`, `TOP_K`, `MAX_CHUNKS_PER_NOTE` (0 disables
-the cap), `OLLAMA_MODEL`. Changing the embedding model requires a full
-re-embed: `python scripts/rebuild_rag_index.py --full` from `backend/`.
+the cap), `QUERY_REWRITE`, `NOTES_CHAT_GUARD`, `SIBLING_DISAMBIG` (all
+default on; set to `0` to disable), `OLLAMA_MODEL`. Changing the embedding
+model requires a full re-embed: `python scripts/rebuild_rag_index.py --full`
+from `backend/`.
 
 *The August rows were measured 2026-08-05/06; the September table on
 2026-09-04. Two cases accept either of two related notes; the rest label
@@ -125,8 +127,8 @@ Recorded 2026-09-07 over 40 cases against an index of 4,963 chunks from 637 file
 
 | Chunks shown | Hit-rate | MRR |
 |---|---|---|
-| 4 | 77.5% | 0.702 |
-| 8 (shipped) | 82.5% | 0.710 |
+| 4 | 92.5% | 0.775 |
+| 8 (shipped) | 100.0% | 0.786 |
 <!-- eval-scorecard:end -->
 
 ## Architecture

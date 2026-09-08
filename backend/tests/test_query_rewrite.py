@@ -8,10 +8,10 @@ import retrieval
 from tests.test_retrieval import CANNED, FakeCollection, FakeModel
 
 
-def test_query_rewrite_disabled_by_default(monkeypatch):
+def test_query_rewrite_enabled_by_default(monkeypatch):
     monkeypatch.delenv("QUERY_REWRITE", raising=False)
-    assert config.query_rewrite_enabled() is False
-    assert query_rewrite.query_rewrite_enabled() is False
+    assert config.query_rewrite_enabled() is True
+    assert query_rewrite.query_rewrite_enabled() is True
 
 
 @pytest.mark.parametrize("value", ["1", "true", "YES", "On"])
@@ -56,7 +56,7 @@ def test_merge_rewrite_empty_or_duplicate_returns_original():
 
 
 def test_rewrite_for_retrieval_noop_when_disabled(monkeypatch):
-    monkeypatch.delenv("QUERY_REWRITE", raising=False)
+    monkeypatch.setenv("QUERY_REWRITE", "0")
     called = {"n": 0}
 
     def boom(*a, **k):
@@ -113,7 +113,7 @@ def test_retrieve_hybrid_uses_rewritten_query_when_enabled(monkeypatch):
 
 
 def test_retrieve_hybrid_unchanged_when_rewrite_off(monkeypatch):
-    monkeypatch.delenv("QUERY_REWRITE", raising=False)
+    monkeypatch.setenv("QUERY_REWRITE", "0")
     coll = FakeCollection(CANNED)
     seen = {}
     real_retrieve = retrieval.retrieve

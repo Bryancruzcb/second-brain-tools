@@ -55,3 +55,26 @@ def test_chunk_scheme_defaults_to_heading_aware(monkeypatch):
     assert config.get_chunk_scheme() == "plain"
     monkeypatch.setenv("CHUNK_SCHEME", "  ")
     assert config.get_chunk_scheme() == "heading-aware"
+
+
+def test_query_rewrite_defaults_on(monkeypatch):
+    monkeypatch.delenv("QUERY_REWRITE", raising=False)
+    assert config.query_rewrite_enabled() is True
+    monkeypatch.setenv("QUERY_REWRITE", "0")
+    assert config.query_rewrite_enabled() is False
+    monkeypatch.setenv("QUERY_REWRITE", "1")
+    assert config.query_rewrite_enabled() is True
+
+
+def test_notes_chat_guard_defaults_on(monkeypatch):
+    monkeypatch.delenv("NOTES_CHAT_GUARD", raising=False)
+    assert config.notes_chat_guard_enabled() is True
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "off")
+    assert config.notes_chat_guard_enabled() is False
+
+
+def test_sibling_disambig_defaults_on(monkeypatch):
+    monkeypatch.delenv("SIBLING_DISAMBIG", raising=False)
+    assert config.sibling_disambig_enabled() is True
+    monkeypatch.setenv("SIBLING_DISAMBIG", "false")
+    assert config.sibling_disambig_enabled() is False
