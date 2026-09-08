@@ -56,7 +56,8 @@ def test_search_uses_lexical_leg_when_available(monkeypatch):
     client = TestClient(main.app)
     titles = [r["title"] for r in client.get("/api/search", params={"q": "x"}).json()["results"]]
     assert "Lex" in titles
-    assert lex.last_args[2] == retrieval.HYBRID_DEPTH  # depth reaches the lexical leg
+    # NOTES_CHAT_GUARD (default ON) deep-fetches 2x HYBRID_DEPTH on notes scope.
+    assert lex.last_args[2] == retrieval.HYBRID_DEPTH * 2
 
 
 def test_search_reranks_and_hides_rerank_score(monkeypatch):
