@@ -20,8 +20,9 @@ own converts nothing: the same eight misses at every k, because the extra
 slots go to further chunks of the same long notes. The brief's by-k table
 (82.5 / 85.0 / 87.5 at 6 / 8 / 10) is reproduced to the digit by counting
 unique notes across the reranked pool; a cap of one chunk per note makes
-the served list match that count. Shipped: depth 30, `TOP_K=6`,
-`MAX_CHUNKS_PER_NOTE=1`.
+the served list match that count. Shipped that day: depth 30, `TOP_K=6`,
+`MAX_CHUNKS_PER_NOTE=1`. Promoted 2026-09-07: `TOP_K=8` with
+`OLLAMA_NUM_CTX=16384`.
 
 ## 2. Reranker trial
 
@@ -70,14 +71,14 @@ Gates from the plan: beat 80.0% served@4 by a whole case and stay under
   recipe) hits exactly the same 32 cases at k=4, 6 and 8 and reranks in
   887 ms median in the quiet round against 1515 ms for torch. The fp32
   export runs at torch speed, so the gain is the quantisation. Shipped as
-  opt-in: `RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2` plus
+  opt-in that day: `RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2` plus
   `RERANKER_ONNX_FILE=onnx/model_quantized.onnx`; the harness run through
   that production path scores 82.5% at k=6 on the frozen index, the
-  same as the torch model. The default stays torch because the rankings
-  are not byte-identical and the file comes from a community mirror.
+  same as the torch model. Promoted to the shipped default on 2026-09-07
+  (torch remains available by clearing `RERANKER_ONNX_FILE`).
 
-The default reranker therefore does not change. No model between 22M and
-278M parameters beats it within budget on this CPU.
+No model between 22M and 278M parameters beat MiniLM-L-6 within budget on
+this CPU; the int8 export keeps its quality at lower latency.
 
 One reading note on the latency columns. Round 1 ran on a quiet machine;
 during rounds 2 and 3 the session also ran git, gh and a small script in

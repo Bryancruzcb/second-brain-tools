@@ -130,8 +130,8 @@ class OnnxCrossEncoder:
 def load_reranker(name=None):
     """The configured cross-encoder, shared by the API and the eval.
 
-    sentence-transformers by default; an ONNX export of the same repo when
-    RERANKER_ONNX_FILE is set (see config.get_reranker_onnx_file).
+    ONNX export by default (see config.get_reranker_onnx_file); set
+    RERANKER_ONNX_FILE empty to load through sentence-transformers.
     """
     name = name or config.get_reranker_model()
     onnx_file = config.get_reranker_onnx_file()

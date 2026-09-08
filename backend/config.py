@@ -48,10 +48,10 @@ def get_ollama_num_ctx() -> int:
 
     Ollama's own default is small (~4K) and it silently truncates from the
     top when a prompt exceeds it — which would eat the system prompt once
-    conversation history is included. 8K fits history + retrieved snippets
-    + a 1K answer comfortably on CPU-only hardware.
+    conversation history is included. 16K leaves room for eight retrieved
+    chunks (~5,100 tokens) plus a full conversation history and a 1K answer.
     """
-    return _positive_int_env("OLLAMA_NUM_CTX", 8192)
+    return _positive_int_env("OLLAMA_NUM_CTX", 16384)
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -67,12 +67,11 @@ def get_top_k() -> int:
     """Chunks handed to the answer model per query (TOP_K to override).
 
     Measured 2026-09-04 on the 40-case eval at fusion depth 30: hit-rate
-    80.0% at k=4, 82.5% at k=6, 85.0% at k=8. Six is the default because
-    six chunks (about 3,800 tokens) plus a full conversation history still
-    fit the 8,192-token OLLAMA_NUM_CTX default; eight (about 5,100 tokens)
-    needs OLLAMA_NUM_CTX=16384.
+    80.0% at k=4, 82.5% at k=6, 85.0% at k=8. Eight is the default with
+    OLLAMA_NUM_CTX=16384 (about 5,100 tokens of chunks plus history and a
+    1K answer); six still fits the older 8,192-token window.
     """
-    return _positive_int_env("TOP_K", 6)
+    return _positive_int_env("TOP_K", 8)
 
 
 def get_max_chunks_per_note() -> int:
@@ -133,25 +132,25 @@ def get_chroma_path() -> str:
 def get_reranker_model() -> str:
     """Cross-encoder used to rerank fused retrieval candidates.
 
-    RERANKER_MODEL overrides; set it to "off" to skip reranking and serve
-    the fused order directly (useful on very slow CPUs).
+    Default is the Xenova mirror paired with RERANKER_ONNX_FILE's int8
+    export (same weights as cross-encoder/ms-marco-MiniLM-L-6-v2, faster
+    on CPU). RERANKER_MODEL overrides; set it to "off" to skip reranking
+    and serve the fused order directly (useful on very slow CPUs).
     """
-    return os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+    return os.environ.get("RERANKER_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
 
 
 def get_reranker_onnx_file() -> str:
     """ONNX export of RERANKER_MODEL to serve instead of the torch weights.
 
-    Empty (the default) loads RERANKER_MODEL through sentence-transformers.
-    Set it to a file inside the model repo, e.g. "onnx/model_quantized.onnx"
-    with RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2, to rerank through
-    onnxruntime. Measured 2026-09-04 on the 40-case eval at depth 30: that
-    int8 export of the default model's weights hit the same 32 cases at
-    k=4, 6 and 8 and reranked in 0.9 s median against 1.5 s for the torch
-    model. The official repo's own onnx/model_quint8_avx2.onnx lost a case
-    at k=4 for a 12% saving, so it is not the one to pick.
+    Default is the Xenova int8 export measured 2026-09-04 on the 40-case
+    eval at depth 30: same 32 cases at k=4, 6 and 8 as the torch MiniLM-L-6
+    weights, 0.9 s median against 1.5 s. Set RERANKER_ONNX_FILE empty to
+    load RERANKER_MODEL through sentence-transformers instead. The official
+    repo's onnx/model_quint8_avx2.onnx lost a case at k=4 for a 12% saving,
+    so it is not the one to pick.
     """
-    return os.environ.get("RERANKER_ONNX_FILE", "").strip()
+    return os.environ.get("RERANKER_ONNX_FILE", "onnx/model_quantized.onnx").strip()
 
 
 def get_chunk_scheme() -> str:

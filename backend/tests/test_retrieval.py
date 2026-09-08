@@ -302,8 +302,8 @@ def test_onnx_cross_encoder_batches_and_fills_missing_inputs():
     assert session.calls == [["attention_mask", "input_ids", "token_type_ids"]] * 3
 
 
-def test_load_reranker_uses_sentence_transformers_by_default(monkeypatch):
-    monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
+def test_load_reranker_uses_sentence_transformers_when_onnx_cleared(monkeypatch):
+    monkeypatch.setenv("RERANKER_ONNX_FILE", "")
     calls = []
 
     class FakeCrossEncoder:
@@ -317,8 +317,8 @@ def test_load_reranker_uses_sentence_transformers_by_default(monkeypatch):
     assert calls == [("some/model", {})]
 
 
-def test_load_reranker_uses_onnx_export_when_configured(monkeypatch):
-    monkeypatch.setenv("RERANKER_ONNX_FILE", "onnx/model_quantized.onnx")
+def test_load_reranker_uses_onnx_export_by_default(monkeypatch):
+    monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
     seen = {}
 
     def fake_from_hub(cls, name, onnx_file, max_length=512):

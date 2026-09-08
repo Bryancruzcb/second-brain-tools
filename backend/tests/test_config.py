@@ -23,14 +23,29 @@ def test_query_prefix_defaults_to_bge_instruction(monkeypatch):
 def test_reranker_disabled_values():
     for value in ("", "off", "OFF", " none ", "Disabled"):
         assert config.reranker_disabled(value)
-    assert not config.reranker_disabled("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    assert not config.reranker_disabled("Xenova/ms-marco-MiniLM-L-6-v2")
 
 
-def test_reranker_onnx_file_defaults_to_empty(monkeypatch):
+def test_reranker_model_default_is_xenova_onnx_pair(monkeypatch):
+    monkeypatch.delenv("RERANKER_MODEL", raising=False)
+    assert config.get_reranker_model() == "Xenova/ms-marco-MiniLM-L-6-v2"
+
+
+def test_ollama_num_ctx_default_matches_top_k_eight(monkeypatch):
+    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    assert config.get_ollama_num_ctx() == 16384
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
+    assert config.get_ollama_num_ctx() == 8192
+
+
+def test_reranker_onnx_file_defaults_to_quantized_export(monkeypatch):
     monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
-    assert config.get_reranker_onnx_file() == ""
-    monkeypatch.setenv("RERANKER_ONNX_FILE", " onnx/model_quantized.onnx ")
     assert config.get_reranker_onnx_file() == "onnx/model_quantized.onnx"
+    monkeypatch.setenv("RERANKER_ONNX_FILE", " onnx/model.onnx ")
+    assert config.get_reranker_onnx_file() == "onnx/model.onnx"
+    # Empty override opts back into sentence-transformers.
+    monkeypatch.setenv("RERANKER_ONNX_FILE", "")
+    assert config.get_reranker_onnx_file() == ""
 
 
 def test_chunk_scheme_defaults_to_heading_aware(monkeypatch):

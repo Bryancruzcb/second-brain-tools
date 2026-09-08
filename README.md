@@ -69,7 +69,8 @@ one frozen copy of that index:
 |---|---|---|---|
 | Shipped in August: depth 20, 4 chunks | 77.5% | | 0.715 |
 | Depth 30 | 80.0% | 80.0% | 0.717 |
-| Depth 30, one chunk per note, 6 chunks served (shipped now) | 80.0% | 82.5% | 0.717 |
+| Depth 30, one chunk per note, 6 chunks served | 80.0% | 82.5% | 0.717 |
+| Depth 30, one chunk per note, 8 chunks served (shipped now) | 80.0% | 85.0% | 0.717 |
 
 Fetching 30 candidates per leg instead of 20 lifts pool recall from 87.5%
 to 90.0% and converts one miss; going deeper than 30 costs reranker time
@@ -79,12 +80,13 @@ chunks with the same eight misses, because the extra slots went to further
 chunks of the same long, generic notes (one interview-prep note appears in
 32 of the 40 candidate pools). Capping each note to one chunk turns the
 extra slots into extra notes: 82.5% at 6 chunks and 85.0% at 8.
-Six ships because six chunks plus a full conversation history still fit
-the 8,192-token context; eight needs `OLLAMA_NUM_CTX=16384`.
-
-Reranking 30 candidates with `cross-encoder/ms-marco-MiniLM-L-6-v2` takes
-about 1.5 s median on this laptop's CPU (Core Ultra 7 155H); an earlier
-version of this section claimed ~210 ms, which no longer reproduces.
+Eight ships with `OLLAMA_NUM_CTX=16384` (six still fits the older
+8,192-token window). The default reranker is the Xenova int8 ONNX export
+of MiniLM-L-6 (`RERANKER_MODEL=Xenova/ms-marco-MiniLM-L-6-v2` plus
+`RERANKER_ONNX_FILE=onnx/model_quantized.onnx`), which hit the same eval
+cases as the torch weights at about 0.9 s median against 1.5 s for
+`cross-encoder/ms-marco-MiniLM-L-6-v2` on this laptop's CPU (Core Ultra 7
+155H).
 
 One honesty note on precision: rebuilding the index and re-running the
 eval moves the numbers by about one case (±2.5 points hit-rate, ±0.03
@@ -119,12 +121,12 @@ nightly archive job re-scores the private set after each incremental index
 update and prints a drift warning when the hit-rate falls by two cases or more.
 
 <!-- eval-scorecard:start -->
-Recorded 2026-09-04 over 40 cases against an index of 4,321 chunks from 304 files (63 notes, 241 chat transcripts): `BAAI/bge-small-en-v1.5` embeddings with its query instruction, each leg fetched to depth 30, the fused top 30 reranked by `cross-encoder/ms-marco-MiniLM-L-6-v2`, 6 chunks served, at most 1 per note, chunk scheme `heading-aware`.
+Recorded 2026-09-07 over 40 cases against an index of 4,963 chunks from 637 files (375 notes, 262 chat transcripts): `BAAI/bge-small-en-v1.5` embeddings with its query instruction, each leg fetched to depth 30, the fused top 30 reranked by `Xenova/ms-marco-MiniLM-L-6-v2`, 8 chunks served, at most 1 per note, chunk scheme `heading-aware`.
 
 | Chunks shown | Hit-rate | MRR |
 |---|---|---|
-| 4 | 80.0% | 0.717 |
-| 6 (shipped) | 82.5% | 0.722 |
+| 4 | 77.5% | 0.702 |
+| 8 (shipped) | 82.5% | 0.710 |
 <!-- eval-scorecard:end -->
 
 ## Architecture

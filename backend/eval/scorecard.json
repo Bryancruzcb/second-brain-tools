@@ -1,20 +1,20 @@
 {
-  "recorded_at": "2026-09-04",
+  "recorded_at": "2026-09-07",
   "config": {
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "query_prefix": true,
-    "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "reranker_model": "Xenova/ms-marco-MiniLM-L-6-v2",
     "hybrid_depth": 30,
     "rerank_depth": 30,
-    "top_k": 6,
+    "top_k": 8,
     "max_chunks_per_note": 1,
     "chunk_scheme": "heading-aware"
   },
   "index": {
-    "chunks": 4321,
-    "sources": 304,
-    "notes": 63,
-    "chats": 241,
+    "chunks": 4963,
+    "sources": 637,
+    "notes": 375,
+    "chats": 262,
     "embedding_model_stamp": "BAAI/bge-small-en-v1.5"
   },
   "dataset": {
@@ -22,17 +22,17 @@
     "sha256": "9bbbf2218ef17536f005966d477c1a8fc30e4554fbbd92329097335988ea9cfc"
   },
   "metrics": {
-    "k": 6,
+    "k": 8,
     "hit_rate": 0.825,
-    "mrr": 0.7216666666666667,
+    "mrr": 0.7104166666666667,
     "by_k": {
       "4": {
-        "hit_rate": 0.8,
-        "mrr": 0.7166666666666667
+        "hit_rate": 0.775,
+        "mrr": 0.7020833333333333
       },
-      "6": {
+      "8": {
         "hit_rate": 0.825,
-        "mrr": 0.7216666666666667
+        "mrr": 0.7104166666666667
       }
     }
   }
