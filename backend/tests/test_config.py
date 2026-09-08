@@ -31,3 +31,12 @@ def test_reranker_onnx_file_defaults_to_empty(monkeypatch):
     assert config.get_reranker_onnx_file() == ""
     monkeypatch.setenv("RERANKER_ONNX_FILE", " onnx/model_quantized.onnx ")
     assert config.get_reranker_onnx_file() == "onnx/model_quantized.onnx"
+
+
+def test_chunk_scheme_defaults_to_heading_aware(monkeypatch):
+    monkeypatch.delenv("CHUNK_SCHEME", raising=False)
+    assert config.get_chunk_scheme() == "heading-aware"
+    monkeypatch.setenv("CHUNK_SCHEME", "plain")
+    assert config.get_chunk_scheme() == "plain"
+    monkeypatch.setenv("CHUNK_SCHEME", "  ")
+    assert config.get_chunk_scheme() == "heading-aware"

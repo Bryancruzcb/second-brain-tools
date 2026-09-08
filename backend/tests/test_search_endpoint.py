@@ -71,3 +71,20 @@ def test_search_reranks_and_hides_rerank_score(monkeypatch):
     results = client.get("/api/search", params={"q": "beta chunk"}).json()["results"]
     assert results[0]["title"] == "Beta"          # promoted over Alpha by the reranker
     assert set(results[0].keys()) == {"title", "id", "snippet"}  # rerank_score not leaked
+
+
+def test_search_passes_configured_top_k(monkeypatch):
+    """ /api/search must use the same TOP_K as Ask, not a hardcoded mismatch. """
+    seen = {}
+
+    def fake_hybrid(q, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(main, "model", FakeModel())
+    monkeypatch.setattr(main, "chroma_collection", FakeCollection(CANNED))
+    monkeypatch.setattr(main, "lexical_index", None)
+    monkeypatch.setattr(retrieval, "retrieve_hybrid", fake_hybrid)
+    client = TestClient(main.app)
+    assert client.get("/api/search", params={"q": "x"}).json() == {"results": []}
+    assert seen.get("k") == retrieval.TOP_K

@@ -154,6 +154,16 @@ def get_reranker_onnx_file() -> str:
     return os.environ.get("RERANKER_ONNX_FILE", "").strip()
 
 
+def get_chunk_scheme() -> str:
+    """How notes are split into chunks for the index (CHUNK_SCHEME to override).
+
+    The indexer splits at ATX headings (code-fence aware) so each chunk stays
+    under one coherent section. "heading-aware" is the shipped scheme; set
+    CHUNK_SCHEME=plain only to label an older index that was not rebuilt.
+    """
+    return os.environ.get("CHUNK_SCHEME", "heading-aware").strip() or "heading-aware"
+
+
 def get_embedding_model() -> str:
     """Bi-encoder used to embed chunks and queries (EMBEDDING_MODEL to override).
 

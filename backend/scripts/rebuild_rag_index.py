@@ -17,6 +17,30 @@ from sentence_transformers import SentenceTransformer
 import config
 import indexer
 
+import urllib.error
+import urllib.request
+
+
+
+def _notify_backend_lexical_refresh():
+    """Ask a running backend to rebuild its in-memory BM25 snapshot.
+
+    rebuild_rag_index writes Chroma out-of-process; the backend's keyword leg
+    stays stale until refresh or restart. Best-effort: a down backend is fine
+    (next startup rebuilds BM25); only print a note so the nightly log shows it.
+    """
+    base = os.environ.get("SECOND_BRAIN_API_URL", "http://127.0.0.1:8000").rstrip("/")
+    url = f"{base}/api/lexical/refresh"
+    try:
+        req = urllib.request.Request(url, method="POST", data=b"")
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+        print(f"BM25 refresh notified at {url}: {body}")
+    except urllib.error.URLError as exc:
+        print(f"BM25 refresh skipped (backend not reachable at {url}): {exc}")
+    except Exception as exc:
+        print(f"BM25 refresh skipped: {exc}")
+
 
 def main():
     if sys.platform == "win32":
@@ -83,6 +107,10 @@ def main():
     if failure:
         print(f"\nFAILED: {failure}")
         sys.exit(1)
+
+    # Even a no-op scan can follow an earlier out-of-process write; always ask
+    # the live backend to resync BM25 when we finish cleanly.
+    _notify_backend_lexical_refresh()
 
     if summary["chunks_written"] == 0 and summary["files_reindexed"] == 0:
         print("\nNo changes to index.")

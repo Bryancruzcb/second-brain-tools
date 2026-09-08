@@ -543,6 +543,23 @@ def trigger_index(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_ingestion_sync)
     return {"status": "started", "message": "Vector indexing started in background."}
 
+
+@app.post("/api/lexical/refresh")
+def refresh_lexical():
+    """Rebuild the in-memory BM25 index from the current Chroma collection.
+
+    Out-of-process indexers (scripts/rebuild_rag_index.py, the nightly
+    auto_archive) write Chroma without touching this process; call this
+    afterward so the keyword leg matches the vector store without a restart.
+    """
+    if chroma_collection is None:
+        raise HTTPException(status_code=503, detail="Chroma collection is not initialized.")
+    _build_lexical_index()
+    size = len(lexical_index) if lexical_index is not None else 0
+    return {"status": "ok", "chunks": size}
+
+
+
 @app.get("/api/graph")
 def get_graph():
     global health_cache
@@ -856,7 +873,7 @@ def search_notes(q: str = "", scope: str = "notes"):
     try:
         candidates = retrieval.retrieve_hybrid(
             q.strip(), model=model, collection=chroma_collection,
-            lexical=lexical_index, cross_encoder=cross_encoder, scope=scope, k=6,
+            lexical=lexical_index, cross_encoder=cross_encoder, scope=scope, k=retrieval.TOP_K,
         )
         seen_titles = set()
         items = []

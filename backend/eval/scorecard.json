@@ -8,7 +8,7 @@
     "rerank_depth": 30,
     "top_k": 6,
     "max_chunks_per_note": 1,
-    "chunk_scheme": "plain"
+    "chunk_scheme": "heading-aware"
   },
   "index": {
     "chunks": 4321,

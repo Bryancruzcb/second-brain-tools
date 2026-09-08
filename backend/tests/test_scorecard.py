@@ -74,14 +74,16 @@ def test_effective_config_reads_env_and_defaults(monkeypatch):
     cfg = effective_config()
     assert (cfg["top_k"], cfg["hybrid_depth"], cfg["rerank_depth"]) == (6, 30, 30)
     assert cfg["query_prefix"] is True
-    assert cfg["chunk_scheme"] == "plain"
+    assert cfg["chunk_scheme"] == "heading-aware"
     monkeypatch.setenv("TOP_K", "8")
     monkeypatch.setenv("RERANKER_MODEL", "some/other-model")
     monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "")
+    monkeypatch.setenv("CHUNK_SCHEME", "plain")
     cfg = effective_config()
     assert cfg["top_k"] == 8
     assert cfg["reranker_model"] == "some/other-model"
     assert cfg["query_prefix"] is False
+    assert cfg["chunk_scheme"] == "plain"
 
 
 # ── README block ────────────────────────────────────────────────────────────

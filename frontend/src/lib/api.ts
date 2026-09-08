@@ -318,10 +318,14 @@ export async function fetchNote(noteRef: string) {
   }>(`/api/note/${enc}`);
 }
 
+export type AskScope = "notes" | "chats" | "all";
+
 export async function askQuery(opts: {
   query: string;
   contextNodes?: string[];
   history?: { role: string; content: string }[];
+  /** notes = written notes only (default); chats = AI transcripts; all = both */
+  scope?: AskScope;
 }) {
   return apiFetch<BackendQueryResponse>("/api/query", {
     method: "POST",
@@ -329,7 +333,7 @@ export async function askQuery(opts: {
       query: opts.query,
       context_nodes: opts.contextNodes?.length ? opts.contextNodes : undefined,
       history: opts.history,
-      scope: "notes",
+      scope: opts.scope ?? "notes",
     }),
   });
 }

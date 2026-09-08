@@ -93,7 +93,7 @@ def search_vault(
             of the corpus. "all" searches both.
 
     Returns:
-        Up to six passages, each with its note title, vault path and a snippet.
+        The backend's configured TOP_K passages, each with note title, path and snippet.
     """
     if not query.strip():
         return "No query given."
