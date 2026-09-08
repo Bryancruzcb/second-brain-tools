@@ -25,19 +25,23 @@ export function AskPanel({
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [contextTitle, setContextTitle] = useState<string | null>(null);
+  const [fetchedContext, setFetchedContext] = useState<
+    { id: string; title: string } | null
+  >(null);
 
   useEffect(() => {
+    if (!contextNoteId) return;
     let cancelled = false;
-    if (!contextNoteId) {
-      setContextTitle(null);
-      return;
-    }
-    const fallback = contextNoteId.split("/").pop()?.replace(/\.md$/i, "") || contextNoteId;
-    setContextTitle(fallback);
+    const fallback =
+      contextNoteId.split("/").pop()?.replace(/\.md$/i, "") || contextNoteId;
     fetchNote(contextNoteId)
       .then((n) => {
-        if (!cancelled) setContextTitle(n.title || fallback);
+        if (!cancelled) {
+          setFetchedContext({
+            id: contextNoteId,
+            title: n.title || fallback,
+          });
+        }
       })
       .catch(() => {
         /* keep path-based title */
@@ -46,6 +50,15 @@ export function AskPanel({
       cancelled = true;
     };
   }, [contextNoteId]);
+
+  const fallbackTitle = contextNoteId
+    ? contextNoteId.split("/").pop()?.replace(/\.md$/i, "") || contextNoteId
+    : null;
+  const contextTitle =
+    contextNoteId &&
+    fetchedContext?.id === contextNoteId
+      ? fetchedContext.title
+      : fallbackTitle;
 
   const runAsk = useCallback(async () => {
     const trimmed = query.trim();
