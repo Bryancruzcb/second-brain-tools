@@ -78,17 +78,12 @@ export function RecentReel({
     };
   }, []);
 
-  // When selection is outside the recent reel (map/health), fetch a stub card
+  // When selection is outside the recent reel (map/health), fetch into detailCache.
+  // displayNotes already prepends a selected note from detailCache, so no sync setState.
   useEffect(() => {
     if (!selectedId) return;
     if (reelNotes.some((n) => n.id === selectedId)) return;
-    if (detailCache[selectedId]) {
-      setReelNotes((prev) => {
-        if (prev.some((n) => n.id === selectedId)) return prev;
-        return [detailCache[selectedId], ...prev];
-      });
-      return;
-    }
+    if (detailCache[selectedId]) return;
     let cancelled = false;
     (async () => {
       try {
@@ -106,10 +101,6 @@ export function RecentReel({
           backlinks: [],
         };
         setDetailCache((c) => ({ ...c, [selectedId]: note }));
-        setReelNotes((prev) => {
-          if (prev.some((x) => x.id === selectedId)) return prev;
-          return [note, ...prev];
-        });
       } catch {
         /* leave reel as-is; expand may still fail gracefully */
       }
@@ -125,8 +116,8 @@ export function RecentReel({
     const cached = detailCache[selectedId];
     if (cached && cached.body && cached.body.length > 200) return;
     let cancelled = false;
-    setDetailLoading(true);
     (async () => {
+      setDetailLoading(true);
       try {
         const n = await fetchNote(selectedId);
         if (cancelled) return;
