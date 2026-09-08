@@ -18,13 +18,14 @@ from eval.scorecard import (
 )
 
 KNOB_ENV = ("TOP_K", "HYBRID_DEPTH", "RERANK_DEPTH", "EMBEDDING_MODEL",
-            "EMBEDDING_QUERY_PREFIX", "RERANKER_MODEL", "CHUNK_SCHEME")
+            "EMBEDDING_QUERY_PREFIX", "RERANKER_MODEL", "CHUNK_SCHEME",
+            "QUERY_REWRITE", "NOTES_CHAT_GUARD", "SIBLING_DISAMBIG")
 RECORD_HINT = ("run `python -m eval.run_eval --record` from backend/ "
                "and commit backend/eval/scorecard.json")
 
 SUMMARY = {
-    "hit_rate": 0.825, "mrr": 0.73, "cases": 40, "ungradable": 0, "k": 6,
-    "by_k": {"4": {"hit_rate": 0.8, "mrr": 0.717}, "6": {"hit_rate": 0.825, "mrr": 0.73}},
+    "hit_rate": 0.85, "mrr": 0.731, "cases": 40, "ungradable": 0, "k": 8,
+    "by_k": {"4": {"hit_rate": 0.8, "mrr": 0.717}, "8": {"hit_rate": 0.85, "mrr": 0.731}},
 }
 INDEX = {"chunks": 4321, "sources": 304, "notes": 63, "chats": 241,
          "embedding_model_stamp": "BAAI/bge-small-en-v1.5"}
@@ -57,10 +58,11 @@ def test_scorecard_has_exactly_the_published_schema(monkeypatch):
     assert card["recorded_at"] == "2026-09-04"
     assert set(card["config"]) == {"embedding_model", "query_prefix", "reranker_model",
                                    "hybrid_depth", "rerank_depth", "top_k", "max_chunks_per_note",
-                                   "chunk_scheme"}
+                                   "chunk_scheme", "query_rewrite", "notes_chat_guard",
+                                   "sibling_disambig"}
     assert card["index"] == INDEX
     assert card["dataset"] == DATASET
-    assert card["metrics"] == {"k": 6, "hit_rate": 0.825, "mrr": 0.73, "by_k": SUMMARY["by_k"]}
+    assert card["metrics"] == {"k": 8, "hit_rate": 0.85, "mrr": 0.731, "by_k": SUMMARY["by_k"]}
 
 
 def test_scorecard_carries_no_private_fields(monkeypatch):
@@ -72,16 +74,28 @@ def test_scorecard_carries_no_private_fields(monkeypatch):
 def test_effective_config_reads_env_and_defaults(monkeypatch):
     _clear_knobs(monkeypatch)
     cfg = effective_config()
-    assert (cfg["top_k"], cfg["hybrid_depth"], cfg["rerank_depth"]) == (6, 30, 30)
+    assert (cfg["top_k"], cfg["hybrid_depth"], cfg["rerank_depth"]) == (8, 30, 30)
+    assert cfg["reranker_model"] == "Xenova/ms-marco-MiniLM-L-6-v2"
     assert cfg["query_prefix"] is True
-    assert cfg["chunk_scheme"] == "plain"
-    monkeypatch.setenv("TOP_K", "8")
+    assert cfg["chunk_scheme"] == "heading-aware"
+    assert cfg["query_rewrite"] is True
+    assert cfg["notes_chat_guard"] is True
+    assert cfg["sibling_disambig"] is True
+    monkeypatch.setenv("TOP_K", "6")
     monkeypatch.setenv("RERANKER_MODEL", "some/other-model")
     monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "")
+    monkeypatch.setenv("CHUNK_SCHEME", "plain")
+    monkeypatch.setenv("QUERY_REWRITE", "0")
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "off")
+    monkeypatch.setenv("SIBLING_DISAMBIG", "false")
     cfg = effective_config()
-    assert cfg["top_k"] == 8
+    assert cfg["top_k"] == 6
     assert cfg["reranker_model"] == "some/other-model"
     assert cfg["query_prefix"] is False
+    assert cfg["chunk_scheme"] == "plain"
+    assert cfg["query_rewrite"] is False
+    assert cfg["notes_chat_guard"] is False
+    assert cfg["sibling_disambig"] is False
 
 
 # ── README block ────────────────────────────────────────────────────────────
@@ -89,11 +103,11 @@ def test_effective_config_reads_env_and_defaults(monkeypatch):
 def test_render_lists_the_date_config_and_one_row_per_k(monkeypatch):
     text = render_readme_block(_scorecard(monkeypatch))
     assert "2026-09-04" in text
-    assert "cross-encoder/ms-marco-MiniLM-L-6-v2" in text
+    assert "Xenova/ms-marco-MiniLM-L-6-v2" in text
     assert "4,321" in text and "40 cases" in text
     rows = [line for line in text.splitlines() if line.startswith("| ")]
     assert any("80.0%" in r and "0.717" in r for r in rows)
-    assert any("82.5%" in r and "0.730" in r and "shipped" in r for r in rows)
+    assert any("85.0%" in r and "0.731" in r and "shipped" in r for r in rows)
 
 
 def test_replace_block_swaps_only_the_marked_region():
@@ -117,23 +131,23 @@ def test_replace_block_requires_both_markers():
 # ── drift rule and history ──────────────────────────────────────────────────
 
 def test_drift_rule_four_point_nine_is_fine_and_five_warns():
-    drifted, message = drift_verdict(0.776, 0.825, cases=40)
+    drifted, message = drift_verdict(0.801, 0.85, cases=40)
     assert drifted is False
     assert message.startswith("EVAL OK")
-    drifted, message = drift_verdict(0.775, 0.825, cases=40)
+    drifted, message = drift_verdict(0.8, 0.85, cases=40)
     assert drifted is True
-    assert message == "EVAL DRIFT WARNING: hit-rate 77.5% vs recorded 82.5% (2 cases)"
+    assert message == "EVAL DRIFT WARNING: hit-rate 80.0% vs recorded 85.0% (2 cases)"
 
 
 def test_drift_rule_treats_improvement_as_ok():
-    drifted, message = drift_verdict(0.85, 0.825, cases=40)
+    drifted, message = drift_verdict(0.875, 0.85, cases=40)
     assert drifted is False
-    assert message == "EVAL OK: hit-rate 85.0% vs recorded 82.5%"
+    assert message == "EVAL OK: hit-rate 87.5% vs recorded 85.0%"
 
 
 def test_append_history_writes_one_json_line_per_call(tmp_path):
     path = tmp_path / "history.jsonl"
-    append_history(str(path), {"date": "2026-09-04", "hit_rate": 0.825})
+    append_history(str(path), {"date": "2026-09-04", "hit_rate": 0.85})
     append_history(str(path), {"date": "2026-09-05", "hit_rate": 0.8})
     lines = path.read_text(encoding="utf-8").splitlines()
     assert [json.loads(l)["date"] for l in lines] == ["2026-09-04", "2026-09-05"]

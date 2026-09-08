@@ -2,9 +2,10 @@
 
 Built from the same collection the vector leg searches, so both retrieval
 legs see identical chunks. Pure Python (rank_bm25), rebuilt at backend
-startup and after each ingestion run; goes stale if another process
-updates the index until the next rebuild or restart. A build failure
-downgrades hybrid retrieval to vector-only — never a crash.
+startup, after each in-process ingestion, and via POST /api/lexical/refresh
+when an out-of-process indexer (rebuild_rag_index / auto_archive) updates
+Chroma. A build failure downgrades hybrid retrieval to vector-only — never
+a crash.
 """
 import re
 

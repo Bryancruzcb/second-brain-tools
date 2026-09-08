@@ -32,8 +32,10 @@ def effective_config():
         "rerank_depth": _cfg.get_rerank_depth(),
         "top_k": _cfg.get_top_k(),
         "max_chunks_per_note": _cfg.get_max_chunks_per_note(),
-        # Arrives with the contextual-chunk-header work; "plain" until then.
-        "chunk_scheme": getattr(_cfg, "get_chunk_scheme", lambda: "plain")(),
+        "chunk_scheme": _cfg.get_chunk_scheme(),
+        "query_rewrite": _cfg.query_rewrite_enabled(),
+        "notes_chat_guard": _cfg.notes_chat_guard_enabled(),
+        "sibling_disambig": _cfg.sibling_disambig_enabled(),
     }
 
 

@@ -116,14 +116,18 @@ class FakeLexical:
         return self.results[:k]
 
 
-def test_hybrid_falls_back_to_vector_only_without_lexical():
+def test_hybrid_falls_back_to_vector_only_without_lexical(monkeypatch):
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "0")
+    monkeypatch.setenv("QUERY_REWRITE", "0")
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
     assert [c["id"] for c in out] == ["id_a", "id_b"]
     assert coll.last_kwargs["n_results"] == retrieval.HYBRID_DEPTH
 
 
-def test_hybrid_fuses_vector_and_lexical():
+def test_hybrid_fuses_vector_and_lexical(monkeypatch):
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "0")
+    monkeypatch.setenv("QUERY_REWRITE", "0")
     coll = FakeCollection(CANNED)
     lex = FakeLexical([_cand("id_b"), _cand("id_z")])
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=lex, scope="chats", k=2)
@@ -209,6 +213,8 @@ class RecordingModel:
 
 
 def test_query_prefix_applies_to_vector_encode_only(monkeypatch):
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "0")
+    monkeypatch.setenv("QUERY_REWRITE", "0")
     monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "query: ")
     rec = RecordingModel()
     lex = FakeLexical([
@@ -302,8 +308,8 @@ def test_onnx_cross_encoder_batches_and_fills_missing_inputs():
     assert session.calls == [["attention_mask", "input_ids", "token_type_ids"]] * 3
 
 
-def test_load_reranker_uses_sentence_transformers_by_default(monkeypatch):
-    monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
+def test_load_reranker_uses_sentence_transformers_when_onnx_cleared(monkeypatch):
+    monkeypatch.setenv("RERANKER_ONNX_FILE", "")
     calls = []
 
     class FakeCrossEncoder:
@@ -317,8 +323,8 @@ def test_load_reranker_uses_sentence_transformers_by_default(monkeypatch):
     assert calls == [("some/model", {})]
 
 
-def test_load_reranker_uses_onnx_export_when_configured(monkeypatch):
-    monkeypatch.setenv("RERANKER_ONNX_FILE", "onnx/model_quantized.onnx")
+def test_load_reranker_uses_onnx_export_by_default(monkeypatch):
+    monkeypatch.delenv("RERANKER_ONNX_FILE", raising=False)
     seen = {}
 
     def fake_from_hub(cls, name, onnx_file, max_length=512):

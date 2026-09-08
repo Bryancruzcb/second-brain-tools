@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, askQuery, composePrompts, fetchNote } from "@/lib/api";
+import { ApiError, askQuery, composePrompts, fetchNote, type AskScope } from "@/lib/api";
 import { GlowOutline } from "./GlowOutline";
 
 type Props = {
@@ -22,6 +22,7 @@ export function AskPanel({
   sectionGlow,
 }: Props) {
   const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<AskScope>("notes");
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export function AskPanel({
       const res = await askQuery({
         query: trimmed,
         contextNodes: contextNoteId ? [contextNoteId] : undefined,
+        scope,
       });
       const titles = (res.sources || [])
         .map((s) => s.title)
@@ -90,7 +92,7 @@ export function AskPanel({
     } finally {
       setLoading(false);
     }
-  }, [query, contextNoteId, loading]);
+  }, [query, contextNoteId, loading, scope]);
 
   return (
     <GlowOutline
@@ -105,6 +107,58 @@ export function AskPanel({
         </div>
 
         <div className="flex flex-1 flex-col gap-4 p-5">
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[12px] font-medium tracking-[-0.01em] text-ink/70">
+                Search in
+              </span>
+              {(
+                [
+                  { id: "notes", label: "Notes" },
+                  { id: "chats", label: "Chats" },
+                  { id: "all", label: "All" },
+                ] as const
+              ).map((opt) => {
+                const active = scope === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    aria-pressed={active}
+                    className="rounded-full border px-3 py-1 text-[12px] tracking-[-0.01em] transition focus-ring"
+                    style={
+                      active
+                        ? {
+                            borderColor:
+                              "color-mix(in srgb, var(--accent) 55%, var(--hairline))",
+                            background:
+                              "color-mix(in srgb, var(--accent) 12%, white)",
+                            color: "var(--ink)",
+                          }
+                        : {
+                            borderColor: "var(--hairline)",
+                            background: "#fafafa",
+                            color: "color-mix(in srgb, var(--ink) 70%, transparent)",
+                          }
+                    }
+                    onClick={() => setScope(opt.id)}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[12px] leading-snug text-muted">
+              {scope === "notes" &&
+                "Written vault notes only (default). Switch to All if the answer may live in an exported chat."}
+              {scope === "chats" &&
+                "Exported AI chat transcripts only — most of the corpus."}
+              {scope === "all" &&
+                "Notes and chat transcripts together."}
+            </p>
+          </div>
+
           <div className="compose-bar">
             {contextNoteId && contextTitle && (
               <span className="context-chip shrink-0">
