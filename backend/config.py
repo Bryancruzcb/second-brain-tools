@@ -187,6 +187,18 @@ def get_query_prefix() -> str:
     )
 
 
+
+def query_rewrite_enabled() -> bool:
+    """Whether retrieval should expand the query via local Ollama.
+
+    QUERY_REWRITE defaults OFF. Only explicit on-values enable it so A/B
+    and shipped safety stay opt-in: 1, true, yes, on (case-insensitive).
+    """
+    return os.environ.get("QUERY_REWRITE", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def reranker_disabled(name: str) -> bool:
     """Shared kill-switch semantics for RERANKER_MODEL values."""
     return name.strip().lower() in ("", "off", "none", "disabled")

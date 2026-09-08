@@ -4,6 +4,7 @@ Extracted from main.py's run_query so the eval harness measures exactly
 what the app does — same reason indexer.py was unified in PR #3.
 """
 import config
+import query_rewrite
 
 # Resolved once at import, the same moment uvicorn, the eval and the sweep
 # script read them; see config.get_top_k() and friends for the numbers.
@@ -167,6 +168,9 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
     then served with at most ``max_per_source`` chunks per note (default:
     config.get_max_chunks_per_note(), read per call like the query prefix).
 
+    When QUERY_REWRITE=1, expands query_text via local Ollama for this
+    retrieval only (fail-open); generation callers keep the original text.
+
     Falls back gracefully at each stage: no lexical index → vector-only;
     no cross-encoder → fused order. The whole RERANK_DEPTH pool is ranked
     before the cap and the cut to k, so the cap admits the next-best note
@@ -178,6 +182,7 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
     """
     if max_per_source is None:
         max_per_source = config.get_max_chunks_per_note()
+    query_text = query_rewrite.rewrite_for_retrieval(query_text)
     vector = retrieve(query_text, model=model, collection=collection,
                       scope=scope, k=HYBRID_DEPTH)
     if lexical is None or len(lexical) == 0:

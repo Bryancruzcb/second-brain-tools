@@ -51,3 +51,7 @@ backend/eval/sweeps/
 scripts/.topic_embeddings.json
 scripts/topic_keyword_learning.log
 
+
+backend/eval/results_rewrite_*.json
+backend/eval/_rewrite_*.log
+
