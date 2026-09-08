@@ -116,14 +116,18 @@ class FakeLexical:
         return self.results[:k]
 
 
-def test_hybrid_falls_back_to_vector_only_without_lexical():
+def test_hybrid_falls_back_to_vector_only_without_lexical(monkeypatch):
+    monkeypatch.delenv("NOTES_CHAT_GUARD", raising=False)
+    monkeypatch.delenv("QUERY_REWRITE", raising=False)
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
     assert [c["id"] for c in out] == ["id_a", "id_b"]
     assert coll.last_kwargs["n_results"] == retrieval.HYBRID_DEPTH
 
 
-def test_hybrid_fuses_vector_and_lexical():
+def test_hybrid_fuses_vector_and_lexical(monkeypatch):
+    monkeypatch.delenv("NOTES_CHAT_GUARD", raising=False)
+    monkeypatch.delenv("QUERY_REWRITE", raising=False)
     coll = FakeCollection(CANNED)
     lex = FakeLexical([_cand("id_b"), _cand("id_z")])
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=lex, scope="chats", k=2)
@@ -209,6 +213,8 @@ class RecordingModel:
 
 
 def test_query_prefix_applies_to_vector_encode_only(monkeypatch):
+    monkeypatch.delenv("NOTES_CHAT_GUARD", raising=False)
+    monkeypatch.delenv("QUERY_REWRITE", raising=False)
     monkeypatch.setenv("EMBEDDING_QUERY_PREFIX", "query: ")
     rec = RecordingModel()
     lex = FakeLexical([

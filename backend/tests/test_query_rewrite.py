@@ -149,3 +149,53 @@ def test_rewrite_includes_domain_hints_even_if_model_skips_them(monkeypatch):
     )
     assert "architecture" in out
     assert "application" in out or "UI" in out
+
+def test_introduces_forbidden_chat_terms_detects_new_leaks():
+    assert query_rewrite.introduces_forbidden_chat_terms(
+        "cleanup script handwritten notes",
+        "chat transcript about cleanup",
+    )
+    assert not query_rewrite.introduces_forbidden_chat_terms(
+        "resume chat session",
+        "resume rebuild chat",
+    )
+    assert not query_rewrite.introduces_forbidden_chat_terms(
+        "cleanup script",
+        "handwritten notes recovery",
+    )
+
+
+def test_rewrite_rejects_model_output_that_adds_chat_terms(monkeypatch):
+    monkeypatch.setenv("QUERY_REWRITE", "1")
+    monkeypatch.setattr(
+        query_rewrite,
+        "_call_ollama_rewrite",
+        lambda q: "slack thread transcript about notes",
+    )
+    query_rewrite._rewrite_cached.cache_clear()
+    out = query_rewrite.rewrite_for_retrieval("cleanup script deleted handwritten notes")
+    assert "cleanup script deleted handwritten notes" in out
+    assert "slack" not in out.casefold()
+    assert "thread" not in out.casefold()
+    assert "transcript" not in out.casefold()
+    # Deterministic hints still apply.
+    assert "hand-written" in out.casefold() or "clean_empty_chats" in out
+
+
+def test_domain_hint_expansions_cover_remaining_miss_cues():
+    slides = query_rewrite.domain_hint_expansions(
+        "how did i plan to break up the slides i have left before a test?"
+    )
+    assert "slides" in slides and "exam" in slides
+    container = query_rewrite.domain_hint_expansions(
+        "wrong container for the job"
+    )
+    assert "Course Home" in container or "data structure" in container
+    cleanup = query_rewrite.domain_hint_expansions(
+        "the cleanup script deleted my handwritten session notes"
+    )
+    assert "clean_empty_chats" in cleanup and "hand-written" in cleanup
+    resume = query_rewrite.domain_hint_expansions(
+        "in the session where i redid my resume"
+    )
+    assert "Resume" in resume or "rebuild" in resume.casefold()

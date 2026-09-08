@@ -188,15 +188,38 @@ def get_query_prefix() -> str:
 
 
 
+def _env_flag_enabled(name: str) -> bool:
+    """True only for explicit on-values: 1, true, yes, on (case-insensitive)."""
+    return os.environ.get(name, "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def query_rewrite_enabled() -> bool:
     """Whether retrieval should expand the query via local Ollama.
 
     QUERY_REWRITE defaults OFF. Only explicit on-values enable it so A/B
     and shipped safety stay opt-in: 1, true, yes, on (case-insensitive).
     """
-    return os.environ.get("QUERY_REWRITE", "").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    return _env_flag_enabled("QUERY_REWRITE")
+
+
+def notes_chat_guard_enabled() -> bool:
+    """When scope=notes, drop chat/transcript stub chunks before CE.
+
+    NOTES_CHAT_GUARD defaults OFF. Topic-stub notes under AI Chat Links
+    otherwise pollute note-scope pools even though category!=chat.
+    """
+    return _env_flag_enabled("NOTES_CHAT_GUARD")
+
+
+def sibling_disambig_enabled() -> bool:
+    """Light title/path boost + sibling penalty after RRF, before CE.
+
+    SIBLING_DISAMBIG defaults OFF. Prefer specific hub notes (Course Home,
+    architecture.md) over same-folder siblings when the query has anchors.
+    """
+    return _env_flag_enabled("SIBLING_DISAMBIG")
 
 
 def reranker_disabled(name: str) -> bool:

@@ -22,10 +22,17 @@ REWRITE_NUM_CTX = 2048
 REWRITE_MAX_TOKENS = 20
 REWRITE_MAX_CLAUSES = 2
 
+# Rewrite must not invent chat-channel vocabulary the user did not ask for.
+_FORBIDDEN_CHAT_TERMS = re.compile(
+    r"\b(chat|thread|transcript|imessage|slack)\b",
+    re.IGNORECASE,
+)
+
+
 REWRITE_SYSTEM_PROMPT = """You rewrite a user search query for hybrid retrieval (BM25 + dense) over a personal Obsidian second-brain. Output ONLY the rewritten query string. No quotes, labels, or explanation.
 Goals: note/code vocab; expand synonyms/artifacts; same intent; short; don’t invent entities; prefer notes-domain phrasing.
 Hard rules: strip chat filler; don’t add chat/thread/yesterday unless asked; leave clean keyword queries mostly unchanged.
-Domain hints: city portal→app/application/UI; read code before changing→inspect existing implementation; venv/requirements→virtualenv + requirements.txt."""
+Domain hints: city portal→app/application/UI; read code before changing→inspect existing implementation; venv/requirements→virtualenv + requirements.txt; slides before test→slides/exam; wrong container→data structure Course Home; cleanup script→handwritten notes recovery; resume redo→Resume Rebuild Job Hunt. Never add chat/thread/transcript/imessage/slack."""
 
 
 def query_rewrite_enabled() -> bool:
@@ -51,16 +58,28 @@ def _rewrite_cached(original: str) -> str:
     try:
         rewritten = _call_ollama_rewrite(original)
         cleaned = _clean_model_output(rewritten)
-        if cleaned:
+        if cleaned and not introduces_forbidden_chat_terms(original, cleaned):
             pieces.append(cleaned)
+        elif cleaned:
+            logger.info("query rewrite rejected: introduced chat-channel terms")
     except Exception as exc:  # noqa: BLE001 — fail-open is the product rule
         logger.warning("query rewrite failed open: %s", exc)
     hints = domain_hint_expansions(original)
     if hints:
-        pieces.append(hints)
+        covered = " ".join(pieces).casefold()
+        novel = [tok for tok in hints.split() if tok.casefold() not in covered]
+        if novel:
+            pieces.append(" ".join(novel))
     if not pieces:
         return original
     return merge_rewrite(original, " ".join(pieces))
+
+
+def introduces_forbidden_chat_terms(original: str, rewritten: str) -> bool:
+    """True when rewrite adds chat|thread|transcript|imessage|slack not in original."""
+    orig = {m.group(0).casefold() for m in _FORBIDDEN_CHAT_TERMS.finditer(original or "")}
+    new = {m.group(0).casefold() for m in _FORBIDDEN_CHAT_TERMS.finditer(rewritten or "")}
+    return bool(new - orig)
 
 
 def _call_ollama_rewrite(query: str) -> str:
@@ -105,6 +124,16 @@ def domain_hint_expansions(query: str) -> str:
         or ("requirements" in q and any(w in q for w in ("pull", "install", "set up", "setup")))
     ):
         bits.append("virtualenv requirements.txt")
+    if "slide" in q and any(w in q for w in ("test", "exam", "before")):
+        bits.append("slides exam studying")
+    if "container" in q and any(w in q for w in ("wrong", "job", "reach")):
+        # DS/algorithms metaphor (not Docker); Course Home is the hub note.
+        bits.append("data structure Course Home container")
+    if "cleanup" in q and ("script" in q or "handwritten" in q or "deleted" in q):
+        # Vault wording is "hand-written" / clean_empty_chats.py, not "handwritten".
+        bits.append("clean_empty_chats hand-written recovered")
+    if "resume" in q and any(w in q for w in ("redo", "redid", "rebuild", "session")):
+        bits.append("Resume Rebuild Job Hunt")
     return " ".join(bits)
 
 
