@@ -1,10 +1,10 @@
 # Second Brain Knowledge Engine
 
-Explore your Obsidian notes as a 3D map and ask questions about them, with everything running on your own machine.
+Night Atlas UI for exploring a local Obsidian vault — Notes, Map, Repair, and Ask — with everything running on your own machine.
 
 [![CI Pipeline](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml)
 
-Nothing leaves the machine. There are no cloud calls and no hosted AI: retrieval is local ChromaDB plus an in-memory BM25 index, generation is Qwen through Ollama, and both LLM clients are constructed against localhost. The graph, note reader, and health tools all keep working when Ollama is off — only the Qwen features need it.
+Nothing leaves the machine. There are no cloud calls and no hosted AI: retrieval is local ChromaDB plus an in-memory BM25 index, generation is Qwen through Ollama, and both LLM clients are constructed against localhost. Map, Notes, and Repair all keep working when Ollama is off — only Ask needs it.
 
 ## The hard part: parsing a cloud-synced vault
 
@@ -16,19 +16,20 @@ The second trap is files that aren't really there. OneDrive leaves placeholders 
 
 Both of these came from running it against my own vault and watching it stall.
 
-![Demo: open the 3D graph, search and select a note, ask Qwen, get a grounded answer with sources](docs/demo.gif)
+![Demo of the vault UI](docs/demo.gif)
 
-*Above: opening the 3D graph, finding a note through graph search, and asking Qwen about it — the answer is generated locally and cites the source notes it used.*
+*Night Atlas: Notes, Map, Repair, and Ask — open a recent note, inspect the neighborhood map, triage Repair issues, and ask Qwen for a grounded answer with sources.*
 
 ## What it includes
 
-- **Workspace overview** with vault totals, recent notes, daily rediscovery, structural health, and separate refresh/index controls.
-- **3D knowledge graph** with deterministic layout, explicit and semantic links, tag filters, search, camera focus, keyboard navigation, and context selection.
-- **Note reader and editor** with Markdown rendering, save states, Qwen co-writing, Obsidian deep links, and an indexed read-only fallback for OneDrive placeholders.
-- **Ask Qwen** with multi-note context chips, local retrieval, source links, clear loading/error states, and no hosted AI dependency.
-- **Command search** with `⌘K`, semantic results, direct note opening, and a quick path from a search phrase into Qwen.
-- **Vault tools** for creating notes, saving web clips, refreshing graph/health data, and rebuilding the AI search index.
+- **Notes / Recent** — live recent reel from `GET /api/recent`; open a note via `GET /api/note/{ref}`; inline expand for the selected card.
+- **Map** — vault neighborhood graph from `GET /api/graph`; client-side layout of ~42 highest-degree nodes; clicking a node opens the note and can set Ask context.
+- **Repair** (Health) — broken links, orphans, and tagless notes from `GET /api/health`; refresh with `POST /api/health/scan`; open a row to jump to the note with a repair callout. When the `vault-core` binary is missing (common on Windows), `backend/health_hygiene.py` derives the same lists from Chroma so the panel is not empty.
+- **Ask** — one-shot compose (not a chat transcript) via `POST /api/query`; optional context chip from Map/Notes; clear errors when Ollama is down.
+- **Nav** — Notes / Map / Repair / Ask with glow on hover or a brief post-click pulse.
+- **API client** — `frontend/src/lib/api.ts`; `NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000`. See [`ATLAS_MOCK.md`](ATLAS_MOCK.md) for the endpoint table.
 - **MCP server** (`backend/mcp_server.py`) on the official Python SDK over stdio, so Claude Desktop, Claude Code, Cursor, or VS Code can call the vault's hybrid search as a tool. It is a thin client over `GET /api/search`, so the index and both torch models stay in one process, and it checks `GET /api/ready` first: that endpoint reports whether the embedding model, Chroma collection, lexical index, and reranker have actually loaded, where `/api/health` answers 200 before they have. This is the one path where note text leaves the machine, because the caller is a hosted model.
+- **Clipper / vault archive scripts** — Chrome extension for web clips into the vault inbox, plus `scripts/auto_archive.py` for chat export, health report, incremental re-embed, and backup.
 
 ## Retrieval quality
 
@@ -136,9 +137,9 @@ Recorded 2026-09-07 over 40 cases against an index of 4,963 chunks from 637 file
 1. **`core` — Rust**  
    Walks the vault and parses Markdown, wikilinks, tags, and structure. Reads sequentially to survive OneDrive; parses in parallel with Rayon.
 2. **`backend` — FastAPI / Python**  
-   Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama. Ships a `Dockerfile` that CI builds on every push, import-tests `main.py` inside the image, and asserts the torch wheel is CPU-only.
-3. **`frontend` — Next.js / React Three Fiber**  
-   Provides the desktop workspace, responsive layouts, Markdown tools, chat, and WebGL graph.
+   Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama. Ships a `Dockerfile` that CI builds on every push, import-tests `main.py` inside the image, and asserts the torch wheel is CPU-only. When `vault-core` is missing, `health_hygiene.py` fills Repair lists from Chroma.
+3. **`frontend` — Next.js / React / Tailwind**  
+   Night Atlas shell (Notes / Map / Repair / Ask) wired to FastAPI — not React Three Fiber / WebGL.
 4. **`clipper` — Chrome extension**  
    Saves selected web content into the vault inbox.
 5. **`scripts` — archive pipeline**  
@@ -146,10 +147,10 @@ Recorded 2026-09-07 over 40 cases against an index of 4,963 chunks from 637 file
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 18+ (or [Bun](https://bun.sh) 1.4+; `frontend/package.json` pins `packageManager` to `bun@1.4.2`)
 - Python 3.10+
 - Rust and Cargo
-- [Ollama](https://ollama.com/download) for Qwen chat and co-writing
+- [Ollama](https://ollama.com/download) for Ask / Qwen
 
 ## Setup
 
@@ -168,7 +169,7 @@ ollama pull qwen2.5
 ollama serve
 ```
 
-The graph, note reader, and health tools remain usable when Ollama is offline; only Qwen features require it.
+Map, Notes, and Repair remain usable when Ollama is offline; only Ask requires it.
 
 ### 3. Start the backend
 
@@ -182,21 +183,32 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 ### 4. Start the frontend
 
+Prefer Bun (matches `packageManager` in `frontend/package.json`):
+
+```bash
+cd frontend
+bun install
+bun run dev
+```
+
+npm still works if you prefer it:
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). The backend must be running for live vault data (`NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000`).
 
 ## Daily workflow
 
-1. Use **Refresh vault** to re-parse notes and update graph/health data.
-2. Use **Re-index notes** after substantial note changes so semantic search and Qwen use current embeddings.
-3. Open **Knowledge graph** to inspect connections; click a node to read it or Shift-click nodes to add them as Qwen context.
-4. Open **Ask Qwen** to search and synthesize across the vault locally.
-5. Use the top command search or `⌘K` from anywhere in the workspace.
+1. Start the backend (`uvicorn` on `:8000`) and the frontend (`bun run dev` / `npm run dev` on `:3000`).
+2. Browse **Notes** for the live recent reel; expand a card to read it inline.
+3. Open **Map** to inspect neighborhood connections; click a node to read it and optionally feed Ask context.
+4. Use **Repair** for vault hygiene (broken links, orphans, tagless); refresh the scan when the lists look stale.
+5. Use **Ask** for grounded Q&A over the vault (needs Ollama).
+6. After `auto_archive` updates the vector index from outside a running backend, restart the backend or re-index so the in-memory BM25 leg matches Chroma.
 
 ## Automated chat archiving
 
@@ -213,9 +225,18 @@ Run it manually with `python scripts/auto_archive.py`, or schedule it daily with
 
 ### Topic stubs for project folders
 
-Exported chats still live under `05 AI Chats/`. When a session matches `scripts/topic_routes.json`, the exporters also write a small link stub under `02 Projects/<Topic>/AI Chat Links/` pointing back at the transcript. Edit that JSON to add projects and keywords. Unmatched chats go to `02 Projects/Chat Inbox/AI Chat Links` (`default_route_id`).
+Exported chats still live under `05 AI Chats/`. Topic routing writes small link stubs elsewhere:
 
-One caveat: the backend keeps its BM25 keyword index in memory, so if the backend is running while the nightly pass updates the vector index from outside, use **Re-index notes** or restart the backend afterward — until then the keyword leg answers from the pre-update snapshot (including notes the pass may have deleted).
+- Configure routes in `scripts/topic_routes.json`.
+- Transcripts stay in `05 AI Chats/`.
+- Matching stubs land under `02 Projects/<Topic>/AI Chat Links/` (and School / Career paths as configured in that JSON).
+- Unmatched chats go to `02 Projects/Chat Inbox/AI Chat Links` (`default_route_id`).
+- Keyword match wins first; otherwise `scripts/topic_embed.py` (same BGE model as RAG) assigns at ≥0.50 with a margin, else Inbox.
+- Confident assignments append `learned_keywords` to `topic_routes.json` (log: `scripts/topic_keyword_learning.log`).
+- Backfill existing exports with `python scripts/backfill_topic_stubs.py`.
+- `scripts/.auto_archive_last_success` is local-only / gitignored (once-per-day latch for `--daily`).
+
+One caveat: the backend keeps its BM25 keyword index in memory, so if the backend is running while the nightly pass updates the vector index from outside, restart the backend afterward — until then the keyword leg answers from the pre-update snapshot (including notes the pass may have deleted).
 
 Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
 

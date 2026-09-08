@@ -22,5 +22,5 @@ Night Atlas (`frontend/`) is wired to the live FastAPI backend instead of demo f
 
 - UI look stays the Night Atlas marketing shell; content is real vault titles/counts.
 - Map caps ~42 highest-degree nodes for readability; subtitle shows full vault note count.
-- Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). Empty lists are normal when vault-core has not populated them.
+- Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - `frontend/src/data/mock.ts` is no longer consumed by the panels.
