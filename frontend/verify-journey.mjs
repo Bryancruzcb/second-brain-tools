@@ -2,7 +2,7 @@
 // frontend (:3000). Prints one JSON report and writes screenshots to OUT_DIR.
 //
 //   cd frontend && node verify-journey.mjs
-//   OUT_DIR=/tmp/shots BASE_URL=http://localhost:3000 node verify-journey.mjs
+//   OUT_DIR=/tmp/shots BASE_URL=http://localhost:3000 API_PORT=8000 node verify-journey.mjs
 //
 // Exit code 1 when any check fails.
 import { chromium } from "playwright";
@@ -11,6 +11,8 @@ import path from "path";
 
 // `next dev` only hydrates for its own origin (localhost); use 127.0.0.1 against `next start`.
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000/";
+/** Port the frontend was pointed at via NEXT_PUBLIC_API_URL; used to count API calls. */
+const API_PORT = process.env.API_PORT || "8000";
 const OUT_DIR = path.resolve(process.env.OUT_DIR || path.join("..", "docs", "_demo_frames"));
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -81,7 +83,7 @@ async function openPage(context, label) {
   const apiHits = {};
   page.on("request", (r) => {
     const u = new URL(r.url());
-    if (u.port === "8000") apiHits[u.pathname] = (apiHits[u.pathname] || 0) + 1;
+    if (u.port === API_PORT) apiHits[u.pathname] = (apiHits[u.pathname] || 0) + 1;
   });
   await page.goto(BASE_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForSelector(".map-node", { timeout: 30000 }).catch(() => null);

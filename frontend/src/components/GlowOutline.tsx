@@ -10,8 +10,6 @@ import {
 type Props = {
   children: ReactNode;
   className?: string;
-  /** @deprecated Unused — glow is hover/focus or brief is-glowing only */
-  active?: boolean;
   /** Temporary animated outline (~1.4s after nav click) */
   glow?: boolean;
   /** Border radius matched to the framed element */
@@ -29,7 +27,6 @@ type Props = {
 export function GlowOutline({
   children,
   className = "",
-  active: _active = false,
   glow = false,
   radius = 18,
   compact = false,

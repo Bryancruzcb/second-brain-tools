@@ -79,6 +79,9 @@ export function ProductPage() {
     };
     setActiveSection(section);
     scrollToId(section);
+    // Keep the section in the URL so a reload or shared link lands on it,
+    // without pushing a history entry per click.
+    window.history.replaceState(null, "", `#${section}`);
   }, []);
 
   const onSelectNote = useCallback((id: string | null) => {
