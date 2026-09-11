@@ -188,6 +188,32 @@ export function mapHealthIssues(data: BackendHealthData): HealthIssue[] {
   return issues;
 }
 
+/** Ring spacing inside a cluster, in layout units; wide enough for a label between rings. */
+const RING_STEP = 38;
+const RING_ARC = 52;
+
+/**
+ * Offsets for `count` cluster members: the first (highest-degree) member sits
+ * at the centre, the rest fill concentric rings whose capacity grows with the
+ * radius, so labels have room instead of piling onto one small circle.
+ */
+function ringOffsets(count: number): { dx: number; dy: number }[] {
+  const out: { dx: number; dy: number }[] = [];
+  if (count <= 0) return out;
+  out.push({ dx: 0, dy: 0 });
+  for (let k = 1; out.length < count; k++) {
+    const r = RING_STEP * k + 8;
+    const capacity = Math.max(6, Math.floor((2 * Math.PI * r) / RING_ARC));
+    const n = Math.min(capacity, count - out.length);
+    const phase = k % 2 === 0 ? Math.PI / n : 0;
+    for (let i = 0; i < n; i++) {
+      const a = (2 * Math.PI * i) / n + phase - Math.PI / 2;
+      out.push({ dx: r * Math.cos(a), dy: r * Math.sin(a) });
+    }
+  }
+  return out;
+}
+
 /** Client-side layout for graph nodes (API has no x/y). Caps for readability. */
 export function layoutGraph(
   nodes: BackendGraphNode[],
@@ -197,17 +223,24 @@ export function layoutGraph(
   nodes: GraphNode[];
   edges: [string, string][];
   labels: Record<string, string>;
+  /** Link count per node over the whole vault graph, not just the shown subset. */
+  degrees: Record<string, number>;
   totalNodes: number;
   shownNodes: number;
 } {
-  const width = opts.width ?? 640;
-  const height = opts.height ?? 400;
+  const width = opts.width ?? 960;
+  const height = opts.height ?? 560;
   const maxNodes = opts.maxNodes ?? 42;
   const totalNodes = nodes.length;
 
+  // Rank by real wikilinks. Ghost edges are suggested links; they outnumber
+  // real ones ~9:1 in a chat-heavy vault and are never drawn, so counting them
+  // would pick nodes that share no visible edge.
+  const realEdges = edges.filter((e) => !e.is_ghost);
+  const rankEdges = realEdges.length > 0 ? realEdges : edges;
   const degree = new Map<string, number>();
   for (const n of nodes) degree.set(n.id, 0);
-  for (const e of edges) {
+  for (const e of rankEdges) {
     if (degree.has(e.source))
       degree.set(e.source, (degree.get(e.source) || 0) + 1);
     if (degree.has(e.target))
@@ -217,7 +250,9 @@ export function layoutGraph(
   const ranked = [...nodes].sort(
     (a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0),
   );
-  const selected = ranked.slice(0, maxNodes);
+  const linked = ranked.filter((n) => (degree.get(n.id) || 0) > 0);
+  // Prefer notes that actually connect; a tiny vault falls back to any notes.
+  const selected = (linked.length >= 8 ? linked : ranked).slice(0, maxNodes);
   const selectedIds = new Set(selected.map((n) => n.id));
 
   const byCluster = new Map<string, BackendGraphNode[]>();
@@ -232,22 +267,22 @@ export function layoutGraph(
   const clusterCount = Math.max(1, clusters.length);
   const cx = width / 2;
   const cy = height / 2;
-  const ringR = Math.min(width, height) * 0.32;
+  // Clusters sit on an ellipse that follows the canvas shape; one cluster sits centred.
+  const ringRx = clusterCount === 1 ? 0 : width * 0.34;
+  const ringRy = clusterCount === 1 ? 0 : height * 0.3;
 
   const positions = new Map<string, { x: number; y: number; cluster: string }>();
   clusters.forEach((key, ci) => {
     const angle = (2 * Math.PI * ci) / clusterCount - Math.PI / 2;
-    const clusterCx = cx + ringR * Math.cos(angle);
-    const clusterCy = cy + ringR * Math.sin(angle);
+    const clusterCx = cx + ringRx * Math.cos(angle);
+    const clusterCy = cy + ringRy * Math.sin(angle);
     const members = byCluster.get(key)!;
+    const offsets = ringOffsets(members.length);
     members.forEach((n, mi) => {
-      const localAngle = (2 * Math.PI * mi) / Math.max(members.length, 1);
-      const localR = 18 + Math.min(55, members.length * 4);
-      const x = clusterCx + localR * Math.cos(localAngle);
-      const y = clusterCy + localR * Math.sin(localAngle);
+      const { dx, dy } = offsets[mi];
       positions.set(n.id, {
-        x: Math.max(24, Math.min(width - 24, x)),
-        y: Math.max(28, Math.min(height - 36, y)),
+        x: Math.max(24, Math.min(width - 24, clusterCx + dx)),
+        y: Math.max(28, Math.min(height - 36, clusterCy + dy)),
         cluster: key,
       });
     });
@@ -272,12 +307,17 @@ export function layoutGraph(
   }
 
   const labels: Record<string, string> = {};
-  for (const n of selected) labels[n.id] = n.label || n.id;
+  const degrees: Record<string, number> = {};
+  for (const n of selected) {
+    labels[n.id] = n.label || n.id;
+    degrees[n.id] = degree.get(n.id) || 0;
+  }
 
   return {
     nodes: laid,
     edges: edgePairs,
     labels,
+    degrees,
     totalNodes,
     shownNodes: laid.length,
   };
@@ -297,6 +337,22 @@ export async function fetchHealth() {
     is_scanning: boolean;
     last_scan_time: number;
   }>("/api/health");
+}
+
+let healthPromise: ReturnType<typeof fetchHealth> | null = null;
+
+/**
+ * One /api/health request shared by every panel on the page. A failure clears
+ * the cache so the next caller retries instead of replaying the error.
+ */
+export function fetchHealthCached() {
+  if (!healthPromise) {
+    healthPromise = fetchHealth().catch((e) => {
+      healthPromise = null;
+      throw e;
+    });
+  }
+  return healthPromise;
 }
 
 export async function fetchGraph() {

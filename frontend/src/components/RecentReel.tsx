@@ -3,15 +3,15 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
   ApiError,
-  fetchHealth,
+  fetchHealthCached,
   fetchNote,
   fetchRecent,
   mapHealthIssues,
   recentToNote,
 } from "@/lib/api";
 import { relativeDay } from "@/lib/format";
+import { prefersReducedMotion } from "@/lib/scroll";
 import type { HealthIssue, Note } from "@/types";
-import { GlowOutline } from "./GlowOutline";
 
 const kindLabel: Record<string, string> = {
   "broken-link": "Broken",
@@ -32,14 +32,12 @@ type Props = {
   selectedId: string | null;
   repairIssueId?: string | null;
   onSelect: (id: string | null) => void;
-  sectionGlow?: boolean;
 };
 
 export function RecentReel({
   selectedId,
   repairIssueId = null,
   onSelect,
-  sectionGlow,
 }: Props) {
   const [reelNotes, setReelNotes] = useState<Note[]>([]);
   const [healthIssues, setHealthIssues] = useState<HealthIssue[]>([]);
@@ -56,7 +54,7 @@ export function RecentReel({
       try {
         const [recent, health] = await Promise.all([
           fetchRecent(),
-          fetchHealth().catch(() => null),
+          fetchHealthCached().catch(() => null),
         ]);
         if (cancelled) return;
         setReelNotes((recent.notes || []).map(recentToNote));
@@ -186,7 +184,10 @@ export function RecentReel({
   useEffect(() => {
     if (!selected) return;
     const t = window.setTimeout(() => {
-      expandRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      expandRef.current?.scrollIntoView({
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+        block: "nearest",
+      });
     }, 80);
     return () => window.clearTimeout(t);
   }, [selectedId, selected]);
@@ -236,20 +237,18 @@ export function RecentReel({
   }, []);
 
   return (
-    <section className="mx-auto max-w-6xl px-6 py-20">
-      <GlowOutline
-        id="notes"
-        glow={sectionGlow}
-        radius={18}
-        className="rounded-[22px]"
-      >
-      <div className="mb-8 px-1">
-        <h2 className="text-[28px] font-medium tracking-[-0.03em] text-ink sm:text-[32px]">
-          Recent
-        </h2>
-        {error && (
-          <p className="mt-2 text-[13px] text-[#b42318]">{error}</p>
-        )}
+    <div id="notes" className="recent-block">
+      <div className="section-heading">
+        <div className="min-w-0">
+          <h2 className="section-title">Recent</h2>
+          {error ? (
+            <p className="mt-1 text-[13px] text-[#b42318]">{error}</p>
+          ) : (
+            <p className="section-subtitle">
+              Latest edits in the vault. Open a card to read it here.
+            </p>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -335,7 +334,7 @@ export function RecentReel({
                   <p className="mt-1.5 text-[13.5px] leading-snug text-ink/85">
                     {repairIssue.detail}
                   </p>
-                  <p className="mt-1 text-[12.5px] font-medium text-[var(--accent)]">
+                  <p className="mt-1 text-[12.5px] font-medium text-[var(--accent-ink)]">
                     {repairIssue.action}
                   </p>
                 </div>
@@ -350,8 +349,7 @@ export function RecentReel({
           )}
         </div>
       </div>
-      </GlowOutline>
-    </section>
+    </div>
   );
 }
 

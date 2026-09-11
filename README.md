@@ -1,6 +1,6 @@
 # Second Brain Knowledge Engine
 
-Night Atlas UI for exploring a local Obsidian vault — Notes, Map, Repair, and Ask — with everything running on your own machine.
+Night Atlas UI for exploring a local Obsidian vault — one scrollable workspace with a persistent sidebar: Overview, Map, Repair, and Ask — with everything running on your own machine.
 
 [![CI Pipeline](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Bryancruzcb/second-brain-tools/actions/workflows/ci.yml)
 
@@ -18,15 +18,15 @@ Both of these came from running it against my own vault and watching it stall.
 
 ![Demo of the vault UI](docs/demo.gif)
 
-*Night Atlas: Notes, Map, Repair, and Ask — open a recent note, inspect the neighborhood map, triage Repair issues, and ask Qwen for a grounded answer with sources.*
+*Night Atlas: one continuous workspace with a persistent sidebar — open a recent note inline, read the link map drawn straight on the page (labels on the most-linked notes, click one to read it), triage Repair issues, and ask Qwen for a grounded answer with sources.*
 
 ## What it includes
 
-- **Notes / Recent** — live recent reel from `GET /api/recent`; open a note via `GET /api/note/{ref}`; inline expand for the selected card.
-- **Map** — vault neighborhood graph from `GET /api/graph`; client-side layout of ~42 highest-degree nodes; clicking a node opens the note and can set Ask context.
+- **Overview / Recent** — live vault counts plus the recent reel from `GET /api/recent`; open a note via `GET /api/note/{ref}`; inline expand for the selected card. The sidebar keeps the six most recent notes one click away from any section.
+- **Map** — vault link graph from `GET /api/graph`, drawn directly on the page; client-side layout of the 42 notes with the most real wikilinks (ghost/suggested edges are ignored), labels placed without overlap on the most-linked notes and shown on hover/focus for the rest; clicking a node opens the note and sets Ask context.
 - **Repair** (Health) — broken links, orphans, and tagless notes from `GET /api/health`; refresh with `POST /api/health/scan`; open a row to jump to the note with a repair callout. When the `vault-core` binary is missing (common on Windows), `backend/health_hygiene.py` derives the same lists from Chroma so the panel is not empty.
 - **Ask** — one-shot compose (not a chat transcript) via `POST /api/query`; optional context chip from Map/Notes; clear errors when Ollama is down.
-- **Nav** — Notes / Map / Repair / Ask with glow on hover or a brief post-click pulse.
+- **Nav** — persistent sidebar (Overview / Map / Repair / Ask) with scroll-spy and backend status at ≥ 1024px; a sticky top bar with the same links below that. Keyboard: skip link, focus rings on map nodes, Enter/Space to open; reduced motion honoured.
 - **API client** — `frontend/src/lib/api.ts`; `NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000`. See [`ATLAS_MOCK.md`](ATLAS_MOCK.md) for the endpoint table.
 - **MCP server** (`backend/mcp_server.py`) on the official Python SDK over stdio, so Claude Desktop, Claude Code, Cursor, or VS Code can call the vault's hybrid search as a tool. It is a thin client over `GET /api/search`, so the index and both torch models stay in one process, and it checks `GET /api/ready` first: that endpoint reports whether the embedding model, Chroma collection, lexical index, and reranker have actually loaded, where `/api/health` answers 200 before they have. This is the one path where note text leaves the machine, because the caller is a hosted model.
 - **Clipper / vault archive scripts** — Chrome extension for web clips into the vault inbox, plus `scripts/auto_archive.py` for chat export, health report, incremental re-embed, and backup.
@@ -139,7 +139,7 @@ Recorded 2026-09-07 over 40 cases against an index of 4,963 chunks from 637 file
 2. **`backend` — FastAPI / Python**  
    Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama. Ships a `Dockerfile` that CI builds on every push, import-tests `main.py` inside the image, and asserts the torch wheel is CPU-only. When `vault-core` is missing, `health_hygiene.py` fills Repair lists from Chroma.
 3. **`frontend` — Next.js / React / Tailwind**  
-   Night Atlas shell (Notes / Map / Repair / Ask) wired to FastAPI — not React Three Fiber / WebGL.
+   Night Atlas shell (sidebar + one scrollable workspace: Overview / Map / Repair / Ask) wired to FastAPI — not React Three Fiber / WebGL. `frontend/verify-journey.mjs` checks structure, keyboard path, interactions, and contrast against a live backend; `frontend/record-demo.mjs` re-records `docs/demo.gif`.
 4. **`clipper` — Chrome extension**  
    Saves selected web content into the vault inbox.
 5. **`scripts` — archive pipeline**  
@@ -204,8 +204,8 @@ Open [http://localhost:3000](http://localhost:3000). The backend must be running
 ## Daily workflow
 
 1. Start the backend (`uvicorn` on `:8000`) and the frontend (`bun run dev` / `npm run dev` on `:3000`).
-2. Browse **Notes** for the live recent reel; expand a card to read it inline.
-3. Open **Map** to inspect neighborhood connections; click a node to read it and optionally feed Ask context.
+2. Start at **Overview** for live counts and the recent reel; expand a card (or pick one in the sidebar) to read it inline.
+3. Scroll or jump to **Map** to see how notes link; hover a node for its title, click one to read it and feed Ask context.
 4. Use **Repair** for vault hygiene (broken links, orphans, tagless); refresh the scan when the lists look stale.
 5. Use **Ask** for grounded Q&A over the vault (needs Ollama).
 6. After `auto_archive` updates the vector index from outside a running backend, restart the backend or re-index so the in-memory BM25 leg matches Chroma.
