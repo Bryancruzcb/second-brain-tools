@@ -5,6 +5,9 @@ import json
 import logging
 import time
 import random
+import sqlite3
+import threading
+from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
 from typing import List, Dict, Any, Optional
@@ -15,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import chromadb
+from chromadb.api.shared_system_client import SharedSystemClient
+from chromadb.errors import InternalError as ChromaInternalError
 from sentence_transformers import SentenceTransformer
 import httpx
 
@@ -37,6 +42,16 @@ model = None
 chroma_collection = None
 lexical_index = None
 cross_encoder = None
+# The client that owns chroma_collection, kept so a reopen can close it first.
+chroma_client = None
+# Write stamp of the on-disk store when this process (re)opened it. None until a
+# real store is opened, so tests that inject fake collections never reopen.
+_chroma_stamp_seen = None
+_chroma_generation = 0  # bumps on every reopen; lets a retry tell "already healed"
+_chroma_last_reopen = float("-inf")  # time.monotonic() of the last reopen
+_chroma_lock = threading.Lock()
+_ingesting = False  # this process is writing the store itself; its view is current
+REOPEN_COOLDOWN_S = 15.0
 
 # Cache configuration
 CACHE_FILE = "health_cache.json"
@@ -55,7 +70,7 @@ last_scan_time = 0.0
 
 def _load_fast_sync():
     """Load ChromaDB and Cache on startup."""
-    global chroma_collection, health_cache, last_scan_time
+    global chroma_client, chroma_collection, _chroma_stamp_seen, health_cache, last_scan_time
 
     # 1. Load cache if it exists on disk
     if os.path.exists(CACHE_FILE):
@@ -72,10 +87,8 @@ def _load_fast_sync():
     db_path = config.get_chroma_path()
     logger.info(f"Connecting to ChromaDB at {db_path}...")
     try:
-        chroma_client = chromadb.PersistentClient(path=db_path)
-        # get_or_create so a fresh machine (no collection yet) doesn't leave
-        # chroma_collection stuck at None forever.
-        chroma_collection = chroma_client.get_or_create_collection("second_brain")
+        chroma_client, chroma_collection = _open_chroma(db_path)
+        _chroma_stamp_seen = _chroma_write_stamp(db_path)
         logger.info("ChromaDB collection 'second_brain' loaded successfully.")
         # Provenance check: stored vectors only mean anything against the model
         # that produced them. Loud on mismatch, but keep serving — the operator
@@ -94,6 +107,146 @@ def _load_fast_sync():
             )
     except Exception as e:
         logger.error(f"Failed to load ChromaDB collection: {e}")
+
+def _chroma_write_stamp(db_path=None):
+    """Fingerprint of the on-disk store that moves whenever ANY process writes it.
+
+    Chroma keeps a per-segment high-water mark in sqlite (table max_seq_id).
+    The metadata segment's value advances on every add/upsert/delete and stays
+    put across a plain open — unlike the file's mtime, which a bare open bumps.
+    None when the store (or the table) isn't there yet.
+    """
+    sqlite_path = Path(db_path or config.get_chroma_path()) / "chroma.sqlite3"
+    if not sqlite_path.exists():
+        return None
+    try:
+        con = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = con.execute(
+                "SELECT segment_id, seq_id FROM max_seq_id ORDER BY segment_id"
+            ).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        logger.warning("Could not read the Chroma write stamp: %s", e)
+        return None
+    return tuple(rows)
+
+
+def _open_chroma(db_path):
+    """A client plus the collection, read from disk right now."""
+    client = chromadb.PersistentClient(path=db_path)
+    # get_or_create so a fresh machine (no collection yet) doesn't leave
+    # chroma_collection stuck at None forever.
+    return client, client.get_or_create_collection("second_brain")
+
+
+def _close_chroma(client):
+    """Stop the client's process-local System so the next open really reads disk.
+
+    chromadb caches one System per path; unless that entry is stopped and
+    dropped, a new PersistentClient() hands back the same stale in-memory HNSW
+    index (verified: get_collection() and a second PersistentClient() both
+    stayed stale, only close + reopen recovered).
+    """
+    try:
+        client.close()
+    except Exception as e:  # already stopped, or a chromadb without close()
+        logger.warning("Chroma client close failed (%s); dropping the system cache instead.", e)
+    SharedSystemClient.clear_system_cache()
+
+
+def reopen_chroma(reason, expected_stamp=None):
+    """Swap this process's Chroma view for what is on disk, then rebuild BM25.
+
+    PersistentClient is process-local: the HNSW index lives in memory and never
+    hears about writes from another process (the nightly indexer, a manual
+    scripts/rebuild_rag_index.py). After such a write, where-filtered queries
+    die with "Error finding id" (sqlite holds rows the old index can't map)
+    while unfiltered ones silently serve deleted chunks and miss new notes.
+    Reproduced 2026-09-10 against a copy of the live index.
+
+    Pass expected_stamp to skip when another thread already reopened past that
+    stamp. Returns True when the store was reopened.
+    """
+    global chroma_client, chroma_collection, _chroma_stamp_seen, _chroma_generation, _chroma_last_reopen
+    with _chroma_lock:
+        if expected_stamp is not None and _chroma_stamp_seen != expected_stamp:
+            return False
+        db_path = config.get_chroma_path()
+        logger.warning("Reopening Chroma store at %s: %s", db_path, reason)
+        old_client = chroma_client
+        chroma_client = None
+        if old_client is not None:
+            _close_chroma(old_client)
+        try:
+            chroma_client, chroma_collection = _open_chroma(db_path)
+        except Exception as e:
+            # Serve honest 503s (collection None) rather than a closed handle.
+            chroma_collection = None
+            _chroma_stamp_seen = None
+            logger.error("Failed to reopen ChromaDB collection: %s", e)
+            return False
+        _chroma_stamp_seen = _chroma_write_stamp(db_path)
+        _chroma_generation += 1
+        _chroma_last_reopen = time.monotonic()
+    _build_lexical_index()
+    return True
+
+
+def ensure_chroma_fresh():
+    """Reopen the store if another process wrote to it since we last opened it.
+
+    One read-only sqlite SELECT per call. Skipped while this process is
+    ingesting (its own client sees its own writes), when no real store was
+    opened (tests inject fake collections), and within REOPEN_COOLDOWN_S of
+    the last reopen so a long external index run doesn't reload the index on
+    every request. Returns True when it reopened.
+    """
+    seen = _chroma_stamp_seen
+    if seen is None or chroma_client is None or _ingesting:
+        return False
+    if time.monotonic() - _chroma_last_reopen < REOPEN_COOLDOWN_S:
+        return False
+    stamp = _chroma_write_stamp()
+    if stamp is None or stamp == seen:
+        return False
+    return reopen_chroma(f"write stamp moved {seen} -> {stamp}", expected_stamp=seen)
+
+
+def _is_stale_store_error(error):
+    """Chroma's signature for 'my in-memory index no longer matches sqlite'."""
+    return isinstance(error, ChromaInternalError) or "Error finding id" in str(error)
+
+
+def retrieve_for_request(query_text, *, scope, **kwargs):
+    """retrieval.retrieve_hybrid on the live collection, healing a stale store once.
+
+    Refreshes up front when the on-disk stamp moved. If the query still dies
+    with the stale-index error (a write landed between the check and the
+    query, or the cooldown deferred the reopen), reopen — unless another
+    request already did — and retry exactly once.
+    """
+    ensure_chroma_fresh()
+    generation = _chroma_generation
+
+    def attempt():
+        return retrieval.retrieve_hybrid(
+            query_text, model=model, collection=chroma_collection,
+            lexical=lexical_index, cross_encoder=cross_encoder, scope=scope, **kwargs,
+        )
+
+    try:
+        return attempt()
+    except Exception as e:
+        if not _is_stale_store_error(e):
+            raise
+        if _chroma_generation == generation:
+            reopen_chroma(f"query failed with: {e}")
+        else:
+            logger.warning("Retrying after a concurrent Chroma reopen: %s", e)
+        return attempt()
+
 
 def _load_model_background():
     """Load sentence transformer in background thread."""
@@ -516,7 +669,16 @@ def run_ingestion_sync():
         return
 
     logger.info("Starting vector ingestion (incremental)...")
-    summary = indexer.index_vault(chroma_collection, model, incremental=True, log=logger.info)
+    global _ingesting, _chroma_stamp_seen
+    _ingesting = True
+    try:
+        summary = indexer.index_vault(chroma_collection, model, incremental=True, log=logger.info)
+    finally:
+        _ingesting = False
+        # Our own client saw these writes; move the stamp so the next query
+        # doesn't reopen a view that is already current.
+        if _chroma_stamp_seen is not None:
+            _chroma_stamp_seen = _chroma_write_stamp()
     if summary.get("aborted"):
         # Nothing was written, so the BM25 snapshot is still current; the only
         # thing left to do is make the refusal impossible to miss in the log.
@@ -546,17 +708,22 @@ def trigger_index(background_tasks: BackgroundTasks):
 
 @app.post("/api/lexical/refresh")
 def refresh_lexical():
-    """Rebuild the in-memory BM25 index from the current Chroma collection.
+    """Reload the store from disk and rebuild the in-memory BM25 index.
 
     Out-of-process indexers (scripts/rebuild_rag_index.py, the nightly
-    auto_archive) write Chroma without touching this process; call this
-    afterward so the keyword leg matches the vector store without a restart.
+    auto_archive) write Chroma without touching this process; they call this
+    afterward. Queries also self-heal through ensure_chroma_fresh(), so this
+    mainly gets both legs current before the next request arrives.
     """
     if chroma_collection is None:
         raise HTTPException(status_code=503, detail="Chroma collection is not initialized.")
-    _build_lexical_index()
+    reopened = False
+    if chroma_client is not None:
+        reopened = reopen_chroma("refresh requested")  # rebuilds BM25 as well
+    else:
+        _build_lexical_index()
     size = len(lexical_index) if lexical_index is not None else 0
-    return {"status": "ok", "chunks": size}
+    return {"status": "ok", "chunks": size, "reopened": reopened}
 
 
 
@@ -606,14 +773,7 @@ def run_query(request: QueryRequest):
                 for doc, meta in zip(raw.get("documents") or [], raw.get("metadatas") or [])
             ]
         else:
-            candidates = retrieval.retrieve_hybrid(
-                retrieval_text,
-                model=model,
-                collection=chroma_collection,
-                lexical=lexical_index,
-                cross_encoder=cross_encoder,
-                scope=request.scope or "notes",
-            )
+            candidates = retrieve_for_request(retrieval_text, scope=request.scope or "notes")
 
         # 3. Format context source items
         sources = []
@@ -871,10 +1031,7 @@ def search_notes(q: str = "", scope: str = "notes"):
         return {"results": []}
 
     try:
-        candidates = retrieval.retrieve_hybrid(
-            q.strip(), model=model, collection=chroma_collection,
-            lexical=lexical_index, cross_encoder=cross_encoder, scope=scope, k=retrieval.TOP_K,
-        )
+        candidates = retrieve_for_request(q.strip(), scope=scope, k=retrieval.TOP_K)
         seen_titles = set()
         items = []
         for c in candidates:
