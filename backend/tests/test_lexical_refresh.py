@@ -15,7 +15,7 @@ def test_lexical_refresh_rebuilds_when_collection_ready(monkeypatch):
     client = TestClient(main.app)
     resp = client.post("/api/lexical/refresh")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "chunks": 3}
+    assert resp.json() == {"status": "ok", "chunks": 3, "reopened": False}
     assert calls["n"] == 1
 
 

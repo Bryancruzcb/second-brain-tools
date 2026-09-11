@@ -237,7 +237,7 @@ Exported chats still live under `05 AI Chats/`. Topic routing writes small link 
 - Backfill existing exports with `python scripts/backfill_topic_stubs.py`.
 - `scripts/.auto_archive_last_success` is local-only / gitignored (once-per-day latch for `--daily`).
 
-One caveat: the backend keeps its BM25 keyword index in memory, so if the backend is running while the nightly pass updates the vector index from outside, restart the backend afterward — until then the keyword leg answers from the pre-update snapshot (including notes the pass may have deleted).
+The backend holds its own view of the store: Chroma's client keeps the HNSW index in memory and never hears about writes from another process, and the BM25 keyword index is a snapshot of the collection. Before each query the backend reads Chroma's write counter from `chroma.sqlite3` and, when the nightly pass (or a manual `rebuild_rag_index.py`) has moved it, closes and reopens the store and rebuilds BM25 (at most once per 15 s, and not while the backend is running its own `/api/index` ingestion, whose writes it already sees); a query that still hits the stale view is retried once after a reopen, and the pass also calls `POST /api/lexical/refresh` when it finishes. Without this a backend left running across the nightly pass answered every scoped Ask with `Error finding id` and served deleted chunks on unscoped ones until restarted.
 
 Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
 
