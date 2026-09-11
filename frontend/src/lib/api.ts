@@ -376,6 +376,31 @@ export async function fetchNote(noteRef: string) {
 
 export type AskScope = "notes" | "chats" | "all";
 
+export type SearchHit = {
+  title: string;
+  id: string;
+  snippet: string;
+};
+
+export async function searchNotes(q: string, scope: AskScope = "notes") {
+  const params = new URLSearchParams({ q, scope });
+  return apiFetch<{ results: SearchHit[] }>(`/api/search?${params.toString()}`);
+}
+
+export async function saveNote(noteRef: string, content: string) {
+  const enc = encodeURIComponent(noteRef).replace(/%2F/gi, "/");
+  return apiFetch<{ status: string; message?: string }>(`/api/note/${enc}`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function scanHealth() {
+  return apiFetch<{ status: string; message: string }>("/api/health/scan", {
+    method: "POST",
+  });
+}
+
 export async function askQuery(opts: {
   query: string;
   contextNodes?: string[];

@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google";
+import { Instrument_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+const instrument = Instrument_Sans({
+  variable: "--font-instrument",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const ibmPlex = IBM_Plex_Mono({
+  variable: "--font-ibm",
   subsets: ["latin"],
   weight: ["400", "500"],
 });
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${geistMono.variable} antialiased`}
+      className={`${instrument.variable} ${ibmPlex.variable} antialiased`}
     >
       <body className="min-h-screen bg-page text-ink">{children}</body>
     </html>
