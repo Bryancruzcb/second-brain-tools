@@ -15,7 +15,7 @@ import sb_common
 import topic_router
 
 FNAME_RE = re.compile(
-    r"^(?P<date>\d{4}-\d{2}-\d{2}) - (?P<title>.+) - (?P<sid>[A-Za-z0-9]{4,12})\.md$",
+    r"^(?P<date>\d{4}-\d{2}-\d{2}) - (?P<title>.+) - (?P<sid>[A-Za-z0-9]{4,64})\.md$",
     re.IGNORECASE,
 )
 

@@ -146,7 +146,7 @@ def main():
 
     for full_path, fname, src_mtime in transcripts:
         uid = fname[:-len('.jsonl')]
-        short_id = uid[:6]
+        short_id = sb_common.session_id_token(uid)
 
         # New session -> export; current copy -> skip; session that kept
         # growing after its export -> refresh the existing file in place.

@@ -146,11 +146,11 @@ def write_stub(
 
     # If a stub for this session already exists under this topic (maybe renamed),
     # refresh that file in place instead of creating a duplicate.
+    # Match modern 12-char tokens or legacy 6-char prefixes in filenames.
     existing = None
-    sid = short_id.lower()
     try:
         for name in os.listdir(dest_dir):
-            if name.lower().endswith(".md") and sid in name.lower():
+            if name.lower().endswith(".md") and sb_common.filename_matches_session_id(name, short_id):
                 existing = os.path.join(dest_dir, name)
                 break
     except OSError:

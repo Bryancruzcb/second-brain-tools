@@ -100,8 +100,60 @@ def is_generated_transcript(path: str) -> bool:
         return False
 
 
+# Filename/session tokens used to be 6 hex chars; shared prefixes caused
+# different chats to overwrite each other's stubs under AI Chat Links.
+SESSION_ID_LEN = 12
+LEGACY_SESSION_ID_LEN = 6
+_FILE_SESSION_ID_RE = re.compile(r" - ([A-Za-z0-9]{4,64})\.md$", re.IGNORECASE)
+
+
+def session_id_token(raw: str, length: int = SESSION_ID_LEN) -> str:
+    """Stable alphanumeric session token from a uuid/id string.
+
+    Hyphens/punctuation are stripped so the token is hex-only when possible.
+    Default length is 12 (legacy exports used 6). Callers should pass the
+    full uuid; lookup stays backward compatible via filename_matches_session_id.
+    """
+    hex_only = re.sub(r"[^0-9a-fA-F]", "", raw or "")
+    if hex_only:
+        return hex_only[:length].lower() if len(hex_only) >= length else hex_only.lower()
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", raw or "")
+    return (cleaned[:length] or "unknown").lower()
+
+
+def legacy_session_id(session_id: str) -> str:
+    """First LEGACY_SESSION_ID_LEN chars of a token (old filename suffix)."""
+    return (session_id or "")[:LEGACY_SESSION_ID_LEN].lower()
+
+
+def filename_matches_session_id(filename: str, session_id: str) -> bool:
+    """True if a vault filename's trailing id matches long or legacy short id.
+
+    Prefers the \ - {id}.md\ token so title text cannot false-positive.
+    Accepts either the current long token or the legacy 6-char prefix so
+    refresh/stub updates still find pre-migration files.
+    """
+    sid = (session_id or "").lower()
+    if not sid:
+        return False
+    legacy = legacy_session_id(sid)
+    m = _FILE_SESSION_ID_RE.search(filename or "")
+    if m:
+        fid = m.group(1).lower()
+        if fid == sid or fid == legacy:
+            return True
+        # Newer long-id file when caller still has a short token (e.g. backfill).
+        if len(sid) >= LEGACY_SESSION_ID_LEN and fid.startswith(sid):
+            return True
+        return False
+    name = (filename or "").lower()
+    return sid in name or (len(legacy) >= LEGACY_SESSION_ID_LEN and legacy in name)
+
+
 def resolve_export_action(existing: list[dict], short_id: str, source_mtime: float):
     """Decide what to do with a session given what's already in the vault.
+
+    \short_id\ may be the modern 12-char token or a legacy 6-char prefix.
 
     Returns (action, path):
       ("new", None)     — nothing matches this id: export normally
@@ -112,8 +164,7 @@ def resolve_export_action(existing: list[dict], short_id: str, source_mtime: flo
                           rewrite it at its current path, preserving any
                           human rename
     """
-    sid = short_id.lower()
-    matches = [e for e in existing if sid in e["name"]]
+    matches = [e for e in existing if filename_matches_session_id(e["name"], short_id)]
     if not matches:
         return ("new", None)
 
@@ -158,3 +209,14 @@ def append_index_rows(index_path: str, entries: list[dict]) -> bool:
                 f.write(content)
             return True
     return False
+
+if __name__ == "__main__":
+    # Unit-less sanity: 12-char tokens distinguish sessions that share a 6-char prefix.
+    a = session_id_token("019de7e1-b236-79f3-8fc8-8e8bf1bf8ebf")
+    b = session_id_token("019de7e1-ffff-0000-0000-000000000001")
+    assert len(a) >= SESSION_ID_LEN and len(b) >= SESSION_ID_LEN and a != b
+    assert a[:LEGACY_SESSION_ID_LEN] == b[:LEGACY_SESSION_ID_LEN] == "019de7"
+    assert filename_matches_session_id("2026-01-01 - Title - 019de7.md", a)
+    assert filename_matches_session_id(f"2026-01-01 - Title - {a}.md", a)
+    assert not filename_matches_session_id(f"2026-01-01 - Title - {b}.md", a)
+    print("sb_common session_id helpers ok")

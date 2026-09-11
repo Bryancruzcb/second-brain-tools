@@ -76,7 +76,7 @@ def export_sessions(brain_dir, vault_dir, index_path, source_type):
     exported_entries = []
 
     for uuid, log_file in sorted(session_dirs, key=lambda x: os.path.getmtime(x[1]), reverse=True):
-        short_id = uuid[:6]
+        short_id = sb_common.session_id_token(uuid)
 
         # New session -> export; current copy -> skip; grown session -> refresh in place.
         action, refresh_path = sb_common.resolve_export_action(existing, short_id, os.path.getmtime(log_file))

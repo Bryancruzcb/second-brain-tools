@@ -103,7 +103,7 @@ def main():
             continue
 
         full_uuid = match_id.group(1)
-        short_id = full_uuid[:6]
+        short_id = sb_common.session_id_token(full_uuid)
 
         # New session -> export; current copy -> skip; grown session -> refresh in place.
         action, refresh_path = sb_common.resolve_export_action(existing, short_id, os.path.getmtime(fp))
