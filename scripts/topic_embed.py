@@ -191,29 +191,121 @@ def embed_match(
 
 _WORD = re.compile(r"[a-z][a-z0-9\-]{3,}")
 
+# Tokens that make a bigram low-signal even if the other token is topical.
+_WEAK_BIGRAM_TOKENS = {
+    "recently", "basically", "alright", "okay", "please", "thanks", "something",
+    "anything", "everything", "notes", "project", "projects", "setup", "today",
+    "tomorrow", "yesterday", "still", "maybe", "probably", "actually", "really",
+    # connectors / deixis / fragment glue
+    "because", "then", "these", "those", "them", "this", "that", "before", "after",
+    "when", "where", "which", "than", "also", "into", "from", "with", "about",
+    "year", "years", "ideas", "helps", "help", "steps", "step", "folder", "folders",
+    "interrupted", "source", "here", "there", "very", "just", "such", "same",
+}
+
+_VOWELS = set("aeiou")
+# Catch mashed file-type blobs like packdocxpdf without killing creatorflow-style names.
+_EXT_MASH = re.compile(r"(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|zip|json|xml|html|csv|txt)")
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Tiny Levenshtein for near-duplicate / typo checks on short phrases."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    if abs(len(a) - len(b)) > 2:
+        return 99
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            ins = cur[j - 1] + 1
+            delete = prev[j] + 1
+            sub = prev[j - 1] + (ca != cb)
+            cur.append(min(ins, delete, sub))
+        prev = cur
+    return prev[-1]
+
+
+def _is_noisy_token(tok: str) -> bool:
+    """Reject typo-y / mashed / path-ish single tokens."""
+    if tok in STOP or tok in _WEAK_BIGRAM_TOKENS:
+        return True
+    if "users" in tok or "download" in tok or "onedrive" in tok:
+        return True
+    if tok.isdigit():
+        return True
+    # Absurd mashed concatenations (keep creatorflow-length product names).
+    if len(tok) >= 14 and "-" not in tok:
+        return True
+    # File-type mashups: packdocxpdf, reportpdf, etc. (allow jsonschema-style prefixes).
+    if "-" not in tok and len(tok) >= 8:
+        ext_hits = list(_EXT_MASH.finditer(tok))
+        if len(ext_hits) >= 2:
+            return True
+        for m in ext_hits:
+            # Extension glued at end (foopdf) or embedded mid-token (abpdfcd).
+            if m.end() == len(tok) and m.start() > 0:
+                return True
+            if m.start() > 0 and m.end() < len(tok):
+                return True
+    # No-vowel blobs that are not short acronyms.
+    if len(tok) >= 6 and "-" not in tok and not any(c in _VOWELS for c in tok):
+        return True
+    return False
+
+
+def _is_junk_phrase(phrase: str) -> bool:
+    """Drop stutter bigrams and other obvious auto-learn junk."""
+    toks = phrase.split()
+    if len(toks) != 2:
+        return True
+    a, b = toks
+    if a == b:
+        return True  # "doctor doctor", "eval eval"
+    if _is_noisy_token(a) or _is_noisy_token(b):
+        return True
+    if len(phrase) < 7 or len(phrase) > 40:
+        return True
+    return False
+
+
+def _near_duplicate(phrase: str, existing: set[str]) -> bool:
+    """True when phrase is a typo / reorder of an already-known keyword."""
+    pt = phrase.split()
+    ps = set(pt)
+    for ex in existing:
+        if not ex:
+            continue
+        if phrase == ex:
+            return True
+        et = ex.split()
+        if set(et) == ps:
+            return True
+        # Whole-phrase near-typo (commit callender ~ commit calendar).
+        if abs(len(phrase) - len(ex)) <= 2 and _edit_distance(phrase, ex) <= 2:
+            return True
+        # Same partner token, other token is a 1–2 edit typo.
+        if len(pt) == 2 and len(et) == 2:
+            if pt[0] == et[0] and _edit_distance(pt[1], et[1]) <= 2:
+                return True
+            if pt[1] == et[1] and _edit_distance(pt[0], et[0]) <= 2:
+                return True
+    return False
+
 
 def _candidates(text: str) -> list[str]:
     words = [w for w in _WORD.findall((text or "").casefold()) if w not in STOP]
-    # Drop path-ish junk
-    words = [
-        w for w in words
-        if "users" not in w and "download" not in w and "onedrive" not in w
-        and not w.isdigit()
-    ]
-    # Extra generic unigrams we never want as keywords
-    weak = {
-        "recently", "basically", "alright", "okay", "please", "thanks", "something",
-        "anything", "everything", "notes", "project", "projects", "setup", "today",
-        "tomorrow", "yesterday", "still", "maybe", "probably", "actually", "really",
-    }
+    words = [w for w in words if not _is_noisy_token(w)]
     out: list[str] = []
     seen: set[str] = set()
     # Prefer multi-word phrases only — much less noisy for auto-learning.
     for a, b in zip(words, words[1:]):
-        if a in weak or b in weak:
-            continue
         phrase = f"{a} {b}"
-        if phrase in seen or len(phrase) > 40:
+        if phrase in seen or _is_junk_phrase(phrase):
             continue
         seen.add(phrase)
         out.append(phrase)
@@ -261,6 +353,10 @@ def learn_keywords(
         if len(added) >= MAX_NEW_KEYWORDS_PER_CHAT:
             break
         if phrase in existing or phrase in blocked:
+            continue
+        if _is_junk_phrase(phrase):
+            continue
+        if _near_duplicate(phrase, existing) or _near_duplicate(phrase, blocked):
             continue
         # Must actually appear in the chat text
         if phrase not in text.casefold():

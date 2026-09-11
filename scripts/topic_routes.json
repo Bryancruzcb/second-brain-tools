@@ -25,7 +25,11 @@
         "obsidian vault",
         "obsidian merge",
         "merge tasks",
-        "brain tools"
+        "brain tools",
+        "obsidian memory",
+        "obsidian for mac",
+        "file index review",
+        "mac setup prompt"
       ],
       "description": "Personal Obsidian vault, local RAG, chat archive, Chroma retrieval, second-brain-tools.",
       "learned_keywords": [
@@ -52,10 +56,11 @@
         "creative technologist",
         "motion design",
         "fable subscription",
-        "exercise creatorflow",
         "creatorflow release",
         "creatorflow repo",
-        "release gate"
+        "release gate",
+        "performance-sensitive product",
+        "product interfaces"
       ],
       "description": "CreatorFlow Roblox creative tooling, Fable motion handoffs, creator product work.",
       "learned_keywords": [
@@ -64,10 +69,11 @@
         "creative technologist",
         "motion design",
         "fable subscription",
-        "exercise creatorflow",
         "creatorflow release",
         "creatorflow repo",
-        "release gate"
+        "release gate",
+        "performance-sensitive product",
+        "product interfaces"
       ]
     },
     {
@@ -90,13 +96,10 @@
       "folder": "02 Projects/quickbite",
       "keywords": [
         "quickbite",
-        "quick bite",
-        "folder quickbite"
+        "quick bite"
       ],
       "description": "quickbite food or product project.",
-      "learned_keywords": [
-        "folder quickbite"
-      ]
+      "learned_keywords": []
     },
     {
       "id": "data-science",
@@ -109,13 +112,13 @@
         "jupyter",
         "open portal",
         "city open data",
-        "science because",
         "computer science",
-        "science student"
+        "science student",
+        "eda data",
+        "open data"
       ],
       "description": "Data science notebooks, pandas, city open data analysis.",
       "learned_keywords": [
-        "science because",
         "computer science",
         "science student"
       ]
@@ -128,7 +131,10 @@
         "study-os",
         "study os",
         "studyos",
-        "ui of study"
+        "ui of study",
+        "study dashboard",
+        "learning lab",
+        "weekly study"
       ],
       "description": "study-os learning OS / study UI product.",
       "learned_keywords": []
@@ -142,7 +148,8 @@
         "weekly worker",
         "weekly_worker_agent",
         "internship digest",
-        "worker agent"
+        "worker agent",
+        "weekly state for agent"
       ],
       "description": "weekly-worker-agent internship digest automation.",
       "learned_keywords": []
@@ -180,14 +187,12 @@
         "aegis eval",
         "aegis",
         "eval harness",
-        "eval eval",
-        "harness then"
+        "ai eval harness",
+        "eval harness setup"
       ],
       "description": "aegis-eval evaluation harness work.",
       "learned_keywords": [
-        "eval harness",
-        "eval eval",
-        "harness then"
+        "eval harness"
       ]
     },
     {
@@ -215,7 +220,9 @@
         "ams10",
         "lab12",
         "sjsu cs",
-        "javafx property"
+        "javafx property",
+        "fxml",
+        "usertype"
       ],
       "description": "SJSU CS 146 data structures and algorithms coursework.",
       "learned_keywords": [
@@ -239,13 +246,15 @@
         "cs46b",
         "school",
         "high school",
-        "year sjsu",
-        "sjsu student"
+        "sjsu student",
+        "cs 151",
+        "cs151",
+        "object-oriented analysis",
+        "san jose state"
       ],
       "description": "School coursework, homework, essays, SJSU classes.",
       "learned_keywords": [
         "high school",
-        "year sjsu",
         "sjsu student"
       ]
     },
@@ -267,14 +276,11 @@
         "behavioral interview",
         "career",
         "job application",
-        "these ideas",
-        "resume before"
+        "outreach script",
+        "local businesses"
       ],
       "description": "Jobs, resumes, interviews, internships, portfolio, Contra/Upwork.",
-      "learned_keywords": [
-        "these ideas",
-        "resume before"
-      ]
+      "learned_keywords": []
     },
     {
       "id": "ai-learning",
@@ -304,39 +310,54 @@
         "claude plugins",
         "in-app-browser-context",
         "playwright-mcp",
-        "skill helps",
-        "install packdocxpdf",
         "code quality",
         "update config",
         "config skill",
         "skill modify",
         "code configuration",
         "code plugin",
-        "skills folder",
-        "skills steps",
-        "install these",
         "uidesign skills",
         "design skills",
-        "in-app-browser-context source",
-        "doctor doctor"
+        "antigravity",
+        "claude default mode",
+        "auto mode default",
+        "dangerously-skip-permissions",
+        "impeccable",
+        "semgrep",
+        "claude in chrome",
+        "subagent-driven-development",
+        "restore claude",
+        "impeccable designs",
+        "committed design",
+        "semgrep security",
+        "security scan",
+        "semgrep scan",
+        "plugin continuation",
+        "auto mode",
+        "chrome browser",
+        "browser automation",
+        "effective browser"
       ],
       "description": "Claude Code skills, MCP servers, agent plugin/tooling setup.",
       "learned_keywords": [
-        "skill helps",
-        "install packdocxpdf",
         "code quality",
         "update config",
         "config skill",
         "skill modify",
         "code configuration",
         "code plugin",
-        "skills folder",
-        "skills steps",
-        "install these",
         "uidesign skills",
         "design skills",
-        "in-app-browser-context source",
-        "doctor doctor"
+        "impeccable designs",
+        "committed design",
+        "semgrep security",
+        "security scan",
+        "semgrep scan",
+        "plugin continuation",
+        "auto mode",
+        "chrome browser",
+        "browser automation",
+        "effective browser"
       ]
     },
     {
@@ -350,14 +371,11 @@
         "git commit",
         "gh pr",
         "origin/main",
-        "request interrupted",
-        "commit callender"
+        "git worktrees",
+        "commit calendar"
       ],
       "description": "Git, GitHub PRs, commits, CI workflows.",
-      "learned_keywords": [
-        "request interrupted",
-        "commit callender"
-      ]
+      "learned_keywords": []
     },
     {
       "id": "media-tools",
@@ -366,15 +384,15 @@
       "keywords": [
         "ffmpeg",
         "screenshot",
-        "image 1",
         "screen recording",
         "install ffmpeg",
-        "block image"
+        "analyze videos",
+        "photos app",
+        "link a video"
       ],
       "description": "ffmpeg, screenshots, images, screen recordings.",
       "learned_keywords": [
-        "install ffmpeg",
-        "block image"
+        "install ffmpeg"
       ]
     },
     {
