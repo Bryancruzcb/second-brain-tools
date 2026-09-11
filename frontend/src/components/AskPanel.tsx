@@ -2,12 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, askQuery, composePrompts, fetchNote, type AskScope } from "@/lib/api";
-import { GlowOutline } from "./GlowOutline";
 
 type Props = {
   contextNoteId: string | null;
   onClearContext: () => void;
-  sectionGlow?: boolean;
 };
 
 type AskAnswer = {
@@ -16,11 +14,7 @@ type AskAnswer = {
   sourceTitles: string[];
 };
 
-export function AskPanel({
-  contextNoteId,
-  onClearContext,
-  sectionGlow,
-}: Props) {
+export function AskPanel({ contextNoteId, onClearContext }: Props) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<AskScope>("notes");
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
@@ -95,18 +89,19 @@ export function AskPanel({
   }, [query, contextNoteId, loading, scope]);
 
   return (
-    <GlowOutline
-      id="ask"
-      glow={sectionGlow}
-      radius={18}
-      className="h-full"
-    >
-      <div className="card-elevated flex h-full min-h-[200px] flex-col overflow-hidden">
-        <div className="border-b border-hairline px-5 py-4">
-          <h3 className="text-[16px] font-medium tracking-[-0.02em]">Ask</h3>
+    <div>
+      <div className="section-heading">
+        <div className="min-w-0">
+          <h2 id="ask-title" className="section-title">
+            Ask
+          </h2>
+          <p className="section-subtitle">
+            Grounded answers from Qwen, with the vault notes it drew on.
+          </p>
         </div>
+      </div>
 
-        <div className="flex flex-1 flex-col gap-4 p-5">
+      <div className="flex max-w-3xl flex-col gap-4">
 
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -237,8 +232,7 @@ export function AskPanel({
               </button>
             ))}
           </div>
-        </div>
       </div>
-    </GlowOutline>
+    </div>
   );
 }

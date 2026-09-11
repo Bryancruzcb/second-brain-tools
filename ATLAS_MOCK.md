@@ -16,11 +16,11 @@ Night Atlas (`frontend/`) is wired to the live FastAPI backend instead of demo f
 | Map           | `GET /api/graph` (client-side layout)    |
 | Repair/Health | `GET /api/health`                        |
 | Ask           | `POST /api/query`                        |
-| Hero chrome   | `GET /api/recent`                        |
+| Sidebar       | `GET /api/recent`, `GET /api/ready`      |
 
 ## Notes
 
-- UI look stays the Night Atlas marketing shell; content is real vault titles/counts.
-- Map caps ~42 highest-degree nodes for readability; subtitle shows full vault note count.
+- Persistent sidebar (sections, recent notes, backend status) beside one continuous scroll: Overview, Map, Repair, Ask. Below 1024px the sidebar becomes a sticky top bar.
+- Map ranks notes by real wikilinks (ghost/suggested links are neither counted nor drawn), caps the 42 most-linked (24 below 640px wide), and draws them straight on the page. Labels go to the active note, its neighbours, then the most-linked notes, skipping any that would overlap; every other node shows its title on hover or focus.
 - Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - `frontend/src/data/mock.ts` is no longer consumed by the panels.

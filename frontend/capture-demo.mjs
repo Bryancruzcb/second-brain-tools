@@ -18,7 +18,7 @@ import fs from 'fs';
   await page.screenshot({ path: path.join(outDir, '01-hero.png'), fullPage: false });
   console.log('hero ok');
 
-  const tabs = ['Notes', 'Map', 'Repair', 'Ask'];
+  const tabs = ['Overview', 'Map', 'Repair', 'Ask'];
   for (let i = 0; i < tabs.length; i++) {
     const label = tabs[i];
     let clicked = false;
