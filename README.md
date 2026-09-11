@@ -232,6 +232,7 @@ Exported chats still live under `05 AI Chats/`. Topic routing writes small link 
 - Matching stubs land under `02 Projects/<Topic>/AI Chat Links/` (and School / Career paths as configured in that JSON).
 - Unmatched chats go to `02 Projects/Chat Inbox/AI Chat Links` (`default_route_id`).
 - Keyword match wins first; otherwise `scripts/topic_embed.py` (same BGE model as RAG) assigns at ≥0.50 with a margin, else Inbox.
+- Optional LLM assist (default **off**): set `TOPIC_LLM_CLASSIFY=1` so middling embeds (below assign threshold or weak margin, with score ≥ `TOPIC_LLM_MIN_EMBED` default 0.35) ask local Ollama (`OLLAMA_MODEL` / `OLLAMA_URL`, same stack as Ask Qwen) to pick a known topic id or `chat-inbox`. Only accepted at confidence ≥ `TOPIC_LLM_MIN_CONF` (default 0.75); ~8s timeout (`TOPIC_LLM_TIMEOUT`); if Ollama is down or unsure → stay in Chat Inbox (`scripts/topic_llm.py`).
 - Confident assignments append `learned_keywords` to `topic_routes.json` (log: `scripts/topic_keyword_learning.log`).
 - Backfill existing exports with `python scripts/backfill_topic_stubs.py`.
 - `scripts/.auto_archive_last_success` is local-only / gitignored (once-per-day latch for `--daily`).

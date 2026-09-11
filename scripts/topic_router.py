@@ -4,7 +4,9 @@ topic_router.py — map exported AI chats to related vault topic folders.
 Transcripts stay under 05 AI Chats/. For a matching topic, we write/update a
 small stub note in that topic's AI Chat Links/ folder that points at the
 transcript. Keywords win first; otherwise embeddings pick a topic (or Chat Inbox).
-Confident matches auto-append learned_keywords into topic_routes.json.
+When TOPIC_LLM_CLASSIFY=1 and embedding is middling, optional local Ollama may
+re-route with high confidence. Confident matches auto-append learned_keywords
+into topic_routes.json.
 """
 from __future__ import annotations
 
@@ -19,6 +21,11 @@ try:
     import topic_embed
 except Exception:  # pragma: no cover
     topic_embed = None  # type: ignore
+
+try:
+    import topic_llm
+except Exception:  # pragma: no cover
+    topic_llm = None  # type: ignore
 
 ROUTES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "topic_routes.json")
 
@@ -198,12 +205,32 @@ def route_chat(
     score = 1.0  # keyword hits count as strong
     how = "keyword"
     route = match_route(text, cfg)
+    embed_decision: dict[str, Any] | None = None
 
     if route is None and topic_embed is not None:
-        route, score = topic_embed.embed_match(text, cfg)
+        embed_decision = topic_embed.embed_decision(text, cfg)
+        route = embed_decision.get("route")
+        score = float(embed_decision.get("best") or 0.0)
         how = "embed"
         if route is not None:
             print(f"Topic embed: {route.get('id')} score={score:.3f}")
+
+    # Middling embed (below threshold or weak margin): optional Ollama classify.
+    if (
+        route is None
+        and topic_llm is not None
+        and topic_llm.llm_classify_enabled()
+        and embed_decision is not None
+        and topic_llm.is_middling_embed(embed_decision)
+    ):
+        llm_route, llm_conf = topic_llm.classify(text, cfg)
+        if llm_route is not None and llm_route.get("id") not in (None, "chat-inbox"):
+            route = llm_route
+            score = llm_conf
+            how = "llm"
+        elif llm_route is not None and llm_route.get("id") == "chat-inbox":
+            # Explicit high-confidence inbox — fall through to default stub.
+            pass
 
     if route is None:
         default_id = cfg.get("default_route_id")
@@ -216,7 +243,7 @@ def route_chat(
 
     # Grow keyword map automatically for confident non-inbox assignments.
     if topic_embed is not None and route.get("id") != "chat-inbox":
-        learn_score = score if how == "embed" else topic_embed.LEARN_THRESHOLD
+        learn_score = score if how in ("embed", "llm") else topic_embed.LEARN_THRESHOLD
         # For keyword hits, still try learning at learn threshold using embed score if available.
         if how == "keyword" and topic_embed is not None:
             try:

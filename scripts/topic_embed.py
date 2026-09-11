@@ -154,20 +154,32 @@ def ensure_topic_index(cfg: dict[str, Any]) -> dict[str, Any] | None:
     return cache
 
 
-def embed_match(
+def embed_decision(
     text: str,
     cfg: dict[str, Any],
     *,
     threshold: float | None = None,
-) -> tuple[dict[str, Any] | None, float]:
-    """Best non-inbox topic by embedding similarity, or (None, score)."""
+) -> dict[str, Any]:
+    """Score chat text against topic embeddings with an explicit reject reason.
+
+    Returns dict with keys: route, best, second, margin, reason
+    reason is one of: assigned | below_threshold | weak_margin | unavailable
+    """
     threshold = ASSIGN_THRESHOLD if threshold is None else threshold
+    margin = float(os.environ.get("TOPIC_EMBED_MARGIN", "0.04"))
+    empty = {
+        "route": None,
+        "best": 0.0,
+        "second": 0.0,
+        "margin": margin,
+        "reason": "unavailable",
+    }
     index = ensure_topic_index(cfg)
     if not index:
-        return None, 0.0
+        return empty
     vecs = _encode([text[:2000]])
     if not vecs:
-        return None, 0.0
+        return empty
     q = vecs[0]
     best_i = -1
     best = -1.0
@@ -180,13 +192,44 @@ def embed_match(
             best_i = i
         elif s > second:
             second = s
-    # Require a clear winner so weak/ambiguous chats stay in Chat Inbox.
-    margin = float(os.environ.get("TOPIC_EMBED_MARGIN", "0.04"))
-    if best_i < 0 or best < threshold or (best - second) < margin:
-        return None, best
+    if best_i < 0:
+        return {**empty, "best": max(best, 0.0), "second": max(second, 0.0)}
+    if best < threshold:
+        return {
+            "route": None,
+            "best": best,
+            "second": max(second, 0.0),
+            "margin": margin,
+            "reason": "below_threshold",
+        }
+    if (best - second) < margin:
+        return {
+            "route": None,
+            "best": best,
+            "second": max(second, 0.0),
+            "margin": margin,
+            "reason": "weak_margin",
+        }
     rid = index["ids"][best_i]
     route = next((r for r in cfg.get("routes", []) if r.get("id") == rid), None)
-    return route, best
+    return {
+        "route": route,
+        "best": best,
+        "second": max(second, 0.0),
+        "margin": margin,
+        "reason": "assigned",
+    }
+
+
+def embed_match(
+    text: str,
+    cfg: dict[str, Any],
+    *,
+    threshold: float | None = None,
+) -> tuple[dict[str, Any] | None, float]:
+    """Best non-inbox topic by embedding similarity, or (None, score)."""
+    decision = embed_decision(text, cfg, threshold=threshold)
+    return decision.get("route"), float(decision.get("best") or 0.0)
 
 
 _WORD = re.compile(r"[a-z][a-z0-9\-]{3,}")
