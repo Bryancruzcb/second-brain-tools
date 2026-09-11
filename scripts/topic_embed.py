@@ -203,6 +203,32 @@ _WEAK_BIGRAM_TOKENS = {
     "interrupted", "source", "here", "there", "very", "just", "such", "same",
     # more low-signal glue seen in live auto-learn
     "each", "every", "main", "personal", "find", "open",
+    # skill-boilerplate / status glue that pulled sessions into agent-tooling
+    "mode", "status", "scan", "browser", "automation", "cities",
+    "designs", "usage", "token",
+}
+
+# Exact phrases that repeatedly re-pollute routes even when tokens look topical.
+_BLOCKED_LEARN_PHRASES = {
+    "review status",
+    "student transtioning",
+    "security scan",
+    "semgrep scan",
+    "semgrep security",
+    "impeccable designs",
+    "impeccable skill",
+    "chrome browser",
+    "browser automation",
+    "in-app browser",
+    "auto mode",
+    "default mode",
+    "voice mode",
+    "these cities",
+    "open data",
+    "source audited",
+    "into obsidian",
+    "commit callender",
+    "analyze this video",
 }
 
 _VOWELS = set("aeiou")
@@ -268,6 +294,8 @@ def _is_junk_phrase(phrase: str) -> bool:
     a, b = toks
     if a == b:
         return True  # "doctor doctor", "eval eval"
+    if phrase in _BLOCKED_LEARN_PHRASES:
+        return True
     if _is_noisy_token(a) or _is_noisy_token(b):
         return True
     if len(phrase) < 7 or len(phrase) > 40:

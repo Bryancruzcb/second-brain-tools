@@ -32,17 +32,13 @@
         "mac setup prompt",
         "second-brain-tools github",
         "check obsidian",
-        "index review",
-        "review status"
+        "index review"
       ],
       "description": "Personal Obsidian vault, local RAG, chat archive, Chroma retrieval, second-brain-tools.",
       "learned_keywords": [
         "merge tasks",
         "brain tools",
-        "second-brain-tools github",
-        "check obsidian",
-        "index review",
-        "review status"
+        "second-brain-tools github"
       ]
     },
     {
@@ -124,8 +120,7 @@
         "city open data",
         "computer science",
         "science student",
-        "eda data",
-        "open data"
+        "eda data"
       ],
       "description": "Data science notebooks, pandas, city open data analysis.",
       "learned_keywords": [
@@ -158,14 +153,10 @@
         "weekly worker",
         "weekly_worker_agent",
         "internship digest",
-        "worker agent",
-        "weekly state for agent",
-        "weekly state"
+        "worker agent"
       ],
       "description": "weekly-worker-agent internship digest automation.",
-      "learned_keywords": [
-        "weekly state"
-      ]
+      "learned_keywords": []
     },
     {
       "id": "deadline-compliance",
@@ -228,23 +219,13 @@
         "cs 146",
         "cs146",
         "data structures and algorithms",
-        "javafx",
         "ams 10",
         "ams10",
         "lab12",
-        "sjsu cs",
-        "javafx property",
-        "fxml",
-        "usertype",
-        "property object",
-        "fxml private"
+        "sjsu cs"
       ],
       "description": "SJSU CS 146 data structures and algorithms coursework.",
-      "learned_keywords": [
-        "javafx property",
-        "property object",
-        "fxml private"
-      ]
+      "learned_keywords": []
     },
     {
       "id": "school",
@@ -268,13 +249,17 @@
         "cs151",
         "object-oriented analysis",
         "san jose state",
-        "student transtioning"
+        "javafx",
+        "javafx property",
+        "fxml",
+        "usertype",
+        "property object",
+        "fxml private"
       ],
       "description": "School coursework, homework, essays, SJSU classes.",
       "learned_keywords": [
         "high school",
-        "sjsu student",
-        "student transtioning"
+        "sjsu student"
       ]
     },
     {
@@ -341,26 +326,10 @@
         "claude default mode",
         "auto mode default",
         "dangerously-skip-permissions",
-        "impeccable",
-        "semgrep",
         "claude in chrome",
         "subagent-driven-development",
         "restore claude",
-        "impeccable designs",
-        "committed design",
-        "semgrep security",
-        "security scan",
-        "semgrep scan",
-        "plugin continuation",
-        "auto mode",
-        "chrome browser",
-        "browser automation",
-        "effective browser",
-        "impeccable skill",
-        "in-app browser",
-        "voice mode",
-        "main documentation",
-        "default mode"
+        "plugin continuation"
       ],
       "description": "Claude Code skills, MCP servers, agent plugin/tooling setup.",
       "learned_keywords": [
@@ -372,21 +341,7 @@
         "code plugin",
         "uidesign skills",
         "design skills",
-        "impeccable designs",
-        "committed design",
-        "semgrep security",
-        "security scan",
-        "semgrep scan",
-        "plugin continuation",
-        "auto mode",
-        "chrome browser",
-        "browser automation",
-        "effective browser",
-        "impeccable skill",
-        "in-app browser",
-        "voice mode",
-        "main documentation",
-        "default mode"
+        "plugin continuation"
       ]
     },
     {
