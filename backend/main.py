@@ -120,7 +120,10 @@ def _chroma_write_stamp(db_path=None):
     if not sqlite_path.exists():
         return None
     try:
-        con = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        # Short timeout: while an external writer holds the file exclusively,
+        # skip the check (the retry path still covers a stale view) instead
+        # of parking the request thread.
+        con = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True, timeout=0.5)
         try:
             rows = con.execute(
                 "SELECT segment_id, seq_id FROM max_seq_id ORDER BY segment_id"
@@ -156,7 +159,7 @@ def _close_chroma(client):
     SharedSystemClient.clear_system_cache()
 
 
-def reopen_chroma(reason, expected_stamp=None):
+def reopen_chroma(reason, expected_stamp=None, expected_generation=None):
     """Swap this process's Chroma view for what is on disk, then rebuild BM25.
 
     PersistentClient is process-local: the HNSW index lives in memory and never
@@ -166,12 +169,21 @@ def reopen_chroma(reason, expected_stamp=None):
     while unfiltered ones silently serve deleted chunks and miss new notes.
     Reproduced 2026-09-10 against a copy of the live index.
 
-    Pass expected_stamp to skip when another thread already reopened past that
-    stamp. Returns True when the store was reopened.
+    expected_stamp / expected_generation make the call idempotent under
+    concurrency: both are compared under the lock, so a second thread that
+    saw the same stale view skips instead of stopping the store the first
+    thread just opened. Declined while this process is ingesting (its own
+    client is current, and stopping the System under index_vault would fail
+    every remaining batch). Returns True when the store was reopened.
     """
     global chroma_client, chroma_collection, _chroma_stamp_seen, _chroma_generation, _chroma_last_reopen
     with _chroma_lock:
         if expected_stamp is not None and _chroma_stamp_seen != expected_stamp:
+            return False
+        if expected_generation is not None and _chroma_generation != expected_generation:
+            return False
+        if _ingesting:
+            logger.warning("Not reopening Chroma store (%s): ingestion in progress.", reason)
             return False
         db_path = config.get_chroma_path()
         logger.warning("Reopening Chroma store at %s: %s", db_path, reason)
@@ -179,17 +191,18 @@ def reopen_chroma(reason, expected_stamp=None):
         chroma_client = None
         if old_client is not None:
             _close_chroma(old_client)
+        _chroma_last_reopen = time.monotonic()
         try:
             chroma_client, chroma_collection = _open_chroma(db_path)
         except Exception as e:
-            # Serve honest 503s (collection None) rather than a closed handle.
+            # No usable handle: serve 503s until the next request or refresh
+            # retries the open (ensure_chroma_fresh does, after the cooldown).
+            # The stamp stays so the store still counts as tracked.
             chroma_collection = None
-            _chroma_stamp_seen = None
             logger.error("Failed to reopen ChromaDB collection: %s", e)
             return False
         _chroma_stamp_seen = _chroma_write_stamp(db_path)
         _chroma_generation += 1
-        _chroma_last_reopen = time.monotonic()
     _build_lexical_index()
     return True
 
@@ -201,13 +214,16 @@ def ensure_chroma_fresh():
     ingesting (its own client sees its own writes), when no real store was
     opened (tests inject fake collections), and within REOPEN_COOLDOWN_S of
     the last reopen so a long external index run doesn't reload the index on
-    every request. Returns True when it reopened.
+    every request. Also retries the open after a failed reopen. Returns True
+    when it reopened.
     """
     seen = _chroma_stamp_seen
-    if seen is None or chroma_client is None or _ingesting:
+    if seen is None or _ingesting:
         return False
     if time.monotonic() - _chroma_last_reopen < REOPEN_COOLDOWN_S:
         return False
+    if chroma_client is None:
+        return reopen_chroma("recovering from a failed reopen")
     stamp = _chroma_write_stamp()
     if stamp is None or stamp == seen:
         return False
@@ -215,19 +231,27 @@ def ensure_chroma_fresh():
 
 
 def _is_stale_store_error(error):
-    """Chroma's signature for 'my in-memory index no longer matches sqlite'."""
-    return isinstance(error, ChromaInternalError) or "Error finding id" in str(error)
+    """Errors that mean 'this process's view of the store is unusable'.
+
+    The Chroma signature for an in-memory index that no longer matches sqlite,
+    plus what a query in flight sees when another thread reopened underneath
+    it: RustBindingsAPI.stop() is `del self.bindings`, so it dies with an
+    AttributeError, not a Chroma error.
+    """
+    if isinstance(error, ChromaInternalError) or "Error finding id" in str(error):
+        return True
+    return isinstance(error, AttributeError) and "bindings" in str(error)
 
 
 def retrieve_for_request(query_text, *, scope, **kwargs):
     """retrieval.retrieve_hybrid on the live collection, healing a stale store once.
 
-    Refreshes up front when the on-disk stamp moved. If the query still dies
-    with the stale-index error (a write landed between the check and the
-    query, or the cooldown deferred the reopen), reopen — unless another
-    request already did — and retry exactly once.
+    Callers run ensure_chroma_fresh() first. If the query still dies with a
+    stale-store error (a write landed between the check and the query, the
+    cooldown deferred the reopen, or another thread is swapping right now),
+    reopen — unless another request already did — wait out any swap in
+    progress, and retry exactly once.
     """
-    ensure_chroma_fresh()
     generation = _chroma_generation
 
     def attempt():
@@ -241,10 +265,10 @@ def retrieve_for_request(query_text, *, scope, **kwargs):
     except Exception as e:
         if not _is_stale_store_error(e):
             raise
-        if _chroma_generation == generation:
-            reopen_chroma(f"query failed with: {e}")
-        else:
+        if not reopen_chroma(f"query failed with: {e}", expected_generation=generation):
             logger.warning("Retrying after a concurrent Chroma reopen: %s", e)
+        with _chroma_lock:  # a swap another thread started finishes before we retry
+            pass
         return attempt()
 
 
@@ -715,13 +739,19 @@ def refresh_lexical():
     afterward. Queries also self-heal through ensure_chroma_fresh(), so this
     mainly gets both legs current before the next request arrives.
     """
-    if chroma_collection is None:
+    # "Tracked" = this process opened a real store at some point (a client, or
+    # a stamp left behind by a failed reopen). Anything else is an injected
+    # collection with nothing to reopen.
+    tracked = chroma_client is not None or _chroma_stamp_seen is not None
+    if chroma_collection is None and not tracked:
         raise HTTPException(status_code=503, detail="Chroma collection is not initialized.")
-    reopened = False
-    if chroma_client is not None:
+    if tracked:
         reopened = reopen_chroma("refresh requested")  # rebuilds BM25 as well
+        if chroma_collection is None:
+            raise HTTPException(status_code=503, detail="Chroma store could not be reopened.")
     else:
         _build_lexical_index()
+        reopened = False
     size = len(lexical_index) if lexical_index is not None else 0
     return {"status": "ok", "chunks": size, "reopened": reopened}
 
@@ -743,9 +773,10 @@ def get_graph():
 def run_query(request: QueryRequest):
     global model, chroma_collection, lexical_index, cross_encoder
 
+    ensure_chroma_fresh()  # picks up another process's writes; retries a failed reopen
     if model is None or chroma_collection is None:
         raise HTTPException(status_code=503, detail="Vector search engine or embedding model is not initialized.")
-        
+
     query_text = request.query.strip()
     if not query_text:
         raise HTTPException(status_code=400, detail="Query text cannot be empty.")
@@ -1027,6 +1058,8 @@ def get_recent_notes():
 @app.get("/api/search")
 def search_notes(q: str = "", scope: str = "notes"):
     global model, chroma_collection, lexical_index, cross_encoder
+    if q.strip():
+        ensure_chroma_fresh()  # picks up another process's writes; retries a failed reopen
     if not q.strip() or model is None or chroma_collection is None:
         return {"results": []}
 

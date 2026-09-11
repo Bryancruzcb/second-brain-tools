@@ -42,9 +42,12 @@ def _arm(monkeypatch, coll):
 
 
 def _record_reopens(monkeypatch):
+    """Stand-in for reopen_chroma with the same idempotency contract."""
     reasons = []
 
-    def fake_reopen(reason, expected_stamp=None):
+    def fake_reopen(reason, expected_stamp=None, expected_generation=None):
+        if expected_generation is not None and expected_generation != main._chroma_generation:
+            return False
         reasons.append(reason)
         main._chroma_generation += 1
         return True
@@ -102,6 +105,28 @@ def test_other_errors_are_not_retried(monkeypatch):
     assert reopens == []
 
 
+def test_a_query_cut_off_by_a_concurrent_reopen_is_retried(monkeypatch):
+    # RustBindingsAPI.stop() is `del self.bindings`: a request mid-query when
+    # another thread reopens dies with this, not with a Chroma error.
+    class StoppedUnderneath(FakeCollection):
+        def __init__(self, result):
+            super().__init__(result)
+            self.calls = 0
+
+        def query(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise AttributeError("'RustBindingsAPI' object has no attribute 'bindings'")
+            return super().query(**kwargs)
+
+    coll = StoppedUnderneath(CANNED)
+    _arm(monkeypatch, coll)
+    reopens = _record_reopens(monkeypatch)
+    resp = TestClient(main.app).post("/api/query", json={"query": "x"})
+    assert resp.status_code == 200
+    assert coll.calls == 2 and len(reopens) == 1
+
+
 def test_retry_skips_the_reopen_when_another_request_already_did(monkeypatch):
     class StaleUntilConcurrentReopen(StaleOnceCollection):
         def query(self, **kwargs):
@@ -153,6 +178,37 @@ def test_ensure_fresh_waits_while_this_process_is_ingesting(monkeypatch):
 def test_ensure_fresh_respects_the_cooldown(monkeypatch):
     reopens = _track(monkeypatch, last_reopen=time.monotonic())
     assert main.ensure_chroma_fresh() is False and reopens == []
+
+
+def test_ensure_fresh_retries_the_open_after_a_failed_reopen(monkeypatch):
+    # A failed _open_chroma leaves chroma_client None but the stamp in place;
+    # the next request must try again instead of 503-ing until a restart.
+    reopens = _track(monkeypatch, seen=("old",), now=("old",))
+    monkeypatch.setattr(main, "chroma_client", None)
+    assert main.ensure_chroma_fresh() is True
+    assert reopens == ["recovering from a failed reopen"]
+
+
+def test_reopen_is_declined_while_this_process_is_ingesting(monkeypatch):
+    # Stopping the System under index_vault would fail every remaining batch.
+    monkeypatch.setattr(main, "_ingesting", True)
+    monkeypatch.setattr(main, "chroma_client", object())
+    monkeypatch.setattr(main, "_chroma_generation", 0)
+    closed = []
+    monkeypatch.setattr(main, "_close_chroma", lambda client: closed.append(client))
+    assert main.reopen_chroma("refresh requested") is False
+    assert closed == [] and main._chroma_generation == 0
+
+
+def test_refresh_endpoint_503s_when_a_tracked_store_cannot_be_reopened(monkeypatch):
+    monkeypatch.setattr(main, "chroma_collection", None)
+    monkeypatch.setattr(main, "chroma_client", None)
+    monkeypatch.setattr(main, "_chroma_stamp_seen", ("old",))  # tracked, but the last reopen failed
+    monkeypatch.setattr(main, "reopen_chroma",
+                        lambda reason, expected_stamp=None, expected_generation=None: False)
+    resp = TestClient(main.app).post("/api/lexical/refresh")
+    assert resp.status_code == 503
+    assert "could not be reopened" in resp.json()["detail"]
 
 
 def test_refresh_endpoint_reopens_a_real_store(monkeypatch):
@@ -247,18 +303,26 @@ def test_reopen_picks_up_writes_from_another_process(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "_ingesting", False)
     builds = []
     monkeypatch.setattr(main, "_build_lexical_index", lambda: builds.append(1))
-    assert main.ensure_chroma_fresh() is False  # nothing has been written yet
+    try:
+        assert main.ensure_chroma_fresh() is False  # nothing has been written yet
 
-    subprocess.run([sys.executable, "-c", WRITER, str(tmp_path)],
-                   check=True, capture_output=True, text=True, timeout=120)
+        writer = subprocess.run([sys.executable, "-c", WRITER, str(tmp_path)],
+                                capture_output=True, text=True, timeout=120)
+        assert writer.returncode == 0, writer.stderr
 
-    assert main.ensure_chroma_fresh() is True
-    assert main._chroma_generation == 1
-    assert builds == [1]
-    fresh = main.chroma_collection
-    assert fresh is not coll
-    hits = fresh.query(query_embeddings=[[0, 1, 0, 0]], n_results=2, where={"category": "note"})
-    assert "n3" in hits["ids"][0]
-    assert "n2" not in hits["ids"][0]
-    assert main.ensure_chroma_fresh() is False  # and the new stamp is recorded
-    main.chroma_client.close()
+        assert main.ensure_chroma_fresh() is True
+        assert main._chroma_generation == 1
+        assert builds == [1]
+        fresh = main.chroma_collection
+        assert fresh is not coll
+        hits = fresh.query(query_embeddings=[[0, 1, 0, 0]], n_results=2, where={"category": "note"})
+        assert "n3" in hits["ids"][0]
+        assert "n2" not in hits["ids"][0]
+        assert main.ensure_chroma_fresh() is False  # and the new stamp is recorded
+    finally:
+        # Release sqlite handles so tmp_path can be cleaned up on Windows.
+        for c in {id(client): client, id(main.chroma_client): main.chroma_client}.values():
+            try:
+                c.close()
+            except Exception:
+                pass
