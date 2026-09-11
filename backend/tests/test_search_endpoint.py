@@ -15,9 +15,16 @@ CANNED = {
     "distances": [[0.1, 0.2, 0.3]],
 }
 
+# Same rows tagged as chat transcripts, for the scope="chats" path: scope is
+# now applied in Python from the category metadata, not by a Chroma where.
+CHATS_CANNED = {
+    **CANNED,
+    "metadatas": [[{**m, "category": "chat"} for m in CANNED["metadatas"][0]]],
+}
+
 
 def test_search_dedupes_titles_and_keeps_shape(monkeypatch):
-    coll = FakeCollection(CANNED)
+    coll = FakeCollection(CHATS_CANNED)
     monkeypatch.setattr(main, "model", FakeModel())
     monkeypatch.setattr(main, "chroma_collection", coll)
     monkeypatch.setattr(main, "lexical_index", None)  # pin the vector-only fallback
@@ -30,10 +37,10 @@ def test_search_dedupes_titles_and_keeps_shape(monkeypatch):
         {"title": "Alpha", "id": "a.md", "snippet": "alpha chunk one"},
         {"title": "Beta", "id": "b.md", "snippet": "beta chunk"},
     ]
-    # The vector leg over-retrieves to fusion depth and truncates afterward,
-    # so the kwarg changes while the response above stays identical.
-    assert coll.last_kwargs["n_results"] == retrieval.HYBRID_DEPTH
-    assert coll.last_kwargs["where"] == {"category": "chat"}
+    # The vector leg over-fetches without a Chroma where (HNSW + where raises
+    # "Error finding id") and filters by category in Python afterward.
+    assert coll.last_kwargs["n_results"] == min(max(retrieval.HYBRID_DEPTH * 4, 32), 100)
+    assert "where" not in coll.last_kwargs
 
 
 def test_search_empty_query_returns_empty(monkeypatch):
