@@ -201,6 +201,8 @@ _WEAK_BIGRAM_TOKENS = {
     "when", "where", "which", "than", "also", "into", "from", "with", "about",
     "year", "years", "ideas", "helps", "help", "steps", "step", "folder", "folders",
     "interrupted", "source", "here", "there", "very", "just", "such", "same",
+    # more low-signal glue seen in live auto-learn
+    "each", "every", "main", "personal", "find", "open",
 }
 
 _VOWELS = set("aeiou")

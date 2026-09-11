@@ -29,12 +29,20 @@
         "obsidian memory",
         "obsidian for mac",
         "file index review",
-        "mac setup prompt"
+        "mac setup prompt",
+        "second-brain-tools github",
+        "check obsidian",
+        "index review",
+        "review status"
       ],
       "description": "Personal Obsidian vault, local RAG, chat archive, Chroma retrieval, second-brain-tools.",
       "learned_keywords": [
         "merge tasks",
-        "brain tools"
+        "brain tools",
+        "second-brain-tools github",
+        "check obsidian",
+        "index review",
+        "review status"
       ]
     },
     {
@@ -60,7 +68,8 @@
         "creatorflow repo",
         "release gate",
         "performance-sensitive product",
-        "product interfaces"
+        "product interfaces",
+        "exercise creatorflow"
       ],
       "description": "CreatorFlow Roblox creative tooling, Fable motion handoffs, creator product work.",
       "learned_keywords": [
@@ -73,7 +82,8 @@
         "creatorflow repo",
         "release gate",
         "performance-sensitive product",
-        "product interfaces"
+        "product interfaces",
+        "exercise creatorflow"
       ]
     },
     {
@@ -149,10 +159,13 @@
         "weekly_worker_agent",
         "internship digest",
         "worker agent",
-        "weekly state for agent"
+        "weekly state for agent",
+        "weekly state"
       ],
       "description": "weekly-worker-agent internship digest automation.",
-      "learned_keywords": []
+      "learned_keywords": [
+        "weekly state"
+      ]
     },
     {
       "id": "deadline-compliance",
@@ -222,11 +235,15 @@
         "sjsu cs",
         "javafx property",
         "fxml",
-        "usertype"
+        "usertype",
+        "property object",
+        "fxml private"
       ],
       "description": "SJSU CS 146 data structures and algorithms coursework.",
       "learned_keywords": [
-        "javafx property"
+        "javafx property",
+        "property object",
+        "fxml private"
       ]
     },
     {
@@ -250,12 +267,14 @@
         "cs 151",
         "cs151",
         "object-oriented analysis",
-        "san jose state"
+        "san jose state",
+        "student transtioning"
       ],
       "description": "School coursework, homework, essays, SJSU classes.",
       "learned_keywords": [
         "high school",
-        "sjsu student"
+        "sjsu student",
+        "student transtioning"
       ]
     },
     {
@@ -336,7 +355,12 @@
         "auto mode",
         "chrome browser",
         "browser automation",
-        "effective browser"
+        "effective browser",
+        "impeccable skill",
+        "in-app browser",
+        "voice mode",
+        "main documentation",
+        "default mode"
       ],
       "description": "Claude Code skills, MCP servers, agent plugin/tooling setup.",
       "learned_keywords": [
@@ -357,7 +381,12 @@
         "auto mode",
         "chrome browser",
         "browser automation",
-        "effective browser"
+        "effective browser",
+        "impeccable skill",
+        "in-app browser",
+        "voice mode",
+        "main documentation",
+        "default mode"
       ]
     },
     {
@@ -388,11 +417,13 @@
         "install ffmpeg",
         "analyze videos",
         "photos app",
-        "link a video"
+        "link a video",
+        "take videos"
       ],
       "description": "ffmpeg, screenshots, images, screen recordings.",
       "learned_keywords": [
-        "install ffmpeg"
+        "install ffmpeg",
+        "take videos"
       ]
     },
     {
