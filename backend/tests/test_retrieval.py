@@ -35,11 +35,37 @@ def test_retrieve_parses_chroma_results_into_candidates():
     ]
 
 
-def test_retrieve_passes_k_and_scope_filter():
+def test_retrieve_overfetches_without_chroma_where_when_scoped():
+    """Chroma where crashes HNSW here; scope is applied after fetch in Python."""
     coll = FakeCollection(CANNED)
     retrieval.retrieve("q", model=FakeModel(), collection=coll, scope="chats", k=7)
+    assert coll.last_kwargs["n_results"] == 32  # min(max(7*4, 32), 100)
+    assert "where" not in coll.last_kwargs
+
+
+def test_retrieve_passes_k_unchanged_for_scope_all():
+    coll = FakeCollection(CANNED)
+    retrieval.retrieve("q", model=FakeModel(), collection=coll, scope="all", k=7)
     assert coll.last_kwargs["n_results"] == 7
-    assert coll.last_kwargs["where"] == {"category": "chat"}
+    assert "where" not in coll.last_kwargs
+
+
+def test_retrieve_post_filters_by_category_scope():
+    mixed = {
+        "ids": [["id_note", "id_chat", "id_note2"]],
+        "documents": [["note a", "chat b", "note c"]],
+        "metadatas": [[
+            {"source": "a.md", "title": "A", "category": "note"},
+            {"source": "c.md", "title": "C", "category": "chat"},
+            {"source": "d.md", "title": "D", "category": "note"},
+        ]],
+        "distances": [[0.1, 0.2, 0.3]],
+    }
+    coll = FakeCollection(mixed)
+    notes = retrieval.retrieve("q", model=FakeModel(), collection=coll, scope="notes", k=10)
+    assert [c["id"] for c in notes] == ["id_note", "id_note2"]
+    chats = retrieval.retrieve("q", model=FakeModel(), collection=coll, scope="chats", k=10)
+    assert [c["id"] for c in chats] == ["id_chat"]
 
 
 def test_retrieve_handles_empty_results():
@@ -51,6 +77,15 @@ def test_scope_filters():
     assert retrieval.scope_filter("chats") == {"category": "chat"}
     assert retrieval.scope_filter("notes") == {"category": {"$ne": "chat"}}
     assert retrieval.scope_filter("all") is None
+
+
+def test_matches_scope():
+    assert retrieval.matches_scope({"category": "note"}, "notes") is True
+    assert retrieval.matches_scope({"category": "chat"}, "notes") is False
+    assert retrieval.matches_scope({"category": "chat"}, "chats") is True
+    assert retrieval.matches_scope({"category": "note"}, "chats") is False
+    assert retrieval.matches_scope({"category": "chat"}, "all") is True
+    assert retrieval.matches_scope({}, "notes") is True  # default category=note
 
 
 def test_missing_metadata_gets_defaults():
@@ -122,7 +157,9 @@ def test_hybrid_falls_back_to_vector_only_without_lexical(monkeypatch):
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
     assert [c["id"] for c in out] == ["id_a", "id_b"]
-    assert coll.last_kwargs["n_results"] == retrieval.HYBRID_DEPTH
+    # Default scope=notes over-fetches then post-filters (Chroma where is unsafe).
+    assert coll.last_kwargs["n_results"] == min(max(retrieval.HYBRID_DEPTH * 4, 32), 100)
+    assert "where" not in coll.last_kwargs
 
 
 def test_hybrid_fuses_vector_and_lexical(monkeypatch):

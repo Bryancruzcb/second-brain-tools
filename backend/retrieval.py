@@ -15,12 +15,27 @@ RERANK_DEPTH = config.get_rerank_depth()
 
 
 def scope_filter(scope):
-    """Chroma where-filter for a search scope ("notes" | "chats" | "all")."""
+    """Legacy Chroma where-clause helper.
+
+    Kept for callers/tests that still expect a dict, but do NOT pass this into
+    collection.query() on the current Chroma/HNSW stack — where-filtered
+    vector queries raise "Error finding id". Use matches_scope() instead.
+    """
     if scope == "chats":
         return {"category": "chat"}
     if scope == "notes":
         return {"category": {"$ne": "chat"}}
     return None
+
+
+def matches_scope(meta, scope) -> bool:
+    """Python-side scope check (safe substitute for Chroma where filters)."""
+    category = (meta or {}).get("category", "note")
+    if scope == "chats":
+        return category == "chat"
+    if scope == "notes":
+        return category != "chat"
+    return True
 
 
 def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
@@ -29,10 +44,12 @@ def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
     Returns a list of {"id", "source", "title", "chunk", "distance"} dicts.
     """
     query_embedding = model.encode([config.get_query_prefix() + query_text]).tolist()
+    # Over-fetch when scoping so post-filter still fills k. Avoid Chroma `where`
+    # — HNSW + where raises "Error finding id" on this build (notes/chats 500).
+    fetch_k = k if scope in (None, "", "all") else min(max(k * 4, 32), 100)
     results = collection.query(
         query_embeddings=query_embedding,
-        n_results=k,
-        where=scope_filter(scope),
+        n_results=fetch_k,
     )
     candidates = []
     if results and results.get("documents") and results["documents"]:
@@ -42,6 +59,8 @@ def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
         ids = (results.get("ids") or [[""] * len(docs)])[0]
         for doc, meta, dist, chunk_id in zip(docs, metas, dists, ids):
             meta = meta or {}
+            if not matches_scope(meta, scope):
+                continue
             candidates.append({
                 "id": chunk_id,
                 "source": meta.get("source", ""),
@@ -49,7 +68,10 @@ def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
                 "chunk": doc,
                 "distance": float(dist),
             })
+            if len(candidates) >= k:
+                break
     return candidates
+
 
 
 def rrf_fuse(ranked_lists, k=TOP_K, rrf_k=RRF_K):
