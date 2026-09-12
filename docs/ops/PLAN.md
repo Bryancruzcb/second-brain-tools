@@ -1,37 +1,43 @@
 # Ops plan: run the retrieval API on AWS
 
-**Status:** draft, not started, 2026-09-12.
+**Status:** approved 2026-09-12, not started.
 
-**Where it lives:** this repo. Infrastructure and cluster config go in `deploy/`, workflows in `.github/workflows/`, and ops docs next to this file in `docs/ops/`. The app itself only gets the small PRs listed in section 5.
+**Decisions so far:** approach A in section 3. The cloud runs on the real vault, kept private as section 2 describes. The AWS account exists.
+
+**Where it lives:** this repo. Infrastructure, cluster config, and the vault sync go in `deploy/`, workflows in `.github/workflows/`, and ops docs next to this file in `docs/ops/`. The app itself only gets the small PRs listed in section 5.
 
 The goal is to run the Second Brain retrieval API on AWS the way an operations team would. That means infrastructure as code, Kubernetes, a delivery pipeline that refuses to promote a build whose search quality dropped, dashboards and alerts, and a game day that breaks the system on purpose and times the recovery.
 
 ## 1. Scope
 
-In scope are the FastAPI retrieval API, the MCP server's search tool that calls it, the nightly indexer, monitoring, delivery, and failure drills.
+In scope are the FastAPI retrieval API over the real vault, the MCP server's search tool that calls it, the nightly indexer, the sync that feeds it, monitoring, delivery, and failure drills.
 
-Out of scope are the Next.js frontend, the Chrome clipper, GPUs, and answer generation. Generation runs through Ollama on a desktop, and a 4 GB cloud node cannot run that model. Hosted generation behind a flag is phase 2.
+Out of scope are the Next.js frontend, the Chrome clipper, GPUs, and answer generation. Generation runs through Ollama on a desktop, and the cloud node cannot run that model. Hosted generation behind a flag is phase 2.
 
-## 2. The private vault stays home
+## 2. Running the real vault privately
 
-Two facts in the code decide the data design.
+Three facts shape the design.
 
-The API has no authentication. CORS keeps browsers on localhost, but any other client can call every route, and the routes include note reads and writes: `GET` and `POST /api/note/{ref}`, `/api/note/create`, `/api/cowrite`, `/api/clip`, and `/api/index`.
+The API has no authentication. CORS keeps browsers on localhost, but any other client that reaches the port can call every route, including note reads and writes.
 
-The index stores the full text of every chunk, and most chunks are exported AI chat transcripts. `.dockerignore` keeps the index out of images for that reason, and `backend/eval/scorecard.py` is built on the rule that the dataset and the vault never leave the machine.
+The index stores the full text of every chunk, and most chunks are exported AI chat transcripts. Some of those transcripts contain pasted keys and passwords.
 
-So the cloud deployment never sees the real vault.
+This repo is public, so every GitHub Actions log is public too.
 
-- It indexes a public demo vault committed at `deploy/demo-vault/`. That is 100 to 200 markdown notes that are safe to publish, such as project write-ups, design docs, or a CC-licensed note set, with real wikilinks so the graph and the keyword leg have something to work with.
-- The gate scores it against a public demo eval set, `deploy/eval/demo-dataset.jsonl`, with about 40 cases in the format of `backend/eval/dataset.example.jsonl`. The set is public, so CI runs the gate with no secrets.
-- The pods run with a new `READ_ONLY=1` flag that makes every write route return 403.
-- The real vault, `dataset.jsonl`, and the committed `scorecard.json` keep working locally exactly as they do now.
+The design follows from those facts.
 
-The alternative is deploying the real index behind auth. It puts the vault in S3 and the private questions in SSM, and it needs auth in front of every route. One wrong ingress rule would publish the chat transcripts. I recommend the demo vault.
+- **Nothing on the internet can reach the node.** The security group has no inbound rules at all. The owner reaches the API and Grafana through SSM Session Manager port forwarding, so the MCP server on the desktop can point at `localhost` through the tunnel. CI reaches the cluster through SSM Run Command with its OIDC role. The Kubernetes API port stays closed, and no kubeconfig leaves the node.
+- **A scanner runs before anything leaves the desktop.** `deploy/sync/sync-vault.ps1` runs after the existing nightly job on the desktop. It uploads only what the indexer already reads, meaning markdown outside `EXCLUDE_DIRS` in `backend/indexer.py`. It runs a secret scan over every file and refuses to upload a file with any hit. The patterns cover Anthropic, OpenAI, AWS, GitHub, Slack, and Google keys, private key blocks, and password or API key assignments, and they live in `deploy/sync/secret-patterns.txt`. The script prints refused paths to the local console only. A `.cloudignore` file at the vault root, kept out of git, lists anything else the owner wants kept home. The script syncs with `--delete`, so a note deleted or newly refused locally disappears from the cloud copy on the next run.
+- **The vault bucket is locked down.** Block Public Access is on, encryption is on, a bucket policy refuses non-TLS requests, only the node's instance role can read it, and only the sync uploader can write to it. The node's EBS volume, which holds the index, is encrypted.
+- **Logs never contain vault content.** The eval gate runs as a Kubernetes Job inside the cluster, not on a GitHub runner. It reads the private `dataset.jsonl` from the bucket and prints a summary with numbers only. Before printing, it runs `private_keys_found` from `backend/eval/scorecard.py` over the summary and fails closed on any hit. The smoke test checks status codes and result counts, never titles or snippets. No workflow step prints a question, a note path, or a chunk.
+- **The cloud copy stays read-only.** Pods run with a new `READ_ONLY=1` flag that makes every write route return 403. The desktop vault is the only place notes get written, and the nightly sync overwrites the cloud copy anyway.
+- **NetworkPolicies limit who reaches the API inside the cluster.** Only pods in the same namespace and Prometheus can call it.
+
+The sync uploader is the one long-lived credential in the design. It is an IAM user whose only permissions are list, put, and delete on the vault bucket. Terraform creates the user and its policy, but the owner creates the access key by hand so the key never lands in Terraform state. Rotate it every 90 days.
 
 ## 3. Approaches considered
 
-**A. An ops layer on this app.** Recommended. Terraform, k3s on one EC2 node, GHCR images, eval-gated delivery, Prometheus and Grafana, and a game day. The eval gate and the game day are the parts other ops projects lack. Game-day scenario 3 replays a real incident from this repo, the stale Chroma view after the nightly indexer writes from another process, fixed in PR #25.
+**A. An ops layer on this app.** Chosen. Terraform, k3s on one EC2 node, GHCR images, eval-gated delivery, Prometheus and Grafana, and a game day. The eval gate and the game day are the parts other ops projects lack. Game-day scenario 3 replays a real incident from this repo, the stale Chroma view after the nightly indexer writes from another process, fixed in PR #25.
 
 **B. A generic home lab.** kind or k3s on a desktop, ArgoCD, Prometheus. Useful practice, but common, there is no cloud, and the dev machine has no Docker yet.
 
@@ -40,8 +46,9 @@ The alternative is deploying the real index behind auth. It puts the vault in S3
 ## 4. What it does
 
 - One command builds the environment in AWS from code, and one command tears it down. Running either twice changes nothing.
-- Every merge to main that touches `backend/` or the deployed parts of `deploy/` builds the image, scans it, and deploys it to staging.
-- The pipeline scores staging against the demo eval set. If hit rate falls past the drift rule this repo already uses, promotion stops and the pipeline opens an issue with the numbers. Otherwise prod gets the same image and a smoke test, and a failed smoke rolls prod back.
+- Every night the desktop scans the vault and syncs it to S3, and a CronJob on the node reindexes from that copy.
+- Every merge to main that touches `backend/` or the deployed parts of `deploy/` publishes the image and deploys it to staging.
+- The gate scores staging against the private eval set. If hit rate falls past the drift rule this repo already uses, promotion stops and the pipeline opens an issue with the numbers. Otherwise prod gets the same image and a smoke test, and a failed smoke rolls prod back.
 - Dashboards show request rate, latency, errors, index age, and search quality over time. Alerts fire on slow or failing requests, a late nightly index, or a filling disk.
 - A game-day script breaks the system four ways, and each run records time to alert and time to recovery.
 
@@ -50,19 +57,19 @@ The alternative is deploying the real index behind auth. It puts the vault in S3
 Already in the repo:
 
 - `/api/health` and `/api/ready` in `backend/main.py`. They become the liveness and readiness probes.
-- `backend/eval/`. `run_eval.py` scores retrieval in process against a local Chroma store. `scoring.py` has `score_case(retrieved_sources, expected_sources, k)`. `scorecard.py` has `drift_verdict`, which flags a hit-rate drop of 5 points or more.
+- `backend/eval/`. `run_eval.py` scores retrieval in process against a local Chroma store and treats a case as ungradable when its expected notes are missing from the index. `scoring.py` has `score_case(retrieved_sources, expected_sources, k)`. `scorecard.py` has `drift_verdict`, which flags a hit-rate drop of 5 points or more, and `private_keys_found`, which catches private fields in a JSON structure.
 - `backend/Dockerfile` and the `docker-build` CI job, which builds the image, import-tests it, and asserts CPU-only torch. Nothing pushes the image anywhere.
-- `backend/mcp_server.py`, which calls the API over HTTP at `SECOND_BRAIN_API_URL`. The smoke test can point it at prod.
-- `.dockerignore`, which already keeps `chroma_db`, the private dataset, and docs out of the build context. The Dockerfile copies backend files by name, so nothing in `deploy/` can reach the image.
+- `backend/mcp_server.py`, which calls the API over HTTP at `SECOND_BRAIN_API_URL`.
+- `.dockerignore`, which keeps `chroma_db`, `dataset.jsonl`, `results.json`, and docs out of the build context. The Dockerfile copies backend files by name, so nothing in `deploy/` can reach the image, and the image published to GHCR holds no vault data.
 
 App changes, one small PR each:
 
 1. A `READ_ONLY` flag. When set, every write route returns 403, with a test per route.
-2. A `/metrics` endpoint through `prometheus-fastapi-instrumentator`, plus gauges for retrieval latency, reranker latency, collection count, and time since the index last changed. The last one reuses the write stamp that PR #25 already checks before each query.
-3. JSON logs behind a `LOG_FORMAT=json` switch.
-4. An HTTP mode for the eval that scores through `GET /api/search` with the existing `score_case`. The gate then tests the deployed service instead of a local store. `/api/search` dedupes by title and returns only the served top k, so HTTP scores get their own `deploy/eval/demo-scorecard.json` and never get compared with the in-process scorecard.
-5. One more `COPY` line so `backend/scripts/rebuild_rag_index.py` ships in the image and the indexer CronJob can run it.
-6. A `publish` job in `ci.yml`. It runs on main only, after `docker-build` passes, builds for arm64 on a native arm64 runner, and pushes to GHCR tagged with the commit SHA. Emulating arm64 on an x86 runner would make the Rust and pip stages painfully slow. The same PR adds `deploy/` to `.dockerignore` to keep the build context small.
+2. A `/metrics` endpoint through `prometheus-fastapi-instrumentator`, plus gauges for retrieval latency, reranker latency, collection count, and time since the index last changed. The last one reuses the write stamp that PR #25 already checks before each query. No metric label carries a query, a title, or a path.
+3. JSON logs behind a `LOG_FORMAT=json` switch, with query text left out of the log lines.
+4. An HTTP mode for the eval that scores a running service through `GET /api/search` with the existing `score_case`, and prints a numbers-only summary checked by `private_keys_found`. `/api/search` dedupes by title and returns only the served top k, so HTTP scores get their own `deploy/eval/cloud-scorecard.json` and never get compared with the in-process scorecard. Cases whose expected notes the sync refused count as ungradable.
+5. Copy `backend/scripts/rebuild_rag_index.py` and `backend/eval/*.py` into the image, so the indexer CronJob and the gate Job run from the same image as the API. `.dockerignore` already keeps the private dataset out.
+6. A `publish` job in `ci.yml`. It runs on main only, after `docker-build` passes, and pushes that same amd64 image to GHCR tagged with the commit SHA. The same PR adds `deploy/` to `.dockerignore` to keep the build context small.
 
 ## 6. Design
 
@@ -72,23 +79,24 @@ App changes, one small PR each:
 second-brain-tools/
   backend/                    the app, plus the PRs in section 5
   deploy/
-    README.md                 bring it up, tear it down
-    Makefile                  up, down, plan, deploy-staging, promote, gameday, deploys
+    README.md                 bring it up, tear it down, open a tunnel
+    Makefile                  up, down, plan, tunnel, deploy-staging, promote, gameday, deploys
     terraform/
-      main.tf  ec2.tf  iam.tf  ssm.tf  s3.tf  dynamodb.tf  outputs.tf
+      main.tf  ec2.tf  iam.tf  ssm.tf  s3.tf  dynamodb.tf  budget.tf  outputs.tf
       backend.tf              S3 state with S3-native locking
       cloud-init.yaml         installs k3s, single node
     k8s/
-      base/                   deployment, service, ingress, middlewares, pvc, cronjob, configmap
+      base/                   deployment, service, networkpolicy, pvc, cronjob, gate job, configmap
       overlays/staging/
       overlays/prod/
     monitoring/
       prometheus-values.yaml  grafana-values.yaml  alerts.yaml
       dashboards/*.json
-    demo-vault/               the public notes the cloud indexes
+    sync/
+      sync-vault.ps1          scan, filter, and upload the vault from the desktop
+      secret-patterns.txt     what makes a file too sensitive to upload
     eval/
-      demo-dataset.jsonl      public eval cases
-      demo-scorecard.json     the recorded HTTP hit rate the gate compares against
+      cloud-scorecard.json    numbers only, what the gate compares against
     gameday/
       01-kill-pod.sh  02-fill-disk.sh  03-stale-index.sh  04-bad-config.sh
       results.tsv
@@ -103,53 +111,54 @@ second-brain-tools/
     nightly-cost.yml
 ```
 
-Path filters keep the ops workflows quiet on frontend and docs changes. `terraform.yml` runs only when `deploy/terraform/` changes. `deploy.yml` runs only when the merged commit touched `backend/`, `deploy/k8s/`, `deploy/demo-vault/`, or `deploy/eval/`.
+Path filters keep the ops workflows quiet on frontend and docs changes. `terraform.yml` runs only when `deploy/terraform/` changes. `deploy.yml` runs only when the merged commit touched `backend/`, `deploy/k8s/`, or `deploy/eval/`.
 
 ### 6.2 AWS, in Terraform
 
 - Region us-west-2. A 20-dollar monthly budget alarm is the first resource created.
-- One `t4g.medium` EC2 node with 4 GB of RAM on ARM, an Elastic IP, and a 30 GB root volume. On demand that is about 25 dollars a month. `make down` destroys it between work sessions, which should keep the whole project between 10 and 30 dollars.
-- The security group opens 80 and 443 only. Port 80 exists for the Let's Encrypt challenge and the HTTPS redirect. There is no port 22, and shell access goes through SSM Session Manager.
-- IAM has an instance role that can read the demo-vault bucket and the SSM parameters. CI assumes GitHub OIDC roles for Terraform and `kubectl`, and nothing uses long-lived access keys. The repo is public, so the apply role's trust policy accepts only this repo's `main` branch and the `staging` and `prod` environments. Plans on pull requests use a separate read-only role, and pull requests from forks get no OIDC token at all.
+- One `m7i-flex.large` EC2 node, with 2 vCPUs and 8 GB of RAM on x86. It is Free Tier eligible for accounts created after July 15, 2025, and 8 GB fits two API pods plus Prometheus and Grafana. It has a 30 GB encrypted root volume and no public inbound ports. `make down` destroys it between work sessions, so Free plan credits should cover the whole project. `docs/ops/cost.md` records the real bill.
+- The node needs outbound internet for GHCR, S3, and SSM. It gets a public IP with no inbound rules, which costs less than a NAT gateway.
+- IAM has an instance role that can read the vault bucket and the SSM parameters and write deploy items. CI assumes GitHub OIDC roles for Terraform and for SSM Run Command. The repo is public, so the apply and deploy roles trust only this repo's `main` branch and the `staging` and `prod` environments. Plans on pull requests use a read-only role, and pull requests from forks get no OIDC token at all. The sync uploader is the IAM user described in section 2.
 - SSM Parameter Store holds the Grafana admin password and the alert webhook as SecureStrings. In phase 2 it also holds the hosted-LLM key.
-- S3 holds a versioned state bucket and a demo-vault bucket that `deploy.yml` syncs from `deploy/demo-vault/`. State locking uses S3's own lock file, `use_lockfile = true`, because Terraform deprecated DynamoDB state locking in 1.11.
+- S3 holds a versioned state bucket and the private vault bucket from section 2. State locking uses S3's own lock file, `use_lockfile = true`, because Terraform deprecated DynamoDB state locking in 1.11. Terraform state holds no vault content and no access keys.
 - DynamoDB holds a `deploys` table with one item per deploy: SHA, hit rate, p95 latency, and outcome. `make deploys` prints it as TSV. The pipeline writes deploy history there so main never gets bot commits.
-- cloud-init installs k3s. Nobody changes the node by hand.
+- cloud-init installs k3s and the SSM agent. Nobody changes the node by hand.
 
 ### 6.3 Kubernetes
 
 - Namespaces `staging` and `prod` share the node, and prod gets the resource guarantees.
 - Each namespace runs one API replica, with readiness on `/api/ready`, liveness on `/api/health`, and requests and limits set from measured usage.
 - Pod env sets `READ_ONLY=1` and points `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` into the volume. Set `CHROMA_DB_PATH` explicitly. With a wrong path the backend quietly creates an empty index beside `main.py` and serves empty results with no error.
-- A k3s local-path PersistentVolumeClaim holds the index and the synced demo vault.
-- A CronJob runs the nightly indexer in its own pod. It syncs the demo vault from S3 into the volume and runs `rebuild_rag_index.py` while the API keeps serving. That second writer is the condition behind PR #25, and the design keeps it on purpose.
-- Ingress goes through Traefik, which ships with k3s. cert-manager gets a Let's Encrypt certificate for an `sslip.io` hostname, so there is no domain to buy. Traefik middlewares put a rate limit on the API and basic auth on Grafana.
+- A k3s local-path PersistentVolumeClaim holds the index and the synced vault.
+- A CronJob runs the nightly indexer in its own pod after the desktop sync window. It pulls the vault from S3 into the volume and runs `rebuild_rag_index.py` while the API keeps serving. That second writer is the condition behind PR #25, and the design keeps it on purpose.
+- A gate Job template runs the HTTP eval against the namespace's API service. The pipeline creates it per deploy.
+- NetworkPolicies allow traffic to the API only from pods in the same namespace and from Prometheus. k3s enforces them out of the box.
+- There is no Ingress. Access goes through the SSM tunnel.
 - Kustomize base plus overlays, and the pipeline sets the image tag to the commit SHA.
 
 ### 6.4 Pipeline
 
-`deploy.yml` runs when CI, including the publish job, succeeds on main. It also has a `workflow_dispatch` trigger that takes a ref, which game-day scenario 4 uses.
+`deploy.yml` runs when CI, including the publish job, succeeds on main. It also has a `workflow_dispatch` trigger that takes a ref, which game-day scenario 4 uses. Every cluster step goes through SSM Run Command. The node checks out the commit from GitHub, which needs no credentials because the repo is public, and runs `kubectl` locally.
 
-1. Sync `deploy/demo-vault/` to S3 if it changed.
-2. Set the staging overlay to the SHA, apply, and wait for ready. If the demo vault changed, run the indexer job first.
-3. Gate. Score staging through the HTTP eval mode against `deploy/eval/demo-dataset.jsonl` and compare with `demo-scorecard.json` using `drift_verdict`. A drop of 5 points or more stops the run and opens an issue with both numbers.
-4. Promote. Set the prod overlay to the SHA, reindex if the vault changed, roll out, and wait for ready.
-5. Smoke. Run five known queries against prod's `/api/search`, one `search_vault` call through `mcp_server.py` with `SECOND_BRAIN_API_URL` set to prod, and one write request that must return 403. Any failure runs `kubectl rollout undo` and opens an issue.
-6. Write the deploy item to DynamoDB.
+1. Set the staging overlay to the SHA, apply, and wait for ready.
+2. Gate. Run the gate Job in staging, read its numbers-only summary, and compare with `cloud-scorecard.json` using `drift_verdict`. A drop of 5 points or more stops the run and opens an issue with the two hit rates.
+3. Promote. Set the prod overlay to the SHA, roll out, and wait for ready.
+4. Smoke. From inside the cluster, run five fixed queries against prod's `/api/search` and check for a 200 with results, run one `search_vault` call through `mcp_server.py`, and send one write request that must return 403. The output is pass or fail per check. Any failure runs `kubectl rollout undo` and opens an issue.
+5. Write the deploy item to DynamoDB.
 
-A PR that changes retrieval on purpose, or changes the demo set, re-records the card with `make record-demo-scorecard` against staging and commits the new file.
+A PR that changes retrieval on purpose re-records the card with `make record-cloud-scorecard` against staging and commits the new file, which holds numbers only.
 
 `terraform.yml` runs fmt, validate, tflint, and checkov on pull requests and posts the plan as a comment. On main it applies.
 
-`nightly-cost.yml` checks whether the node exists and whether the repo variable `OPS_STATE` says it should be `up` or `down`. It alerts when they disagree, so a forgotten node does not bill for a month.
+`nightly-cost.yml` checks whether the node exists and whether the repo variable `OPS_STATE` says it should be `up` or `down`. It alerts when they disagree, so a forgotten node does not burn credits for a month.
 
 ### 6.5 Monitoring
 
-- Prometheus and Grafana install through Helm, sized for a 4 GB node. The full kube-prometheus-stack is too heavy for it.
-- App metrics come from the instrumentator and the gauges in section 5. A canary runs ten demo queries every 15 minutes and records hit rate.
+- Prometheus and Grafana install through Helm into a `monitoring` namespace. The full kube-prometheus-stack is heavier than this needs.
+- App metrics come from the instrumentator and the gauges in section 5. A canary Job runs ten eval-set queries every 15 minutes and records hit rate as a single number.
 - node-exporter covers CPU, memory, and disk.
 - Dashboards are committed as JSON and provisioned, so a fresh environment has them on first boot.
-- Alerts fire when p95 stays above 1.5 seconds for 10 minutes, 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to Discord or email.
+- Alerts fire when p95 stays above 1.5 seconds for 10 minutes, 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to Discord or email. Alert text carries metric names and values, never vault content.
 
 ### 6.6 Game day
 
@@ -166,10 +175,12 @@ Four scripted scenarios, each run three times and timed.
 
 These need the repo owner, not an agent.
 
-- An AWS account with a card on it, and the budget alarm set before anything else.
+- Done: the AWS account.
+- Stay on the Free plan unless the project runs past its six months or its credits. The Free plan closes the account at either limit unless it is upgraded to the Paid plan first.
+- Set the budget alarm before anything else.
+- The AWS CLI and the Session Manager plugin on the desktop, for the tunnel and the sync.
+- The sync uploader's access key, created by hand in the console after Terraform creates the user.
 - Docker Engine inside the existing WSL2 Ubuntu install. Docker Desktop is not needed.
-- A decision on what goes in the demo vault.
-- A review of the drafted demo eval cases.
 - A Discord webhook or an email address for alerts.
 
 ## 8. Milestones
@@ -178,27 +189,21 @@ Weeks rather than dates, because this shares a calendar with other work.
 
 | Week | Output |
 |---|---|
-| 0, two days | Prerequisites. Architecture doc with a diagram. Demo vault and demo eval set drafted and reviewed |
-| 1 | Terraform for the node, IAM, OIDC roles, SSM, S3 state, and the deploys table. `make up` and `make down` are idempotent. `terraform.yml` with tflint and checkov |
-| 2 | App PRs 1 through 6. Kustomize base and overlays, probes, PVC, CronJob, ingress with TLS and middlewares. Staging answers demo queries. Memory use measured |
+| 0, two days | Prerequisites. Architecture doc with a diagram. `sync-vault.ps1` and its secret patterns, tested against a copy of the vault, with the refused-file list reviewed on the desktop |
+| 1 | Terraform for the node, IAM, OIDC roles, SSM, the S3 buckets, the deploys table, and the budget. `make up`, `make down`, and `make tunnel` are idempotent. `terraform.yml` with tflint and checkov |
+| 2 | App PRs 1 through 6. Kustomize base and overlays, probes, NetworkPolicies, PVC, CronJob. Staging answers queries through the tunnel. Memory use measured |
 | 3 | Prometheus, Grafana, dashboards as JSON, alert rules, notifications, canary |
-| 4 | `deploy.yml` end to end with gate, promote, smoke, rollback, and deploy records. `nightly-cost.yml` |
+| 4 | `deploy.yml` end to end with gate Job, promote, smoke, rollback, and deploy records. A check that fails the workflow if any log line matches a note path. `nightly-cost.yml` |
 | 5 | Game day, runbooks, postmortem, and `docs/ops/cost.md` from the actual bill |
 | 6, three days | `deploy/README.md` and the final architecture doc. Destroy the environment and rebuild it from `make up` to prove it works |
 
-Phase 2 starts only after week 6. It adds Bedrock generation behind a flag with its IAM in Terraform and a fifth game-day scenario that blocks its egress. ArgoCD replaces push deploys, and Loki adds logs.
+Phase 2 starts only after week 6. It adds Bedrock generation behind a flag with its IAM in Terraform and a fifth game-day scenario that blocks its egress. ArgoCD replaces push deploys, and Loki adds logs, with the same no-vault-content rule.
 
 ## 9. Caveats
 
 - One node running k3s is not a highly available cluster. Call it single-node Kubernetes.
-- Two API pods, Prometheus, Grafana, and k3s in 4 GB is tight. If week 2's measurements say it does not fit, scale staging to zero between deploys or move to a `t4g.large` at about twice the hourly cost.
-- Every number the cloud publishes describes the demo vault. The real vault's scorecard stays local, as it does today.
+- There is no public demo. The live system holds private notes, so it gets shown through screenshots, dashboards, the deploy history, and game-day results.
+- The secret scan catches known key formats and obvious assignments. It will miss a password pasted in plain prose. `.cloudignore` covers anything the owner knows about, and the bucket and node stay closed to the internet either way.
+- The cloud index is the vault minus refused files, so its hit rate can differ slightly from the desktop scorecard. The two cards stay separate.
 - The gate protects retrieval quality. Answer quality is not gated.
-- It costs real money. The bill stays small only if the node gets destroyed when idle.
-
-## 10. Open decisions
-
-- Approach A, or C.
-- An AWS account. Without one this turns into approach B.
-- Demo vault or the real vault behind auth. Section 2 recommends the demo vault.
-- What goes in the demo vault.
+- Credits run out. The bill stays at zero only if the node gets destroyed when idle and the project fits inside the Free plan window.
