@@ -18,6 +18,7 @@ A file stays on the desktop in any of these cases:
 
 - The indexer would not read it, because of `EXCLUDE_DIRS` and the file name rules in `backend/indexer.py`.
 - It is a cloud-only OneDrive placeholder.
+- It is not valid UTF-8 text, or it contains NUL bytes the way UTF-16 files do. The indexer couldn't read it anyway, and a key inside could hide from the patterns.
 - `.cloudignore` at the vault root names it.
 - A pattern in `sync/secret-patterns.txt` matches its path or any line in it.
 

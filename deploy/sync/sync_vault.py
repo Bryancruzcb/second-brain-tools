@@ -109,11 +109,23 @@ def is_ignored(rel_path, rules):
 
 
 def read_text(path):
-    """A file's text for scanning. Undecodable bytes become U+FFFD, so ASCII secrets still match."""
+    """A file's text for scanning, or None when it can't be scanned.
+
+    The indexer reads notes as strict UTF-8, so a file that fails to decode would
+    never be indexed and has no reason to leave the desktop. NUL bytes keep a
+    file home too: UTF-16 text is full of them, and they split every key apart so
+    no pattern can match it.
+    """
     try:
         with open(path, "rb") as f:
-            return f.read().decode("utf-8", errors="replace")
+            data = f.read()
     except OSError:
+        return None
+    if b"\x00" in data:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
         return None
 
 

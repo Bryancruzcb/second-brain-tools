@@ -104,10 +104,15 @@ def test_credential_file_names_are_refused(tmp_path, patterns):
     assert sync_vault.scan_file("Keyboard shortcuts.md", str(shortcuts), patterns) == []
 
 
-def test_secret_in_a_non_utf8_file_is_still_caught(tmp_path, patterns):
+@pytest.mark.parametrize("encode", [
+    lambda text: b"\xff broken bytes " + text.encode(),  # not valid UTF-8
+    lambda text: text.encode("utf-16"),                  # UTF-16 with a byte order mark
+    lambda text: text.encode("utf-16-le"),               # UTF-16 without one: valid UTF-8, full of NULs
+], ids=["invalid-utf8", "utf16-bom", "utf16-no-bom"])
+def test_a_file_that_is_not_plain_utf8_stays_home(tmp_path, patterns, encode):
     note = tmp_path / "note.md"
-    note.write_bytes(b"\xff\xfe broken bytes " + FAKE_SECRETS["anthropic-key"].encode())
-    assert "anthropic-key (line 1)" in sync_vault.scan_file("note.md", str(note), patterns)
+    note.write_bytes(encode("see " + FAKE_SECRETS["anthropic-key"] + " here\n"))
+    assert sync_vault.scan_file("note.md", str(note), patterns) == [sync_vault.UNREADABLE]
 
 
 def test_a_file_that_cannot_be_read_is_refused(tmp_path, patterns):
