@@ -1,6 +1,6 @@
 # Ops plan: run the retrieval API on AWS
 
-**Status:** approved 2026-09-12, not started.
+**Status:** approved 2026-09-12, week 0 in progress.
 
 **Decisions so far:** approach A in section 3. The cloud runs on the real vault, kept private as section 2 describes. The AWS account exists.
 
@@ -27,7 +27,7 @@ This repo is public, so every GitHub Actions log is public too.
 The design follows from those facts.
 
 - **Nothing on the internet can reach the node.** The security group has no inbound rules at all. The owner reaches the API and Grafana through SSM Session Manager port forwarding, so the MCP server on the desktop can point at `localhost` through the tunnel. CI reaches the cluster through SSM Run Command with its OIDC role. The Kubernetes API port stays closed, and no kubeconfig leaves the node.
-- **A scanner runs before anything leaves the desktop.** `deploy/sync/sync-vault.ps1` runs after the existing nightly job on the desktop. It uploads only what the indexer already reads, meaning markdown outside `EXCLUDE_DIRS` in `backend/indexer.py`. It runs a secret scan over every file and refuses to upload a file with any hit. The patterns cover Anthropic, OpenAI, AWS, GitHub, Slack, and Google keys, private key blocks, and password or API key assignments, and they live in `deploy/sync/secret-patterns.txt`. The script prints refused paths to the local console only. A `.cloudignore` file at the vault root, kept out of git, lists anything else the owner wants kept home. The script syncs with `--delete`, so a note deleted or newly refused locally disappears from the cloud copy on the next run.
+- **A scanner runs before anything leaves the desktop.** `deploy/sync/sync_vault.py` runs after the existing nightly job on the desktop. It takes its file list from the indexer's own scanner in `backend/indexer.py`, so it uploads exactly what the cloud indexer will read. It runs a secret scan over every file and refuses to upload a file with any hit. The patterns cover Anthropic, OpenAI, AWS, GitHub, Slack, and Google keys, private key blocks, and password or API key assignments, and they live in `deploy/sync/secret-patterns.txt`. The script prints refused paths to the local console only. A `.cloudignore` file at the vault root, kept out of git, lists anything else the owner wants kept home. The script syncs with `--delete`, so a note deleted or newly refused locally disappears from the cloud copy on the next run.
 - **The vault bucket is locked down.** Block Public Access is on, encryption is on, a bucket policy refuses non-TLS requests, only the node's instance role can read it, and only the sync uploader can write to it. The node's EBS volume, which holds the index, is encrypted.
 - **Logs never contain vault content.** The eval gate runs as a Kubernetes Job inside the cluster, not on a GitHub runner. It reads the private `dataset.jsonl` from the bucket and prints a summary with numbers only. Before printing, it runs `private_keys_found` from `backend/eval/scorecard.py` over the summary and fails closed on any hit. The smoke test checks status codes and result counts, never titles or snippets. No workflow step prints a question, a note path, or a chunk.
 - **The cloud copy stays read-only.** Pods run with a new `READ_ONLY=1` flag that makes every write route return 403. The desktop vault is the only place notes get written, and the nightly sync overwrites the cloud copy anyway.
@@ -93,8 +93,9 @@ second-brain-tools/
       prometheus-values.yaml  grafana-values.yaml  alerts.yaml
       dashboards/*.json
     sync/
-      sync-vault.ps1          scan, filter, and upload the vault from the desktop
+      sync_vault.py           scan, filter, and upload the vault from the desktop
       secret-patterns.txt     what makes a file too sensitive to upload
+      tests/                  fake vaults with planted fake keys
     eval/
       cloud-scorecard.json    numbers only, what the gate compares against
     gameday/
@@ -115,11 +116,12 @@ Path filters keep the ops workflows quiet on frontend and docs changes. `terrafo
 
 ### 6.2 AWS, in Terraform
 
-- Region us-west-2. A 20-dollar monthly budget alarm is the first resource created.
+- Region us-west-2. A 15-dollar monthly cost budget already exists, created by hand before anything else, and Terraform imports it.
 - One `m7i-flex.large` EC2 node, with 2 vCPUs and 8 GB of RAM on x86. It is Free Tier eligible for accounts created after July 15, 2025, and 8 GB fits two API pods plus Prometheus and Grafana. It has a 30 GB encrypted root volume and no public inbound ports. `make down` destroys it between work sessions, so Free plan credits should cover the whole project. `docs/ops/cost.md` records the real bill.
 - The node needs outbound internet for GHCR, S3, and SSM. It gets a public IP with no inbound rules, which costs less than a NAT gateway.
 - IAM has an instance role that can read the vault bucket and the SSM parameters and write deploy items. CI assumes GitHub OIDC roles for Terraform and for SSM Run Command. The repo is public, so the apply and deploy roles trust only this repo's `main` branch and the `staging` and `prod` environments. Plans on pull requests use a read-only role, and pull requests from forks get no OIDC token at all. The sync uploader is the IAM user described in section 2.
-- SSM Parameter Store holds the Grafana admin password and the alert webhook as SecureStrings. In phase 2 it also holds the hosted-LLM key.
+- SSM Parameter Store holds the Grafana admin password as a SecureString. In phase 2 it also holds the hosted-LLM key.
+- SNS holds the alert topic, with an email subscription.
 - S3 holds a versioned state bucket and the private vault bucket from section 2. State locking uses S3's own lock file, `use_lockfile = true`, because Terraform deprecated DynamoDB state locking in 1.11. Terraform state holds no vault content and no access keys.
 - DynamoDB holds a `deploys` table with one item per deploy: SHA, hit rate, p95 latency, and outcome. `make deploys` prints it as TSV. The pipeline writes deploy history there so main never gets bot commits.
 - cloud-init installs k3s and the SSM agent. Nobody changes the node by hand.
@@ -158,7 +160,7 @@ A PR that changes retrieval on purpose re-records the card with `make record-clo
 - App metrics come from the instrumentator and the gauges in section 5. A canary Job runs ten eval-set queries every 15 minutes and records hit rate as a single number.
 - node-exporter covers CPU, memory, and disk.
 - Dashboards are committed as JSON and provisioned, so a fresh environment has them on first boot.
-- Alerts fire when p95 stays above 1.5 seconds for 10 minutes, 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to Discord or email. Alert text carries metric names and values, never vault content.
+- Alerts fire when p95 stays above 1.5 seconds for 10 minutes, 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to email through SNS. Alert text carries metric names and values, never vault content.
 
 ### 6.6 Game day
 
@@ -175,13 +177,10 @@ Four scripted scenarios, each run three times and timed.
 
 These need the repo owner, not an agent.
 
-- Done: the AWS account.
+- Done 2026-09-12: the AWS account on the Free plan, a 15-dollar monthly cost budget that counts usage before credits, the AWS CLI, the Session Manager plugin, Terraform, and Docker Desktop.
 - Stay on the Free plan unless the project runs past its six months or its credits. The Free plan closes the account at either limit unless it is upgraded to the Paid plan first.
-- Set the budget alarm before anything else.
-- The AWS CLI and the Session Manager plugin on the desktop, for the tunnel and the sync.
+- A dry run of `sync_vault.py` on the real vault, with the refused-file list reviewed on the desktop.
 - The sync uploader's access key, created by hand in the console after Terraform creates the user.
-- Docker Engine inside the existing WSL2 Ubuntu install. Docker Desktop is not needed.
-- A Discord webhook or an email address for alerts.
 
 ## 8. Milestones
 
@@ -189,8 +188,8 @@ Weeks rather than dates, because this shares a calendar with other work.
 
 | Week | Output |
 |---|---|
-| 0, two days | Prerequisites. Architecture doc with a diagram. `sync-vault.ps1` and its secret patterns, tested against a copy of the vault, with the refused-file list reviewed on the desktop |
-| 1 | Terraform for the node, IAM, OIDC roles, SSM, the S3 buckets, the deploys table, and the budget. `make up`, `make down`, and `make tunnel` are idempotent. `terraform.yml` with tflint and checkov |
+| 0, two days | Prerequisites. Architecture doc with a diagram. `sync_vault.py` and its secret patterns, tested on fake vaults with planted fake keys, then a dry run on the real vault with the refused-file list reviewed on the desktop |
+| 1 | Terraform for the node, IAM, OIDC roles, SSM, the S3 buckets, the deploys table, the SNS alert topic, and an import of the existing budget. `make up`, `make down`, and `make tunnel` are idempotent. `terraform.yml` with tflint and checkov |
 | 2 | App PRs 1 through 6. Kustomize base and overlays, probes, NetworkPolicies, PVC, CronJob. Staging answers queries through the tunnel. Memory use measured |
 | 3 | Prometheus, Grafana, dashboards as JSON, alert rules, notifications, canary |
 | 4 | `deploy.yml` end to end with gate Job, promote, smoke, rollback, and deploy records. A check that fails the workflow if any log line matches a note path. `nightly-cost.yml` |
