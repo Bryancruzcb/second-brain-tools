@@ -1,0 +1,204 @@
+name: Terraform
+
+# Checks, plans, and applies deploy/terraform. The repo is public, so every log
+# line and PR comment here is public. The alert email is a secret, sensitive
+# values print as (sensitive value), the AWS action masks the account ID in
+# logs once a role is assumed, and the PR comment gets the ID replaced.
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["deploy/terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/terraform/**", ".github/workflows/terraform.yml"]
+
+permissions: {}
+
+env:
+  TF_VERSION: 1.16.2
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: us-west-2
+
+jobs:
+  check:
+    name: fmt, validate, tflint, checkov
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format
+        run: terraform -chdir=deploy/terraform fmt -recursive -check -diff
+
+      - name: Validate the bootstrap stack
+        run: |
+          terraform -chdir=deploy/terraform/bootstrap init -backend=false
+          terraform -chdir=deploy/terraform/bootstrap validate
+
+      - name: Validate the main stack
+        run: |
+          terraform -chdir=deploy/terraform init -backend=false
+          terraform -chdir=deploy/terraform validate
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+        with:
+          tflint_version: v0.64.0
+
+      # tflint and checkov both skip a resource whose count is 0. node_enabled
+      # defaults to false, so both get node_enabled=true to see the node.
+      - name: TFLint
+        working-directory: deploy/terraform
+        env:
+          # tflint --init downloads the AWS ruleset from GitHub releases.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init
+          tflint --var=node_enabled=true
+          tflint --chdir=bootstrap --config="$PWD/.tflint.hcl"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Checkov
+        # Skips live beside their resources as #checkov:skip=ID:reason comments.
+        # List them with: grep -rn "checkov:skip" deploy/terraform
+        run: |
+          pip install checkov==3.3.17
+          echo 'node_enabled = true' > "$RUNNER_TEMP/node-on.tfvars"
+          checkov --directory deploy/terraform --framework terraform --var-file "$RUNNER_TEMP/node-on.tfvars" --quiet --compact
+
+  plan:
+    name: Plan
+    needs: check
+    # Forks get no OIDC token. Until the owner's first apply from the desktop
+    # creates the roles and sets the repo variables, there is nothing to assume.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && vars.TF_STATE_BUCKET != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Assume the plan role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/second-brain-ops-terraform-plan
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Init
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: terraform -chdir=deploy/terraform init -backend-config="bucket=$TF_STATE_BUCKET"
+
+      - name: Plan
+        env:
+          TF_VAR_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          TF_VAR_node_enabled: ${{ vars.OPS_STATE == 'up' }}
+        # The plan role can't write the lock file, and a plan changes nothing.
+        run: terraform -chdir=deploy/terraform plan -lock=false -no-color -out=tfplan
+
+      - name: Render the plan
+        env:
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          terraform -chdir=deploy/terraform show -no-color tfplan > plan.txt
+          # Log masking doesn't apply to PR comments.
+          sed -i "s/$ACCOUNT_ID/ACCOUNT_ID/g" plan.txt
+
+      - name: Comment the plan
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- terraform-plan -->';
+            let plan = fs.readFileSync('plan.txt', 'utf8');
+            // GitHub rejects comments longer than 65,536 characters.
+            if (plan.length > 60000) {
+              plan = plan.slice(0, 60000) + '\n\n... truncated, the full plan is in the job log';
+            }
+            const body = `${marker}\n### Terraform plan\n\n\`\`\`\n${plan}\n\`\`\``;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const previous = comments.find((c) => c.user.type === 'Bot' && c.body.startsWith(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  apply:
+    name: Apply
+    needs: check
+    if: github.event_name == 'push' && vars.TF_STATE_BUCKET != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    # Applies queue instead of racing for the state lock.
+    concurrency:
+      group: terraform-apply
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Assume the apply role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/second-brain-ops-terraform-apply
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Init
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: terraform -chdir=deploy/terraform init -backend-config="bucket=$TF_STATE_BUCKET"
+
+      - name: Apply
+        env:
+          TF_VAR_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          # OPS_STATE decides whether the node exists after a merge. ops.py up
+          # and down print a reminder to keep it in step.
+          TF_VAR_node_enabled: ${{ vars.OPS_STATE == 'up' }}
+        run: terraform -chdir=deploy/terraform apply -auto-approve

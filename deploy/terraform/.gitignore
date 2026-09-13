@@ -1,0 +1,11 @@
+# Provider downloads, state, saved plans, and real variable values stay local.
+# .terraform.lock.hcl is committed on purpose, so CI installs the same providers.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+tfplan
+crash.log
+crash.*.log
