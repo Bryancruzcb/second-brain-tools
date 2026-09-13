@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars, which git ignores, and replace both values.
+# CI reads the same values from vars.AWS_ACCOUNT_ID and secrets.ALERT_EMAIL.
+account_id  = "<12-digit AWS account ID>"
+alert_email = "<address for budget and alert emails>"

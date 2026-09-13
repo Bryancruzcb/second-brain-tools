@@ -1,0 +1,19 @@
+#cloud-config
+# Rendered by templatefile() in ec2.tf, which fills in k3s_version.
+# The Ubuntu AMI already runs the SSM agent, so nothing here installs it.
+
+write_files:
+  # k3s reads this on first start.
+  - path: /etc/rancher/k3s/config.yaml
+    owner: root:root
+    permissions: "0600"
+    content: |
+      write-kubeconfig-mode: "0600"
+      secrets-encryption: true
+      disable:
+        - traefik
+
+runcmd:
+  # The install script comes from the same tag as the binary, so both are pinned.
+  - curl -sfL --retry 5 -o /tmp/k3s-install.sh "https://raw.githubusercontent.com/k3s-io/k3s/${k3s_version}/install.sh"
+  - INSTALL_K3S_VERSION="${k3s_version}" sh /tmp/k3s-install.sh
