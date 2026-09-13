@@ -18,11 +18,6 @@ output "terraform_apply_role_arn" {
   value       = aws_iam_role.github["terraform-apply"].arn
 }
 
-output "deploy_role_arn" {
-  description = "Role the staging and prod deploy jobs assume."
-  value       = aws_iam_role.github["deploy"].arn
-}
-
 output "alerts_topic_arn" {
   description = "SNS topic for alerts."
   value       = aws_sns_topic.alerts.arn

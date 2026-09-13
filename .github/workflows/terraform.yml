@@ -8,10 +8,10 @@ name: Terraform
 on:
   pull_request:
     branches: [main]
-    paths: ["deploy/terraform/**"]
+    paths: ["deploy/terraform/**", ".github/workflows/terraform.yml"]
   push:
     branches: [main]
-    paths: ["deploy/terraform/**"]
+    paths: ["deploy/terraform/**", ".github/workflows/terraform.yml"]
 
 permissions: {}
 

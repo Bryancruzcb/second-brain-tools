@@ -9,13 +9,14 @@ locals {
 
   # Which workflow runs may assume each GitHub role, by the token's sub claim.
   # Pull requests from forks get no token, so pull_request means this repo's branches.
+  #
+  # The deploy role waits for week 4 and deploy.yml. It can run commands as root
+  # on the node, and it trusts the staging and prod environments. GitHub creates
+  # an environment the first time any job names it, with no branch limits, so
+  # the role only goes in after both environments are restricted to main.
   github_role_subjects = {
     terraform-plan  = ["repo:${local.github_repo}:pull_request"]
     terraform-apply = ["repo:${local.github_repo}:ref:refs/heads/main"]
-    deploy = [
-      "repo:${local.github_repo}:environment:staging",
-      "repo:${local.github_repo}:environment:prod",
-    ]
   }
 }
 
@@ -485,34 +486,4 @@ resource "aws_iam_role_policy" "apply" {
   name   = "second-brain-ops-terraform-apply"
   role   = aws_iam_role.github["terraform-apply"].id
   policy = data.aws_iam_policy_document.apply.json
-}
-
-# Deploys from the staging and prod environments.
-
-data "aws_iam_policy_document" "deploy" {
-  # With node_enabled off only the document ARN is left, so no command can run.
-  statement {
-    sid       = "RunShellOnNode"
-    actions   = ["ssm:SendCommand"]
-    resources = concat(aws_instance.node[*].arn, ["arn:aws:ssm:${local.region}::document/AWS-RunShellScript"])
-  }
-
-  # These calls don't support resource-level permissions.
-  statement {
-    sid       = "ReadCommandResults"
-    actions   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ec2:DescribeInstances"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid       = "RecordDeploys"
-    actions   = ["dynamodb:PutItem"]
-    resources = [local.deploys_table_arn]
-  }
-}
-
-resource "aws_iam_role_policy" "deploy" {
-  name   = "second-brain-ops-deploy"
-  role   = aws_iam_role.github["deploy"].id
-  policy = data.aws_iam_policy_document.deploy.json
 }
