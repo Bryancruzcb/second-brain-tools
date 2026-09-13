@@ -1,6 +1,6 @@
 # Ops plan: run the retrieval API on AWS
 
-**Status:** approved 2026-09-12, week 0 in progress.
+**Status:** approved 2026-09-12. Weeks 0 and 1 are built, and the week 1 Terraform was applied on 2026-09-12 with the node off.
 
 **Decisions so far:** approach A in section 3. The cloud runs on the real vault, kept private as section 2 describes. The AWS account exists.
 
@@ -80,11 +80,14 @@ second-brain-tools/
   backend/                    the app, plus the PRs in section 5
   deploy/
     README.md                 bring it up, tear it down, open a tunnel
-    Makefile                  up, down, plan, tunnel, deploy-staging, promote, gameday, deploys
+    ops.py                    bootstrap, init, plan, up, down, tunnel
+    tests/                    ops.py command construction
     terraform/
-      main.tf  ec2.tf  iam.tf  ssm.tf  s3.tf  dynamodb.tf  budget.tf  outputs.tf
+      versions.tf  variables.tf  main.tf  ec2.tf  iam.tf  ssm.tf  s3.tf
+      dynamodb.tf  budget.tf  sns.tf  outputs.tf
       backend.tf              S3 state with S3-native locking
-      cloud-init.yaml         installs k3s, single node
+      cloud-init.yaml         installs a pinned k3s, single node
+      bootstrap/              creates the state bucket, with local state
     k8s/
       base/                   deployment, service, networkpolicy, pvc, cronjob, gate job, configmap
       overlays/staging/
@@ -107,24 +110,24 @@ second-brain-tools/
     architecture.md  cost.md  postmortem-stale-index.md
   .github/workflows/
     ci.yml                    existing, gains the publish job
-    terraform.yml             runs only for deploy/terraform/**
+    terraform.yml             checks and plans PRs, applies on main
     deploy.yml                runs after CI succeeds on main, or by hand
     nightly-cost.yml
 ```
 
-Path filters keep the ops workflows quiet on frontend and docs changes. `terraform.yml` runs only when `deploy/terraform/` changes. `deploy.yml` runs only when the merged commit touched `backend/`, `deploy/k8s/`, or `deploy/eval/`.
+Path filters keep the ops workflows quiet on frontend and docs changes. `terraform.yml` runs only when `deploy/terraform/` or the workflow itself changes. `ops.py` replaced the planned Makefile, because the desktop's make runs recipes through cmd or sh depending on PATH, which breaks quoting for terraform and aws commands. `deploy.yml` runs only when the merged commit touched `backend/`, `deploy/k8s/`, or `deploy/eval/`.
 
 ### 6.2 AWS, in Terraform
 
 - Region us-west-2. A 15-dollar monthly cost budget already exists, created by hand before anything else, and Terraform imports it.
-- One `m7i-flex.large` EC2 node, with 2 vCPUs and 8 GB of RAM on x86. It is Free Tier eligible for accounts created after July 15, 2025, and 8 GB fits two API pods plus Prometheus and Grafana. It has a 30 GB encrypted root volume and no public inbound ports. `make down` destroys it between work sessions, so Free plan credits should cover the whole project. `docs/ops/cost.md` records the real bill.
+- One `m7i-flex.large` EC2 node, with 2 vCPUs and 8 GB of RAM on x86. It is Free Tier eligible for accounts created after July 15, 2025, and 8 GB fits two API pods plus Prometheus and Grafana. It has a 30 GB encrypted root volume and no public inbound ports. `python deploy/ops.py down` destroys it between work sessions, so Free plan credits should cover the whole project. `docs/ops/cost.md` records the real bill.
 - The node needs outbound internet for GHCR, S3, and SSM. It gets a public IP with no inbound rules, which costs less than a NAT gateway.
-- IAM has an instance role that can read the vault bucket and the SSM parameters and write deploy items. CI assumes GitHub OIDC roles for Terraform and for SSM Run Command. The repo is public, so the apply and deploy roles trust only this repo's `main` branch and the `staging` and `prod` environments. Plans on pull requests use a read-only role, and pull requests from forks get no OIDC token at all. The sync uploader is the IAM user described in section 2.
+- IAM has an instance role that can read the vault bucket and the SSM parameters and write deploy items. CI assumes GitHub OIDC roles. The repo is public, so the apply role trusts only this repo's `main` branch, plans on pull requests use a read-only role, and pull requests from forks get no OIDC token at all. The deploy role for SSM Run Command arrives in week 4. It trusts the `staging` and `prod` environments, and GitHub creates an environment with no branch limits the first time any job names it, so both environments get restricted to `main` before the role exists. The sync uploader is the IAM user described in section 2.
 - SSM Parameter Store holds the Grafana admin password as a SecureString. In phase 2 it also holds the hosted-LLM key.
 - SNS holds the alert topic, with an email subscription.
-- S3 holds a versioned state bucket and the private vault bucket from section 2. State locking uses S3's own lock file, `use_lockfile = true`, because Terraform deprecated DynamoDB state locking in 1.11. Terraform state holds no vault content and no access keys.
-- DynamoDB holds a `deploys` table with one item per deploy: SHA, hit rate, p95 latency, and outcome. `make deploys` prints it as TSV. The pipeline writes deploy history there so main never gets bot commits.
-- cloud-init installs k3s and the SSM agent. Nobody changes the node by hand.
+- S3 holds the versioned state bucket, which `deploy/terraform/bootstrap/` creates from its own local state, and the private vault bucket from section 2. State locking uses S3's own lock file, `use_lockfile = true`, because Terraform deprecated DynamoDB state locking in 1.11. Terraform state holds no vault content and no access keys.
+- DynamoDB holds a `deploys` table with one item per deploy: SHA, hit rate, p95 latency, and outcome. An `ops.py deploys` subcommand, added in week 4, prints it as TSV. The pipeline writes deploy history there so main never gets bot commits.
+- cloud-init installs a pinned k3s, and the Ubuntu AMI already runs the SSM agent. Nobody changes the node by hand.
 
 ### 6.3 Kubernetes
 
@@ -148,9 +151,9 @@ Path filters keep the ops workflows quiet on frontend and docs changes. `terrafo
 4. Smoke. From inside the cluster, run five fixed queries against prod's `/api/search` and check for a 200 with results, run one `search_vault` call through `mcp_server.py`, and send one write request that must return 403. The output is pass or fail per check. Any failure runs `kubectl rollout undo` and opens an issue.
 5. Write the deploy item to DynamoDB.
 
-A PR that changes retrieval on purpose re-records the card with `make record-cloud-scorecard` against staging and commits the new file, which holds numbers only.
+A PR that changes retrieval on purpose re-records the card against staging with an `ops.py record-cloud-scorecard` subcommand, added in week 4, and commits the new file, which holds numbers only.
 
-`terraform.yml` runs fmt, validate, tflint, and checkov on pull requests and posts the plan as a comment. On main it applies.
+`terraform.yml` runs fmt, validate, tflint, and checkov on pull requests and posts the plan as a comment. On main it applies, with the node on or off according to the `OPS_STATE` repo variable.
 
 `nightly-cost.yml` checks whether the node exists and whether the repo variable `OPS_STATE` says it should be `up` or `down`. It alerts when they disagree, so a forgotten node does not burn credits for a month.
 
@@ -179,8 +182,9 @@ These need the repo owner, not an agent.
 
 - Done 2026-09-12: the AWS account on the Free plan, a 15-dollar monthly cost budget that counts usage before credits, the AWS CLI, the Session Manager plugin, Terraform, and Docker Desktop.
 - Stay on the Free plan unless the project runs past its six months or its credits. The Free plan closes the account at either limit unless it is upgraded to the Paid plan first.
-- A dry run of `sync_vault.py` on the real vault, with the refused-file list reviewed on the desktop.
-- The sync uploader's access key, created by hand in the console after Terraform creates the user.
+- Done 2026-09-12: the dry run of `sync_vault.py` on the real vault, which kept 2 of 718 files home, and the first Terraform apply from the desktop. The repo variables `AWS_ACCOUNT_ID`, `TF_STATE_BUCKET`, and `OPS_STATE` and the secret `ALERT_EMAIL` are set.
+- Confirm the SNS subscription email. Nothing gets delivered until someone clicks the link.
+- The sync uploader's access key, created by hand in the console now that Terraform has created the user.
 
 ## 8. Milestones
 
@@ -188,13 +192,13 @@ Weeks rather than dates, because this shares a calendar with other work.
 
 | Week | Output |
 |---|---|
-| 0, two days | Prerequisites. Architecture doc with a diagram. `sync_vault.py` and its secret patterns, tested on fake vaults with planted fake keys, then a dry run on the real vault with the refused-file list reviewed on the desktop |
-| 1 | Terraform for the node, IAM, OIDC roles, SSM, the S3 buckets, the deploys table, the SNS alert topic, and an import of the existing budget. `make up`, `make down`, and `make tunnel` are idempotent. `terraform.yml` with tflint and checkov |
+| 0, two days | Done. Prerequisites. Architecture doc with a diagram. `sync_vault.py` and its secret patterns, tested on fake vaults with planted fake keys, then a dry run on the real vault with the refused-file list reviewed on the desktop |
+| 1 | Done, applied 2026-09-12. Terraform for the node, IAM, OIDC roles, SSM, the S3 buckets, the deploys table, the SNS alert topic, and an import of the existing budget. `ops.py up` and `ops.py down` are idempotent, and `ops.py tunnel` opens the port forward. `terraform.yml` with tflint and checkov |
 | 2 | App PRs 1 through 6. Kustomize base and overlays, probes, NetworkPolicies, PVC, CronJob. Staging answers queries through the tunnel. Memory use measured |
 | 3 | Prometheus, Grafana, dashboards as JSON, alert rules, notifications, canary |
 | 4 | `deploy.yml` end to end with gate Job, promote, smoke, rollback, and deploy records. A check that fails the workflow if any log line matches a note path. `nightly-cost.yml` |
 | 5 | Game day, runbooks, postmortem, and `docs/ops/cost.md` from the actual bill |
-| 6, three days | `deploy/README.md` and the final architecture doc. Destroy the environment and rebuild it from `make up` to prove it works |
+| 6, three days | `deploy/README.md` and the final architecture doc. Destroy the environment and rebuild it with `python deploy/ops.py up` to prove it works |
 
 Phase 2 starts only after week 6. It adds Bedrock generation behind a flag with its IAM in Terraform and a fifth game-day scenario that blocks its egress. ArgoCD replaces push deploys, and Loki adds logs, with the same no-vault-content rule.
 

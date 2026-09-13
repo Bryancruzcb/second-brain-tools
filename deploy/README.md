@@ -1,6 +1,6 @@
 # Deploy
 
-Ops code for running the retrieval API on AWS. The design is in [docs/ops/PLAN.md](../docs/ops/PLAN.md) and the picture is in [docs/ops/architecture.md](../docs/ops/architecture.md). Only the vault sync exists so far.
+Ops code for running the retrieval API on AWS. The design is in [docs/ops/PLAN.md](../docs/ops/PLAN.md) and the picture is in [docs/ops/architecture.md](../docs/ops/architecture.md). The vault sync and the Terraform for the AWS environment exist so far.
 
 ## Vault sync
 
@@ -35,3 +35,31 @@ python deploy/sync/sync_vault.py --bucket BUCKET --dataset backend/eval/dataset.
 It mirrors the upload set into `%LOCALAPPDATA%\second-brain-ops\vault-staging` and runs `aws s3 sync --delete`, so a note that becomes refused or ignored also leaves the bucket. It refuses a staging folder that overlaps the vault, because the mirror deletes every file that is not in the upload set.
 
 Tests: `python -m pytest deploy/sync/tests -q`
+
+## Terraform
+
+`terraform/bootstrap/` creates the bucket that holds state, and `terraform/` builds everything else. `ops.py` runs both and prints each command before it runs. It needs Terraform 1.16, the AWS CLI, and credentials for the account, for example from `aws login`.
+
+Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`, which git ignores, and fill in the account ID and alert email. Then, once per account:
+
+```
+python deploy/ops.py bootstrap
+python deploy/ops.py init
+python deploy/ops.py down
+```
+
+`down` applies with the node off and `up` applies with it on, and either is safe to run twice. `plan` previews changes, and `plan --up` previews them with the node on. `tunnel` forwards `localhost:8000` to the API on the node through SSM and needs the Session Manager plugin.
+
+The first apply runs from the desktop, because the GitHub roles don't exist until it finishes. After it, set the repo variables `AWS_ACCOUNT_ID`, `TF_STATE_BUCKET`, and `OPS_STATE` and the secret `ALERT_EMAIL`, so pull requests get plans and main gets applies. AWS also emails a confirmation link for the alert topic, and nothing gets delivered until someone clicks it.
+
+After every `up` or `down`, set `OPS_STATE` to match. Otherwise the next merge that touches `deploy/terraform/` applies the old node setting.
+
+If `terraform init` fails with "Failed to query available provider packages" and a connection reset, the network's IPv6 route to the Terraform registry is probably broken while IPv4 works. Copy the provider binaries from a working `.terraform/providers` folder into a local folder and point init at it:
+
+```
+python deploy/ops.py init "-plugin-dir=C:\path\to\terraform-providers"
+```
+
+`ops.py bootstrap` passes extra arguments only to apply, so on such a network run its two steps by hand: `terraform -chdir=deploy/terraform/bootstrap init -plugin-dir=...`, then `terraform -chdir=deploy/terraform/bootstrap apply -var=account_id=...`.
+
+Tests: `python -m pytest deploy/tests -q`

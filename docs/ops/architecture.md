@@ -1,6 +1,6 @@
 # Ops architecture
 
-How the pieces in [PLAN.md](PLAN.md) fit together, and where the private vault can and cannot go. Most of this is planned. The table at the end says what exists today.
+How the pieces in [PLAN.md](PLAN.md) fit together, and where the private vault can and cannot go. Weeks 0 and 1 exist, and the rest is planned. The table at the end says what exists today.
 
 ## The system
 
@@ -68,7 +68,7 @@ flowchart LR
 |---|---|---|
 | The internet | The node | Nothing. The security group has no inbound rules |
 | The owner | The API and Grafana | SSM Session Manager port forwarding |
-| GitHub Actions on `main` | AWS | OIDC roles that trust only this repo's `main` branch and the `staging` and `prod` environments |
+| GitHub Actions on `main` | AWS | The Terraform apply role, which trusts only this repo's `main` branch. The deploy role, trusted for the `staging` and `prod` environments, arrives in week 4 once both only accept `main` |
 | Pull requests | AWS | A read-only role for Terraform plans. Forks get no OIDC token |
 | The desktop | The vault bucket | The `second-brain-vault-sync` user, with list, put, and delete on that bucket only |
 | The node | The vault bucket and SSM parameters | Its instance role, read only |
@@ -86,8 +86,8 @@ The deploy flow is in [PLAN.md section 6.4](PLAN.md#64-pipeline).
 
 | Piece | Status |
 |---|---|
-| Vault sync and secret scan, `deploy/sync/` | Built in week 0. Dry run on the real vault pending |
-| Terraform, `deploy/terraform/` | Week 1 |
+| Vault sync and secret scan, `deploy/sync/` | Built in week 0. The dry run on the real vault kept 2 of 718 files home. The first upload waits for the sync key |
+| Terraform, `deploy/terraform/`, and `deploy/ops.py` | Built in week 1 and applied 2026-09-12 with the node off. `terraform plan` reports no changes |
 | App changes: `READ_ONLY`, metrics, JSON logs, HTTP eval, image contents, GHCR publish | Week 2 |
 | Kubernetes manifests, `deploy/k8s/` | Week 2 |
 | Monitoring and alerts | Week 3 |
