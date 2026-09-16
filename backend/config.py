@@ -229,6 +229,17 @@ def sibling_disambig_enabled() -> bool:
     return _env_flag("SIBLING_DISAMBIG", default=True)
 
 
+def get_log_format() -> str:
+    """"json" for one object per line, "plain" for the human format.
+
+    LOG_FORMAT defaults to plain, which is what a terminal wants. The pods
+    set json: `kubectl logs` and anything that ships stdout later split on
+    newlines, so a plain multi-line traceback arrives as several unrelated
+    entries. Any value other than json is plain.
+    """
+    return "json" if os.environ.get("LOG_FORMAT", "").strip().lower() == "json" else "plain"
+
+
 def read_only() -> bool:
     """Whether this process refuses every route that writes.
 
