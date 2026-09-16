@@ -1,0 +1,17 @@
+# One volume per namespace, holding the synced vault, the Chroma index and
+# the model cache. k3s's local-path provisioner backs it with a directory on
+# the node's 30 GB encrypted root volume, so this is a request, not a quota:
+# game-day scenario 2 fills it on purpose and the runbook covers growing it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: second-brain-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # The desktop index is ~195 MB over 718 files; 5 Gi leaves room for the
+      # vault copy, the model cache and several rebuilds.
+      storage: 5Gi

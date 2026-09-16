@@ -1,0 +1,18 @@
+# ClusterIP only. There is no Ingress in this design: the node has no inbound
+# rules at all, and the owner reaches the API through an SSM port forward.
+apiVersion: v1
+kind: Service
+metadata:
+  name: second-brain
+  labels:
+    app.kubernetes.io/name: second-brain
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: second-brain
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

@@ -1,0 +1,35 @@
+# Default deny, then one allowance. k3s enforces NetworkPolicy out of the box.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# The API answers pods in its own namespace (the indexer CronJob's refresh
+# call, the eval gate Job, the smoke test) and Prometheus, which scrapes
+# /metrics from the monitoring namespace. Nothing else in the cluster can
+# reach it, and nothing outside the node can reach the cluster at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: second-brain
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              # Set by Kubernetes itself on every namespace since 1.22.
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000

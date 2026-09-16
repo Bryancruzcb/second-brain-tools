@@ -1,0 +1,95 @@
+# The eval gate, created once per deploy by the pipeline:
+#
+#   IMAGE=ghcr.io/bryancruzcb/second-brain-backend:$SHA \
+#     envsubst < deploy/k8s/gate-job.yaml | kubectl create -n staging -f -
+#
+# It is not part of any overlay. A Job in an overlay would run again on every
+# apply and then refuse to be updated, because a Job's pod template is
+# immutable once created. generateName gives each deploy its own.
+#
+# It runs inside the cluster rather than on a GitHub runner because it reads
+# the private dataset and the private vault. What it prints is numbers only,
+# checked by private_keys_found before anything reaches stdout, so the
+# workflow log stays clean even though this pod sees everything.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: eval-gate-
+  labels:
+    app.kubernetes.io/name: second-brain
+    app.kubernetes.io/component: eval-gate
+spec:
+  # No retries. A gate that retries is a gate that eventually passes.
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: second-brain
+        app.kubernetes.io/component: eval-gate
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: fetch-dataset
+          image: public.ecr.aws/aws-cli/aws-cli:2.36.46
+          command: ["aws"]
+          args:
+            - s3
+            - cp
+            - s3://$(VAULT_BUCKET)/eval/dataset.jsonl
+            - /work/dataset.jsonl
+            - --only-show-errors
+          envFrom:
+            - configMapRef:
+                name: second-brain-ops-env
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      containers:
+        - name: gate
+          image: ${IMAGE}
+          command: ["python", "-m", "eval.http_eval"]
+          args:
+            - --api
+            - http://second-brain:8000
+            # The vault copy tells the gate which expected notes the sync
+            # refused; those cases are ungradable rather than misses.
+            - --vault-dir
+            - /data/vault
+            - --dataset
+            - /work/dataset.jsonl
+            - --scorecard
+            - /etc/eval/cloud-scorecard.json
+          envFrom:
+            - configMapRef:
+                name: second-brain-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: data
+              mountPath: /data
+              readOnly: true
+            - name: scorecard
+              mountPath: /etc/eval
+              readOnly: true
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: second-brain-data
+            readOnly: true
+        - name: scorecard
+          configMap:
+            name: eval-scorecard

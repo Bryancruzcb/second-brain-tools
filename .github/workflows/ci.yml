@@ -114,6 +114,45 @@ jobs:
           print('torch', torch.__version__)
           sys.exit(0 if torch.__version__.endswith('+cpu') else 1)"
 
+  # ── Kubernetes Manifest Verification ────────────────────────────────────────
+  # Nothing else reads these files until a deploy applies them to the node, so
+  # a typo in a field name would surface as a failed rollout at 3am. kubeconform
+  # checks them against the real Kubernetes schemas, and the greps below hold
+  # the manifests to the design rules that make the privacy argument work.
+  k8s-check:
+    name: Kubernetes Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Render the Overlays
+        run: |
+          command -v kubectl >/dev/null || {
+            VERSION=$(curl -sSL https://dl.k8s.io/release/stable.txt)
+            sudo curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/$VERSION/bin/linux/amd64/kubectl"
+            sudo chmod +x /usr/local/bin/kubectl
+          }
+          kubectl kustomize deploy/k8s/overlays/staging > /tmp/staging.yaml
+          kubectl kustomize deploy/k8s/overlays/prod > /tmp/prod.yaml
+          IMAGE=ghcr.io/bryancruzcb/second-brain-backend:ci             envsubst < deploy/k8s/gate-job.yaml > /tmp/gate.yaml
+
+      - name: Validate Against the Kubernetes Schemas
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz             | tar -xz kubeconform
+          ./kubeconform -strict -summary /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml
+
+      - name: Hold the Manifests to the Design
+        run: |
+          # A moving tag would make a rollback a race with whatever it points
+          # at by the time the node pulls.
+          ! grep -n ":latest" /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml
+          # Nothing from the internet reaches this node, by design.
+          ! grep -nE "^kind: Ingress|type: LoadBalancer" /tmp/staging.yaml /tmp/prod.yaml
+          # The cloud copy is read-only: the desktop sync is the only writer.
+          grep -q 'READ_ONLY: "1"' /tmp/staging.yaml
+          grep -q 'READ_ONLY: "1"' /tmp/prod.yaml
+
   # ── Publish the Backend Image ───────────────────────────────────────────────
   # On main only, and only after the job above built the image and proved it
   # imports. The tag is the commit SHA and nothing else: deploy.yml sets the

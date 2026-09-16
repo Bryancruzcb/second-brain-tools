@@ -1,0 +1,20 @@
+# Both namespaces share one 8 GB node, so prod asks for what it needs rather
+# than what it can get away with: the scheduler holds this memory for it, and
+# under pressure the kubelet evicts the pod furthest above its request, which
+# is staging. Still provisional until week 2 measures the real numbers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: second-brain
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1500Mi
+            limits:
+              cpu: "2"
+              memory: 2500Mi
