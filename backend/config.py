@@ -229,6 +229,18 @@ def sibling_disambig_enabled() -> bool:
     return _env_flag("SIBLING_DISAMBIG", default=True)
 
 
+def read_only() -> bool:
+    """Whether this process refuses every route that writes.
+
+    READ_ONLY defaults off, so the desktop keeps its editor, clipper and
+    indexing routes. The cloud pods set READ_ONLY=1: their vault copy is
+    replaced by the nightly desktop sync and their index is rebuilt by a
+    CronJob, so a note written through the cloud API is gone by morning.
+    The API has no auth either, so refusing is the honest answer.
+    """
+    return _env_flag("READ_ONLY")
+
+
 def reranker_disabled(name: str) -> bool:
     """Shared kill-switch semantics for RERANKER_MODEL values."""
     return name.strip().lower() in ("", "off", "none", "disabled")

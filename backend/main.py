@@ -13,7 +13,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 import numpy as np
 from sklearn.cluster import KMeans
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -332,6 +332,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def deny_when_read_only() -> None:
+    """Refuse a write route while READ_ONLY is set.
+
+    Guards the routes that change something on disk: the two note writes,
+    the clipper, the indexer trigger, and the health scan that rewrites the
+    graph cache. Reads stay open, and so do /api/query and /api/cowrite:
+    they send text to the answer model and return it without touching the
+    vault.
+
+    The check reads the environment per request rather than at import, so a
+    test can flip the flag without reloading the module.
+    """
+    if config.read_only():
+        raise HTTPException(
+            status_code=403, detail="Read-only deployment: writes are disabled."
+        )
 
 
 def get_vault_path() -> str:
@@ -677,7 +695,7 @@ def get_ready():
     }
     return {"ready": all(components.values()), "components": components}
 
-@app.post("/api/health/scan")
+@app.post("/api/health/scan", dependencies=[Depends(deny_when_read_only)])
 def trigger_scan(background_tasks: BackgroundTasks):
     global is_scanning
     if is_scanning:
@@ -724,7 +742,7 @@ def run_ingestion_sync():
     _build_lexical_index()
 
 
-@app.post("/api/index")
+@app.post("/api/index", dependencies=[Depends(deny_when_read_only)])
 def trigger_index(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_ingestion_sync)
     return {"status": "started", "message": "Vector indexing started in background."}
@@ -858,7 +876,7 @@ class CreateNoteRequest(BaseModel):
     title: str
     content: str = ""
 
-@app.post("/api/note/create")
+@app.post("/api/note/create", dependencies=[Depends(deny_when_read_only)])
 def create_new_note(request: CreateNoteRequest):
     """Create a root-level Markdown note.
 
@@ -939,7 +957,7 @@ def get_note_content(note_ref: str):
 class NoteSaveRequest(BaseModel):
     content: str
 
-@app.post("/api/note/{note_ref:path}")
+@app.post("/api/note/{note_ref:path}", dependencies=[Depends(deny_when_read_only)])
 def save_note_content(note_ref: str, request: NoteSaveRequest):
     global health_cache
     nodes = health_cache.get("nodes", [])
@@ -990,7 +1008,7 @@ class ClipRequest(BaseModel):
     content: str
     url: str
 
-@app.post("/api/clip")
+@app.post("/api/clip", dependencies=[Depends(deny_when_read_only)])
 def save_web_clip(request: ClipRequest):
     home_dir = os.path.expanduser("~")
     vault_path = os.environ.get("OBSIDIAN_VAULT_PATH") or os.path.join(home_dir, "OneDrive/Documents/Obsidian Vault")
