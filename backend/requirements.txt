@@ -14,3 +14,7 @@ numpy==2.4.6
 # chromadb already depends on it; the pin makes that a contract.
 onnxruntime==1.27.0
 scikit-learn==1.9.0
+# /metrics: the exporter and the client library that backs the gauges and
+# histograms in metrics.py.
+prometheus-fastapi-instrumentator==8.1.0
+prometheus-client==0.26.0
