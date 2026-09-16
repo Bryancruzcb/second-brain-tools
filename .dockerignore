@@ -28,7 +28,12 @@ backend/eval/dataset.jsonl
 backend/eval/results.json
 .data/
 
-# Repo metadata, docs and local secrets
+# Repo metadata, docs and local secrets.
+#
+# deploy/ is infrastructure: Terraform state and plans, the k8s manifests,
+# the sync's staging paths. The image needs none of it, and Terraform state
+# in a build context is a secret in a build context.
+deploy/
 .git/
 .github/
 .vscode/
