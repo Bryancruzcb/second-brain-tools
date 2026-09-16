@@ -739,7 +739,7 @@ def get_health():
     }
 
 @app.get("/api/ready")
-def get_ready():
+def get_ready(strict: bool = False):
     """Which retrieval components have finished loading.
 
     /api/health answers 200 from a cached blob the instant the process starts,
@@ -762,7 +762,17 @@ def get_ready():
         "reranker": cross_encoder is not None
         or config.reranker_disabled(config.get_reranker_model()),
     }
-    return {"ready": all(components.values()), "components": components}
+    ready = all(components.values())
+    if strict and not ready:
+        # The probe contract. Kubernetes reads the status line and ignores
+        # the body, so a readiness probe on the default 200 would route
+        # traffic to a pod that is still loading and would answer it with
+        # vector-only results at the 70% hit-rate this endpoint exists to
+        # warn about. Only ?strict=1 gets the 503: the frontend and the MCP
+        # server read the component map out of a 200 and say which part is
+        # still cold, which is a better message than an HTTP error.
+        raise HTTPException(status_code=503, detail={"ready": False, "components": components})
+    return {"ready": ready, "components": components}
 
 @app.post("/api/health/scan", dependencies=[Depends(deny_when_read_only)])
 def trigger_scan(background_tasks: BackgroundTasks):
