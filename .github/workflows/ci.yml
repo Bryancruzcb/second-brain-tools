@@ -3,8 +3,11 @@ name: CI Pipeline
 on:
   push:
     branches: [ main, master ]
+  # Every pull request, whatever it targets. With a branches: filter of main
+  # here, a stack of pull requests - each one based on the one below it, which
+  # is how the ops work arrives - ran CI on the bottom one only, and the rest
+  # merged unverified.
   pull_request:
-    branches: [ main, master ]
 
 jobs:
   # ── Rust Core Verification ──────────────────────────────────────────────────
