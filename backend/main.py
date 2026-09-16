@@ -390,7 +390,7 @@ app.add_middleware(
 # unmatched path out of the handler label: without it a 404 for
 # /api/note/Some%20Private%20Note would name that note in the scrape output
 # and in every alert quoting it. The endpoint is excluded from its own
-# histogram, and the four gauges read their values at scrape time.
+# histogram, and the two gauges below read their values at scrape time.
 Instrumentator(
     should_group_untemplated=True,
     excluded_handlers=["/metrics"],
