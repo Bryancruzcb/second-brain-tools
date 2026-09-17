@@ -27,13 +27,14 @@ from prometheus_fastapi_instrumentator import metrics as http_metrics
 
 import config
 import indexer
+import logging_setup
 import metrics
 import health_hygiene
 import lexical
 import retrieval
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging_setup.configure()
 logger = logging.getLogger("second-brain-backend")
 
 load_dotenv()
@@ -365,6 +366,9 @@ def _load_reranker_background():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # uvicorn configures logging while it starts, after this module was
+    # imported, so take the uvicorn.access handler away once more.
+    logging_setup.configure()
     _load_fast_sync()
     asyncio.create_task(asyncio.to_thread(_load_model_background))
     asyncio.create_task(asyncio.to_thread(_build_lexical_index))
