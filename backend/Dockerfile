@@ -54,6 +54,15 @@ COPY backend/retrieval.py .
 COPY backend/health_hygiene.py .
 COPY backend/query_rewrite.py .
 
+# The nightly indexer CronJob and the eval gate Job run from this same
+# image, so the image needs the code they run. Both resolve their imports
+# by adding their parent directory to sys.path, which is /app here, so the
+# layout below is the one they expect: scripts/ and eval/ beside the
+# modules they import. .dockerignore keeps eval/dataset.jsonl and
+# eval/results.json out; the private dataset arrives from S3 at runtime.
+COPY backend/scripts/rebuild_rag_index.py ./scripts/
+COPY backend/eval/*.py ./eval/
+
 # Environment variables
 ENV PORT=8000
 ENV HOST=0.0.0.0

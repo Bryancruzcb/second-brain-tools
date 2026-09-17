@@ -97,6 +97,16 @@ jobs:
           docker run --rm --entrypoint python second-brain-backend:ci \
             -c "import main; print('backend imports OK')"
 
+      - name: Indexer and Gate Smoke Test
+        # The CronJob and the gate Job run from this image. --help is enough
+        # to prove the copies landed where their sys.path juggling expects:
+        # both modules import config, indexer and retrieval from /app before
+        # argparse ever runs.
+        run: |
+          docker run --rm --entrypoint python second-brain-backend:ci             scripts/rebuild_rag_index.py --help > /dev/null
+          docker run --rm --entrypoint python second-brain-backend:ci             -m eval.http_eval --help > /dev/null
+          docker run --rm --entrypoint python second-brain-backend:ci             -c "import eval.run_eval, eval.sweep_rerankers; print('eval modules import OK')"
+
       - name: Assert CPU-only Torch
         # A CUDA resolution still imports and still passes the smoke test. It
         # just adds ~2.5 GB of wheels that cannot run here, so assert it
