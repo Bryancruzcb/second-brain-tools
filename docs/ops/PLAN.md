@@ -65,7 +65,7 @@ Already in the repo:
 App changes, one small PR each:
 
 1. A `READ_ONLY` flag. When set, every write route returns 403, with a test per route.
-2. A `/metrics` endpoint through `prometheus-fastapi-instrumentator`, plus gauges for retrieval latency, reranker latency, collection count, and time since the index last changed. The last one reuses the write stamp that PR #25 already checks before each query. No metric label carries a query, a title, or a path.
+2. A `/metrics` endpoint through `prometheus-fastapi-instrumentator`, plus histograms for retrieval and reranker latency and gauges for collection count and time since the index last changed. Latency is a histogram rather than a gauge because a gauge holds whichever query the scrape happened to land on, and the alert in section 6.5 is on p95 over ten minutes. The last one reuses the write stamp that PR #25 already checks before each query. No metric label carries a query, a title, or a path.
 3. JSON logs behind a `LOG_FORMAT=json` switch, with query text left out of the log lines.
 4. An HTTP mode for the eval that scores a running service through `GET /api/search` with the existing `score_case`, and prints a numbers-only summary checked by `private_keys_found`. `/api/search` dedupes by title and returns only the served top k, so HTTP scores get their own `deploy/eval/cloud-scorecard.json` and never get compared with the in-process scorecard. Cases whose expected notes the sync refused count as ungradable.
 5. Copy `backend/scripts/rebuild_rag_index.py` and `backend/eval/*.py` into the image, so the indexer CronJob and the gate Job run from the same image as the API. `.dockerignore` already keeps the private dataset out.
@@ -160,7 +160,7 @@ A PR that changes retrieval on purpose re-records the card against staging with 
 ### 6.5 Monitoring
 
 - Prometheus and Grafana install through Helm into a `monitoring` namespace. The full kube-prometheus-stack is heavier than this needs.
-- App metrics come from the instrumentator and the gauges in section 5. A canary Job runs ten eval-set queries every 15 minutes and records hit rate as a single number.
+- App metrics come from the instrumentator and the histograms and gauges in section 5. A canary Job runs ten eval-set queries every 15 minutes and records hit rate as a single number.
 - node-exporter covers CPU, memory, and disk.
 - Dashboards are committed as JSON and provisioned, so a fresh environment has them on first boot.
 - Alerts fire when p95 stays above 1.5 seconds for 10 minutes, 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to email through SNS. Alert text carries metric names and values, never vault content.

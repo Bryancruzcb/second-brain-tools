@@ -4,6 +4,7 @@ Extracted from main.py's run_query so the eval harness measures exactly
 what the app does — same reason indexer.py was unified in PR #3.
 """
 import config
+import metrics
 import query_rewrite
 
 # Resolved once at import, the same moment uvicorn, the eval and the sweep
@@ -88,7 +89,11 @@ def rerank(query_text, candidates, *, cross_encoder, k=TOP_K):
     if cross_encoder is None or not candidates:
         return candidates[:k]
     pairs = [(query_text, c["chunk"]) for c in candidates]
-    scores = cross_encoder.predict(pairs)
+    # The cross-encoder is the slowest stage and the first suspect when p95
+    # moves, so it gets its own histogram rather than hiding inside the
+    # retrieval one.
+    with metrics.RERANK_SECONDS.time():
+        scores = cross_encoder.predict(pairs)
     order = sorted(range(len(candidates)), key=lambda i: float(scores[i]), reverse=True)
     return [{**candidates[i], "rerank_score": float(scores[i])} for i in order[:k]]
 

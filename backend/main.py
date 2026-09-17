@@ -22,9 +22,12 @@ from chromadb.api.shared_system_client import SharedSystemClient
 from chromadb.errors import InternalError as ChromaInternalError
 from sentence_transformers import SentenceTransformer
 import httpx
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_fastapi_instrumentator import metrics as http_metrics
 
 import config
 import indexer
+import metrics
 import health_hygiene
 import lexical
 import retrieval
@@ -51,6 +54,13 @@ _chroma_generation = 0  # bumps on every reopen; lets a retry tell "already heal
 _chroma_last_reopen = float("-inf")  # time.monotonic() of the last reopen
 _chroma_lock = threading.Lock()
 _ingesting = False  # this process is writing the store itself; its view is current
+# The metrics path keeps its own copy of the write stamp. Advancing
+# _chroma_stamp_seen from here would tell ensure_chroma_fresh that this
+# process had already seen an external write, and the stale view PR #25
+# fixed would come back — for a gauge.
+_index_stamp_metric = None
+_index_changed_at = time.time()
+_collection_chunks_last = 0.0
 REOPEN_COOLDOWN_S = 15.0
 
 # Cache configuration
@@ -230,6 +240,44 @@ def ensure_chroma_fresh():
     return reopen_chroma(f"write stamp moved {seen} -> {stamp}", expected_stamp=seen)
 
 
+def _index_age_seconds():
+    """Seconds since this process last saw the store change on disk.
+
+    Reads the same sqlite write stamp as ensure_chroma_fresh, into
+    _index_stamp_metric, so the nightly CronJob's rebuild shows up here on
+    the next scrape whether or not a query arrived to notice it.
+
+    Seeded at process start: a pod that has just come up reports a young
+    index until it observes a write. A restart is visible on its own, and
+    the alternative — the sqlite file's mtime — moves on a plain open, so
+    it would report a fresh index for a store nobody has written in days.
+    """
+    global _index_stamp_metric, _index_changed_at
+    stamp = _chroma_write_stamp()
+    if stamp is not None and stamp != _index_stamp_metric:
+        if _index_stamp_metric is not None:
+            _index_changed_at = time.time()
+        _index_stamp_metric = stamp
+    return time.time() - _index_changed_at
+
+
+def _collection_chunk_count():
+    """Chunks in the live collection, or the last good reading.
+
+    count() goes to sqlite, and a scrape can land while another thread is
+    swapping the client out underneath it. A stale number for one scrape
+    interval beats a 500 on /metrics, which would read as the whole pod
+    being down.
+    """
+    global _collection_chunks_last
+    try:
+        if chroma_collection is not None:
+            _collection_chunks_last = float(chroma_collection.count())
+    except Exception as e:
+        logger.warning("Could not read the collection count for /metrics: %s", e)
+    return _collection_chunks_last
+
+
 def _is_stale_store_error(error):
     """Errors that mean 'this process's view of the store is unusable'.
 
@@ -243,6 +291,7 @@ def _is_stale_store_error(error):
     return isinstance(error, AttributeError) and "bindings" in str(error)
 
 
+@metrics.RETRIEVAL_SECONDS.time()
 def retrieve_for_request(query_text, *, scope, **kwargs):
     """retrieval.retrieve_hybrid on the live collection, healing a stale store once.
 
@@ -332,6 +381,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# /metrics for Prometheus. should_group_untemplated keeps a request for an
+# unmatched path out of the handler label: without it a 404 for
+# /api/note/Some%20Private%20Note would name that note in the scrape output
+# and in every alert quoting it. The endpoint is excluded from its own
+# histogram, and the two gauges below read their values at scrape time.
+Instrumentator(
+    should_group_untemplated=True,
+    excluded_handlers=["/metrics"],
+).add(
+    http_metrics.latency(buckets=metrics.LATENCY_BUCKETS),
+    http_metrics.requests(),
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
+metrics.INDEX_AGE_SECONDS.set_function(_index_age_seconds)
+metrics.COLLECTION_CHUNKS.set_function(_collection_chunk_count)
 
 
 def deny_when_read_only() -> None:
