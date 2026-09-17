@@ -89,7 +89,8 @@ second-brain-tools/
       cloud-init.yaml         installs a pinned k3s, single node
       bootstrap/              creates the state bucket, with local state
     k8s/
-      base/                   deployment, service, networkpolicy, pvc, cronjob, gate job, configmap
+      base/                   deployment, service, networkpolicy, pvc, cronjob, configmap
+      gate-job.yaml           created per deploy, so it belongs to no overlay
       overlays/staging/
       overlays/prod/
     monitoring/

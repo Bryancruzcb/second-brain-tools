@@ -1,0 +1,44 @@
+# Application settings for every pod that runs this image: the API, the
+# nightly indexer, and the eval gate. No secrets: the only credential in the
+# design is the sync uploader's key, which lives on the desktop, and the node
+# reads S3 with its instance role.
+#
+# The bucket name is deliberately absent. It contains the AWS account id and
+# this repository is public, so it arrives in a second ConfigMap that the
+# operator creates per namespace (see deploy/k8s/README.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: second-brain-config
+data:
+  # Writes are refused. The desktop sync replaces this copy of the vault
+  # every night and the CronJob rebuilds the index, so a note written here
+  # would be gone by morning, and the API has no auth.
+  READ_ONLY: "1"
+  # One JSON object per line: kubectl logs splits on newlines, so a plain
+  # traceback would arrive as several unrelated entries.
+  LOG_FORMAT: "json"
+
+  # Both paths point into the PersistentVolume. CHROMA_DB_PATH is set
+  # explicitly on purpose: with it unset the backend creates an empty index
+  # beside main.py and serves empty results with no error.
+  CHROMA_DB_PATH: "/data/chroma"
+  OBSIDIAN_VAULT_PATH: "/data/vault"
+  # Model weights land on the volume too, so a restart does not re-download
+  # ~150 MB from Hugging Face before the pod can answer.
+  HF_HOME: "/data/models"
+
+  # The retrieval configuration measured on 2026-09-04 and promoted
+  # 2026-09-07. Pinned rather than left to defaults so a change to the
+  # defaults cannot quietly move the cloud numbers the gate compares.
+  TOP_K: "8"
+  HYBRID_DEPTH: "30"
+  RERANK_DEPTH: "30"
+  MAX_CHUNKS_PER_NOTE: "1"
+  RERANKER_MODEL: "Xenova/ms-marco-MiniLM-L-6-v2"
+  RERANKER_ONNX_FILE: "onnx/model_quantized.onnx"
+  # Off here, on the desktop. Query rewriting calls Ollama, and the node
+  # cannot run that model. It fails open, so leaving it on would only add a
+  # refused connection per query. This is one reason the cloud scorecard is
+  # its own card and is never compared with the desktop one.
+  QUERY_REWRITE: "0"
