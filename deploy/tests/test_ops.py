@@ -94,6 +94,24 @@ def test_tunnel_reaches_prod_by_name(commands, monkeypatch):
     assert commands[0][-1] == "host=10.43.0.81,portNumber=8000,localPortNumber=8000"
 
 
+def test_tunnel_reaches_grafana_on_a_local_port_of_its_own(commands, monkeypatch):
+    node_output(monkeypatch, "i-0abc123")
+    ops.main(["tunnel", "--to", "grafana"])
+    assert commands[0][-1] == "host=10.43.0.90,portNumber=80,localPortNumber=3000"
+
+
+def test_to_and_env_are_the_same_option(commands, monkeypatch):
+    node_output(monkeypatch, "i-0abc123")
+    ops.main(["tunnel", "--to", "prod"])
+    ops.main(["tunnel", "--env", "prod"])
+    assert commands[0] == commands[1]
+
+
+def test_grafana_address_matches_its_chart_values():
+    grafana = (ops.TERRAFORM_DIR.parent / "monitoring" / "grafana.yaml").read_text(encoding="utf-8")
+    assert f"clusterIP: {ops.TUNNEL_TARGETS['grafana'][0]}" in grafana
+
+
 def test_tunnel_can_listen_on_another_local_port(commands, monkeypatch):
     node_output(monkeypatch, "i-0abc123")
     ops.main(["tunnel", "--local-port", "18000"])
