@@ -93,6 +93,11 @@ finished it scored 10 of 10, which is the card in
 `deploy/k8s/base/canary-card.json` (MRR 0.92, recorded from the desktop
 through the tunnel).
 
+Alerts reach GitHub. A synthetic alert posted to Alertmanager opened issue
+#43 with the `alert` label, carrying only the alert name, namespace,
+severity, start time and summary; when it resolved three minutes later the
+bridge commented and closed it, 220 seconds after it opened.
+
 **A full index build roughly doubles search latency.** During the build,
 search p95 was 4.45 s and p50 2.61 s, with the node 72 percent busy;
 afterwards the same queries ran at p95 1.97 s and p50 1.72 s. The node's two
