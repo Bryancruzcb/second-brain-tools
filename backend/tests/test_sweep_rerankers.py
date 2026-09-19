@@ -87,6 +87,17 @@ def test_report_pools_latency_across_rounds_and_keeps_metrics():
     assert "| m |" in table and "22.7" in table and "25" in table
 
 
+def test_report_keeps_rerank_batch_sizes_apart():
+    """The int8 reranker's scores move with the batch, so its rows must not fold."""
+    base = {"model": "m", "max_length": 512, "params_m": None, "depth": 4, "cases": 2,
+            "metrics": {"reranked_served": {"4": {"hit_rate": 0.5, "mrr": 0.5}}},
+            "latency_ms": {"per_query": [10.0]}}
+    rows = sweep.aggregate([dict(base, rerank_batch_size=32),
+                            dict(base, rerank_batch_size=1,
+                                 metrics={"reranked_served": {"4": {"hit_rate": 0.75, "mrr": 0.6}}})])
+    assert sorted(r["hit"]["reranked_served"]["4"] for r in rows) == [0.5, 0.75]
+
+
 def test_cap_per_source_keeps_order_and_limits_chunks_per_note():
     ranked = [_chunk("b1", "b.md", "x"), _chunk("b2", "b.md", "x"), _chunk("a1", "a.md", "x"),
               _chunk("b3", "b.md", "x"), _chunk("c1", "c.md", "x")]

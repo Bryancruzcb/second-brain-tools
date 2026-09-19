@@ -67,7 +67,7 @@ def test_search_records_retrieval_latency(monkeypatch):
 
 def test_rerank_records_its_own_latency():
     class FakeCrossEncoder:
-        def predict(self, pairs):
+        def predict(self, pairs, **_):
             return [0.5] * len(pairs)
 
     before = sample(scrape(), "second_brain_rerank_seconds_count")

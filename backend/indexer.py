@@ -218,6 +218,30 @@ def _scan_vault(vault_path: str):
             yield rel_path, full_path
 
 
+def _collection_is_empty(collection) -> bool:
+    """True only when the collection can be counted and holds nothing."""
+    try:
+        return collection.count() == 0
+    except Exception:
+        return False
+
+
+def _stamp_model(collection, configured_model: str, log) -> None:
+    """Record which embedding model the collection's vectors come from.
+
+    Chroma rejects a modify() payload that contains "hnsw:space" even when the
+    value is unchanged, so that legacy key is dropped while the rest carries
+    forward; the distance function lives in the collection's configuration,
+    not here. Its own try/except: a stamping failure is a different operation
+    from a wipe and must not be reported as one.
+    """
+    try:
+        carried = {k: v for k, v in (collection.metadata or {}).items() if not k.startswith("hnsw:")}
+        collection.modify(metadata={**carried, "embedding_model": configured_model})
+    except Exception as e:
+        log(f"Could not stamp embedding model on collection: {e}")
+
+
 def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
     """Scan the vault, (re)embed changed files, and prune deleted/dataless ones.
 
@@ -229,10 +253,13 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
     whole vault from scratch.
 
     A full rebuild stamps the configured embedding model into the collection
-    metadata; an incremental run whose stamp disagrees with the configured
-    model aborts without writing (continuing would mix vector spaces). An
-    unstamped index only warns — pre-stamp indexes are legal, and incremental
-    runs never stamp, since they do not re-embed what is already stored.
+    metadata, and so does an incremental run that starts on an empty
+    collection, since it writes every vector the collection will hold. An
+    incremental run whose stamp disagrees with the configured model aborts
+    without writing (continuing would mix vector spaces). An unstamped index
+    that already holds chunks only warns — pre-stamp indexes are legal, and it
+    stays unstamped until a --full run, because an incremental run does not
+    re-embed what is already stored.
 
     Returns a summary dict: files_scanned, files_skipped, files_reindexed,
     files_pruned, chunks_written, batches_failed — plus "aborted" (a string
@@ -254,7 +281,14 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
             "files_pruned": 0, "chunks_written": 0, "batches_failed": 0,
             "aborted": reason,
         }
-    if incremental and not stamped_model:
+    # An incremental run into an empty collection writes every vector it will
+    # hold, which is the guarantee a full rebuild stamps on. The cloud
+    # indexer's first build on a fresh volume is exactly that run, and left
+    # unstamped it would keep the mismatch guard above switched off for good.
+    stamp_empty = incremental and not stamped_model and _collection_is_empty(collection)
+    if stamp_empty:
+        _stamp_model(collection, configured_model, log)
+    elif incremental and not stamped_model:
         log("Index has no embedding-model stamp; run scripts/rebuild_rag_index.py --full to stamp it.")
 
     log(f"Scanning vault at {vault_path}...")
@@ -299,22 +333,13 @@ def index_vault(collection, model, incremental: bool = True, log=print) -> dict:
         summary["wipe_failed"] = not wiped_ok
 
         # Provenance: a full rebuild re-embeds everything with the current
-        # model, so it is the only run allowed to assert which model the
-        # stored vectors came from — and only when the wipe succeeded, or
-        # residual old-model chunks would sit under a fresh stamp and every
-        # downstream mismatch check would go quiet. Chroma rejects a
-        # modify() payload that contains "hnsw:space" even when the value
-        # is unchanged, so drop that legacy key while carrying the rest
-        # forward — the distance function lives in the collection's
-        # configuration, not here. Its own try/except: a stamping failure
-        # is a different operation from the wipe and must not be reported
-        # as one.
+        # model, so it may assert which model the stored vectors came from
+        # (so may an incremental run that starts empty, above) — and only
+        # when the wipe succeeded, or residual old-model chunks would sit
+        # under a fresh stamp and every downstream mismatch check would go
+        # quiet.
         if wiped_ok:
-            try:
-                carried = {k: v for k, v in (collection.metadata or {}).items() if not k.startswith("hnsw:")}
-                collection.modify(metadata={**carried, "embedding_model": configured_model})
-            except Exception as e:
-                log(f"Could not stamp embedding model on collection: {e}")
+            _stamp_model(collection, configured_model, log)
 
     valid_sources = set()
     pending_docs, pending_metas, pending_ids = [], [], []

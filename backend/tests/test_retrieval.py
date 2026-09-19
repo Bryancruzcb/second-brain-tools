@@ -334,3 +334,28 @@ def test_load_reranker_uses_onnx_export_by_default(monkeypatch):
     monkeypatch.setattr(retrieval.OnnxCrossEncoder, "from_hub", classmethod(fake_from_hub))
     assert retrieval.load_reranker("some/model") == "onnx-encoder"
     assert seen == {"name": "some/model", "file": "onnx/model_quantized.onnx", "max_length": 512}
+
+
+class _BatchRecordingEncoder:
+    def __init__(self):
+        self.batch_sizes = []
+
+    def predict(self, pairs, batch_size=32, **_):
+        self.batch_sizes.append(batch_size)
+        return [0.0] * len(pairs)
+
+
+def test_rerank_scores_one_pair_per_pass_by_default(monkeypatch):
+    """The old default put the whole 30-deep pool in one ONNX pass; staging's
+    2 GiB API was OOMKilled on its second query."""
+    monkeypatch.delenv("RERANK_BATCH_SIZE", raising=False)
+    encoder = _BatchRecordingEncoder()
+    retrieval.rerank("q", [_chunked("a", "x"), _chunked("b", "y")], cross_encoder=encoder, k=2)
+    assert encoder.batch_sizes == [1]
+
+
+def test_rerank_batch_size_follows_the_env(monkeypatch):
+    monkeypatch.setenv("RERANK_BATCH_SIZE", "8")
+    encoder = _BatchRecordingEncoder()
+    retrieval.rerank("q", [_chunked("a", "x")], cross_encoder=encoder, k=1)
+    assert encoder.batch_sizes == [8]

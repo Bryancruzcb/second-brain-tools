@@ -1,0 +1,8 @@
+# Prod's API address, pinned for the SSM tunnel. The reasons are in
+# ../staging/service-ip.yaml; this is the same pin one address up.
+apiVersion: v1
+kind: Service
+metadata:
+  name: second-brain
+spec:
+  clusterIP: 10.43.0.81

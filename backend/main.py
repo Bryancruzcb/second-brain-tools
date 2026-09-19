@@ -763,7 +763,21 @@ def get_ready(strict: bool = False):
         or config.reranker_disabled(config.get_reranker_model()),
     }
     ready = all(components.values())
-    if strict and not ready:
+    # Loaded is not the same as able to serve. A pod on a fresh volume opens
+    # an empty collection, loads every model, and then answers each query with
+    # nothing and no error; staging did exactly that before its first index
+    # build. Only the probe refuses it: the frontend and the MCP server treat
+    # ready=false as "still loading", which an empty vault is not.
+    populated = _index_populated()
+    if strict and not populated:
+        # This handle can stay blind to another process's writes (the stale
+        # view PR #25 fixed for queries), and nothing else would reopen it on
+        # a fresh node: a pod that isn't Ready has no Service endpoints, so the
+        # indexer's refresh call at the end of its run can't reach it. So the
+        # probe reopens the store itself while the index looks empty.
+        ensure_chroma_fresh()
+        populated = _index_populated()
+    if strict and not (ready and populated):
         # The probe contract. Kubernetes reads the status line and ignores
         # the body, so a readiness probe on the default 200 would route
         # traffic to a pod that is still loading and would answer it with
@@ -771,8 +785,26 @@ def get_ready(strict: bool = False):
         # warn about. Only ?strict=1 gets the 503: the frontend and the MCP
         # server read the component map out of a 200 and say which part is
         # still cold, which is a better message than an HTTP error.
-        raise HTTPException(status_code=503, detail={"ready": False, "components": components})
-    return {"ready": ready, "components": components}
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "index_populated": populated, "components": components},
+        )
+    return {"ready": ready, "index_populated": populated, "components": components}
+
+
+def _index_populated() -> bool:
+    """Whether the open collection holds any chunks at all.
+
+    count() is a single SQL count in Chroma, cheap enough for a probe every
+    15 seconds. A store being rewritten by the indexer can make it raise;
+    that reads as not populated for one probe, which only delays readiness.
+    """
+    if chroma_collection is None:
+        return False
+    try:
+        return chroma_collection.count() > 0
+    except Exception:
+        return False
 
 @app.post("/api/health/scan", dependencies=[Depends(deny_when_read_only)])
 def trigger_scan(background_tasks: BackgroundTasks):
