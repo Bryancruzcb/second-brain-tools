@@ -24,9 +24,9 @@ output "alerts_topic_arn" {
 }
 
 output "api_tunnel_command" {
-  description = "Forwards localhost:8000 to the API on the node. Needs the Session Manager plugin. Null while the node is off."
+  description = "Forwards localhost:8000 to staging's API through the node, like `python deploy/ops.py tunnel`. Needs the Session Manager plugin. Null while the node is off."
   value = one([
     for id in aws_instance.node[*].id :
-    "aws ssm start-session --region ${local.region} --target ${id} --document-name AWS-StartPortForwardingSession --parameters portNumber=${local.api_port},localPortNumber=${local.api_port}"
+    "aws ssm start-session --region ${local.region} --target ${id} --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters host=${local.staging_service_ip},portNumber=${local.api_port},localPortNumber=${local.api_port}"
   ])
 }

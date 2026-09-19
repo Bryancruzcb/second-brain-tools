@@ -79,9 +79,12 @@ resource "aws_instance" "node" {
   associate_public_ip_address = true
   ebs_optimized               = true
 
-  user_data = templatefile("${path.module}/cloud-init.yaml", {
+  # LF on every machine. A Windows checkout has CRLF, so the desktop and CI
+  # rendered different user_data, and with replace-on-change below every
+  # apply from the other side would have replaced the node.
+  user_data = replace(templatefile("${path.module}/cloud-init.yaml", {
     k3s_version = var.k3s_version
-  })
+  }), "\r\n", "\n")
 
   # cloud-init only runs on a fresh node, so a change to it has to replace the node.
   user_data_replace_on_change = true
