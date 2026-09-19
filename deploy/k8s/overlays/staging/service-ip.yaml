@@ -4,8 +4,8 @@
 # 8000 because the service is ClusterIP only. k3s's service range is
 # 10.43.0.0/16, and Kubernetes hands out its first 256 addresses dynamically
 # only once the rest of the range is full, so they are the place for fixed
-# assignments like this one. ops.py's SERVICE_IPS and the Terraform tunnel
-# output name the same address, and deploy/tests holds them together.
+# assignments like this one. ops.py's SERVICE_IPS names the same address,
+# and deploy/tests holds the two together.
 #
 # clusterIP can't change on a live Service: one created before this pin needs
 # `kubectl -n staging delete service second-brain` once before the apply.
