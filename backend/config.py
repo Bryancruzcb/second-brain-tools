@@ -104,6 +104,31 @@ def get_hybrid_depth() -> int:
     return _positive_int_env("HYBRID_DEPTH", 30)
 
 
+def get_rerank_batch_size() -> int:
+    """(query, chunk) pairs per cross-encoder forward pass (RERANK_BATCH_SIZE).
+
+    Not a pure speed knob. The int8 ONNX reranker quantizes activations with
+    one scale per batch tensor, so a pair's score shifts with the other pairs
+    in its batch: the same 12 pairs scored as one batch and as batches of 4
+    differed by up to 0.2 and came out in a different order. Memory follows
+    the batch too. On the desktop, one rerank of 512-token pairs added about
+    150 MB of private memory at batch 2, 300 MB at batch 4 and 570 MB at
+    batch 8, whatever the number of pairs, because ONNX Runtime's arena grows
+    to the largest batch and keeps it. The old default put the whole 30-deep
+    pool in one batch, and staging's 2 GiB API was OOMKilled on its second
+    query (2026-09-18); that batch is the likely cause, to confirm by
+    measuring this default on the node.
+
+    One pair per pass scores every pair on its own. On the 40-case eval
+    (sweep_rerankers, depth-30 pools, 6,077-chunk index, 2026-09-18) it held
+    hit rate at k=4 and k=6 and gained one case at k=8 (87.5% against 85.0%,
+    MRR 0.679 against 0.667). Its median rerank was 606 ms against 547 ms in
+    one timed round of 40, where batches of 4 and 8 took 667 and 661 ms, so
+    the latency cost is within that round's noise.
+    """
+    return _positive_int_env("RERANK_BATCH_SIZE", 1)
+
+
 def get_rerank_depth() -> int:
     """Size of the fused pool the cross-encoder scores (RERANK_DEPTH).
 

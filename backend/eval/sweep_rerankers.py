@@ -218,11 +218,12 @@ def load_cross_encoder(name, max_length, trust_remote_code=False, onnx_file=None
 # ── report ──────────────────────────────────────────────────────────────────
 
 def aggregate(results):
-    """Fold score files by (model, max_length): metrics from the first file,
-    latency samples pooled across every round."""
+    """Fold score files by (model, max_length, rerank batch size): metrics
+    from the first file, latency samples pooled across every round. The batch
+    size changes the int8 reranker's scores, so it separates rows too."""
     groups = {}
     for res in results:
-        key = (res["model"], res.get("max_length"))
+        key = (res["model"], res.get("max_length"), res.get("rerank_batch_size"))
         g = groups.setdefault(key, {"model": res["model"], "max_length": res.get("max_length"),
                                     "params_m": res.get("params_m"), "depth": res.get("depth"),
                                     "cases": res.get("cases"), "hit": {}, "mrr": {},
@@ -318,8 +319,12 @@ def main(argv=None):
         load_s = time.perf_counter() - t0
         ks = tuple(int(k) for k in args.ks.split(","))
         out = score_pools(pools, ce, ks=ks, rounds=args.rounds)
+        import config
+        batch = config.get_rerank_batch_size()
         label = f"{args.model} [{args.onnx_file}]" if args.onnx_file else args.model
-        out.update({"model": label, "params_m": params_m, "max_length": args.max_length,
+        label += f" (batch {batch})"
+        out.update({"model": label, "rerank_batch_size": batch, "params_m": params_m,
+                    "max_length": args.max_length,
                     "load_s": load_s, "depth": pools["depth"], "pools_file": os.path.basename(args.pools),
                     "tag": args.tag, "scored_at": _dt.datetime.now().isoformat(timespec="seconds")})
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
