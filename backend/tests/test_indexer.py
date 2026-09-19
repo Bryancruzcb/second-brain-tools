@@ -6,7 +6,7 @@ import pytest
 
 import config
 import indexer
-from tests.fakes import BagOfWordsEmbedder
+from tests.fakes import DIM, BagOfWordsEmbedder
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
@@ -73,8 +73,27 @@ def test_incremental_with_matching_stamp_proceeds(vault_env):
     assert summary["files_scanned"] >= 5
 
 
-def test_unstamped_incremental_warns_but_proceeds(vault_env):
+def test_incremental_into_an_empty_collection_stamps_it(vault_env):
+    """The cloud indexer's first build: incremental, on a fresh volume."""
     collection = vault_env
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=lambda *_: None)
+    assert summary["chunks_written"] >= 5
+    assert collection.metadata["embedding_model"] == "model-a"
+
+
+def test_first_incremental_stamp_arms_the_mismatch_guard(vault_env, monkeypatch):
+    collection = vault_env
+    indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=lambda *_: None)
+    monkeypatch.setenv("EMBEDDING_MODEL", "model-b")
+    summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=lambda *_: None)
+    assert "aborted" in summary
+
+
+def test_unstamped_nonempty_incremental_warns_but_proceeds(vault_env):
+    """A legacy index with chunks of unknown origin stays unstamped until --full."""
+    collection = vault_env
+    collection.add(ids=["legacy-0"], documents=["an old chunk"], embeddings=[[0.0] * DIM],
+                   metadatas=[{"source": "legacy.md", "mtime": 0.0}])
     messages = []
     summary = indexer.index_vault(collection, BagOfWordsEmbedder(), incremental=True, log=messages.append)
     assert "aborted" not in summary
