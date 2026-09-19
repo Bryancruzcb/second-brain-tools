@@ -133,7 +133,7 @@ Path filters keep the ops workflows quiet on frontend and docs changes. `terrafo
 ### 6.3 Kubernetes
 
 - Namespaces `staging` and `prod` share the node, and prod gets the resource guarantees.
-- Each namespace runs one API replica, with readiness on `/api/ready?strict=1`, liveness on `/api/health`, and requests and limits set from measured usage. The plain `/api/ready` answers 200 with a component map for the frontend and the MCP server; `strict=1` is the probe contract and answers 503 until every component has loaded.
+- Each namespace runs one API replica, with readiness on `/api/ready?strict=1`, liveness on `/api/health`, and requests and limits set from measured usage. The plain `/api/ready` answers 200 with a component map for the frontend and the MCP server; `strict=1` is the probe contract and answers 503 until every component has loaded and the index holds at least one chunk.
 - Pod env sets `READ_ONLY=1` and points `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` into the volume. Set `CHROMA_DB_PATH` explicitly. With a wrong path the backend quietly creates an empty index beside `main.py` and serves empty results with no error.
 - A k3s local-path PersistentVolumeClaim holds the index and the synced vault.
 - A CronJob runs the nightly indexer in its own pod after the desktop sync window. It pulls the vault from S3 into the volume and runs `rebuild_rag_index.py` while the API keeps serving. That second writer is the condition behind PR #25, and the design keeps it on purpose.

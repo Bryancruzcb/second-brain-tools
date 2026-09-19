@@ -33,7 +33,7 @@ class OverlapCrossEncoder:
     does coarsely — with no model download.
     """
 
-    def predict(self, pairs):
+    def predict(self, pairs, **_):
         out = []
         for query, chunk in pairs:
             q = set(query.lower().split())

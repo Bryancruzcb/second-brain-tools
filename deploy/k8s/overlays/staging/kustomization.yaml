@@ -11,3 +11,6 @@ resources:
 images:
   - name: ghcr.io/bryancruzcb/second-brain-backend
     newTag: unset
+
+patches:
+  - path: service-ip.yaml

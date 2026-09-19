@@ -5,7 +5,7 @@
   python deploy/ops.py plan [--up]  preview changes, with the node if --up
   python deploy/ops.py up           apply with the node
   python deploy/ops.py down         apply without the node, everything else stays
-  python deploy/ops.py tunnel       forward localhost:8000 to the API on the node
+  python deploy/ops.py tunnel       forward localhost:8000 to staging's API (--env prod)
 
 Arguments ops.py doesn't know go to terraform, so `up -auto-approve` works.
 Every command is printed before it runs. This is Python instead of a Makefile
@@ -26,6 +26,9 @@ from pathlib import Path
 
 REGION = "us-west-2"
 API_PORT = 8000
+# Each namespace's API service address, pinned in
+# deploy/k8s/overlays/<env>/service-ip.yaml, which says why.
+SERVICE_IPS = {"staging": "10.43.0.80", "prod": "10.43.0.81"}
 TERRAFORM_DIR = Path(__file__).resolve().parent / "terraform"
 BOOTSTRAP_DIR = TERRAFORM_DIR / "bootstrap"
 TFVARS = TERRAFORM_DIR / "terraform.tfvars"
@@ -101,7 +104,8 @@ def parse_args(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
     plan = commands.add_parser("plan")
     plan.add_argument("--up", action="store_true", help="plan with the node enabled")
     tunnel = commands.add_parser("tunnel")
-    tunnel.add_argument("--port", type=int, default=API_PORT, help="port on the node")
+    tunnel.add_argument("--env", choices=sorted(SERVICE_IPS), default="staging", help="whose API to reach")
+    tunnel.add_argument("--port", type=int, default=API_PORT, help="the API service's port")
     tunnel.add_argument("--local-port", type=int, help="port on this machine, defaults to --port")
     return parser.parse_known_args(argv)
 
@@ -141,8 +145,12 @@ def main(argv: list[str] | None = None) -> None:
             aws, "ssm", "start-session",
             "--region", REGION,
             "--target", instance_id,
-            "--document-name", "AWS-StartPortForwardingSession",
-            "--parameters", f"portNumber={args.port},localPortNumber={local_port}",
+            # The API is a ClusterIP service, so nothing listens on the node's
+            # own port and the plain port-forwarding document reaches nothing.
+            # This one has the agent on the node connect on to the service.
+            "--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
+            "--parameters",
+            f"host={SERVICE_IPS[args.env]},portNumber={args.port},localPortNumber={local_port}",
         ])
 
 

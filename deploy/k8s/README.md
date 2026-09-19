@@ -27,6 +27,51 @@ pipeline pins it with the merged SHA:
 (`sed` rather than `kustomize edit set image`, because the node has kubectl
 and its built-in kustomize, not the standalone binary.)
 
+Each overlay also pins its Service's cluster address (`service-ip.yaml`), so
+the tunnel below has a fixed target. `clusterIP` can't change on a live
+Service: in a namespace whose Service was created before the pin, run
+`kubectl -n <namespace> delete service second-brain` once before the apply.
+
+## First deploy on a fresh node
+
+`python deploy/ops.py up` gives a node running k3s and nothing else. The
+volume lives on the node's root disk, so every `ops.py down` takes the index
+with it and the next `up` starts empty. On a fresh node, after pinning the
+tag as above:
+
+    kubectl apply -f deploy/k8s/overlays/staging/namespace.yaml
+    kubectl create configmap second-brain-ops-env -n staging \
+      --from-literal=VAULT_BUCKET=second-brain-vault-ACCOUNT_ID
+    kubectl apply -k deploy/k8s/overlays/staging
+    kubectl -n staging create job --from=cronjob/second-brain-indexer indexer-first
+
+The API starts before the index exists and should answer 503 on
+`/api/ready?strict=1` until the job's first chunks are in the store: while the
+index looks empty, the probe reopens the store once it sees the write stamp
+move. It can't rely on the job's refresh call at the end of the run, because a
+pod that isn't Ready has no Service endpoints for that call to reach. Staging's
+first run on 2026-09-18 used an image from before this probe, so the next
+fresh node is the first to exercise it. That run's first build read 775 files,
+wrote 5,941 chunks, and took 22 minutes, with `kubectl top` showing the
+indexer at about one CPU.
+
+## Reaching the API
+
+    python deploy/ops.py tunnel               # staging on localhost:8000
+    python deploy/ops.py tunnel --env prod --local-port 8001
+
+The session's far end is the SSM agent on the node, which connects on to the
+pinned service address. Nothing listens on the node's own port 8000, because
+the Service is ClusterIP only, so the plain `AWS-StartPortForwardingSession`
+document reaches nothing.
+
+## Running commands on the node
+
+SSM Run Command's `AWS-RunShellScript` runs its commands with `sh`, which on
+Ubuntu is dash: a script that starts `set -euo pipefail` fails on its first
+line with "Illegal option -o pipefail". Write the script to a file on the node
+and run that with bash. The week 4 pipeline will drive the cluster the same way.
+
 ## Two ConfigMaps that are not in git
 
 **`second-brain-ops-env`** holds the vault bucket's name, which contains the
@@ -67,10 +112,16 @@ that eventually passes.
 
 ## Known follow-ups
 
-- **Resource requests and limits are provisional.** The node has never run.
-  Week 2 ends by measuring real usage under a query and a reindex, and
-  setting them from that; until then they are informed guesses that fit two
-  namespaces plus monitoring into 8 GB.
+- **Resource requests and limits are still provisional.** Staging's first
+  run on 2026-09-18, read from each container's cgroup (`memory.peak`): the
+  indexer peaked at 1,228 MiB during the first build; the API held 469 MiB
+  with its models loaded and an empty index, and 804 MiB once the
+  5,941-chunk index was open. On its second query the kernel OOMKilled the
+  API at the 2 GiB limit. That image reranked the whole 30-deep pool in one
+  ONNX batch, and on the desktop the reranker's memory grows with the batch
+  (see `RERANK_BATCH_SIZE` in `backend/config.py`), so the batch is the
+  likely cause. The reranker now scores one pair per pass; the requests and
+  limits get set from a measurement under queries once that image runs.
 - **The API container runs as root**, because the image has no non-root user
   and the volume is created root-owned. Adding a user to the Dockerfile and
   an `fsGroup` here is a small change that wants a live node to verify, so

@@ -93,7 +93,7 @@ def rerank(query_text, candidates, *, cross_encoder, k=TOP_K):
     # moves, so it gets its own histogram rather than hiding inside the
     # retrieval one.
     with metrics.RERANK_SECONDS.time():
-        scores = cross_encoder.predict(pairs)
+        scores = cross_encoder.predict(pairs, batch_size=config.get_rerank_batch_size())
     order = sorted(range(len(candidates)), key=lambda i: float(scores[i]), reverse=True)
     return [{**candidates[i], "rerank_score": float(scores[i])} for i in order[:k]]
 

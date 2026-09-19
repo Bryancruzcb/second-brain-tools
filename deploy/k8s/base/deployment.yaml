@@ -53,7 +53,9 @@ spec:
             failureThreshold: 3
           # Readiness is the strict variant: 503 until the embedding model,
           # the Chroma collection, the lexical index and the reranker have
-          # all loaded. Without ?strict=1 the endpoint answers 200 with
+          # all loaded and the collection holds at least one chunk, so a
+          # fresh volume stays unready until the first indexer job writes.
+          # Without ?strict=1 the endpoint answers 200 with
           # {"ready": false} and the pod would take traffic while it still
           # served vector-only results at the 70% hit-rate.
           #

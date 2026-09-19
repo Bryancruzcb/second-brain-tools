@@ -73,7 +73,8 @@ def test_unknown_arguments_go_to_terraform(commands):
     ]
 
 
-def test_tunnel_forwards_the_api_port_to_the_node(commands, monkeypatch):
+def test_tunnel_reaches_the_staging_service_through_the_node(commands, monkeypatch):
+    """The API is ClusterIP only: forwarding to the node's own port 8000 reached nothing."""
     node_output(monkeypatch, "i-0abc123")
     ops.main(["tunnel"])
     assert commands == [
@@ -81,16 +82,30 @@ def test_tunnel_forwards_the_api_port_to_the_node(commands, monkeypatch):
             "aws", "ssm", "start-session",
             "--region", "us-west-2",
             "--target", "i-0abc123",
-            "--document-name", "AWS-StartPortForwardingSession",
-            "--parameters", "portNumber=8000,localPortNumber=8000",
+            "--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
+            "--parameters", "host=10.43.0.80,portNumber=8000,localPortNumber=8000",
         ],
     ]
+
+
+def test_tunnel_reaches_prod_by_name(commands, monkeypatch):
+    node_output(monkeypatch, "i-0abc123")
+    ops.main(["tunnel", "--env", "prod"])
+    assert commands[0][-1] == "host=10.43.0.81,portNumber=8000,localPortNumber=8000"
 
 
 def test_tunnel_can_listen_on_another_local_port(commands, monkeypatch):
     node_output(monkeypatch, "i-0abc123")
     ops.main(["tunnel", "--local-port", "18000"])
-    assert commands[0][-1] == "portNumber=8000,localPortNumber=18000"
+    assert commands[0][-1] == "host=10.43.0.80,portNumber=8000,localPortNumber=18000"
+
+
+@pytest.mark.parametrize("env", sorted(ops.SERVICE_IPS))
+def test_service_ips_match_the_overlays(env):
+    """The tunnel's target is only right while the overlay pins the same address."""
+    pinned = ops.TERRAFORM_DIR.parent / "k8s" / "overlays" / env / "service-ip.yaml"
+    lines = pinned.read_text(encoding="utf-8").splitlines()
+    assert f"  clusterIP: {ops.SERVICE_IPS[env]}" in lines
 
 
 def test_tunnel_stops_when_the_node_is_off(commands, monkeypatch):
