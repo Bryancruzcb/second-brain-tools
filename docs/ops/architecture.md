@@ -86,10 +86,10 @@ The deploy flow is in [PLAN.md section 6.4](PLAN.md#64-pipeline).
 
 | Piece | Status |
 |---|---|
-| Vault sync and secret scan, `deploy/sync/` | Built in week 0. The dry run on the real vault kept 2 of 718 files home. The first upload waits for the sync key |
-| Terraform, `deploy/terraform/`, and `deploy/ops.py` | Built in week 1 and applied 2026-09-12 with the node off. `terraform plan` reports no changes |
-| App changes: `READ_ONLY`, metrics, JSON logs, HTTP eval, image contents, GHCR publish | Week 2 |
-| Kubernetes manifests, `deploy/k8s/` | Week 2 |
+| Vault sync and secret scan, `deploy/sync/` | Built in week 0. The dry run on the real vault kept 2 of 718 files home. First upload 2026-09-17: 775 files plus the eval set, 2 kept home |
+| Terraform, `deploy/terraform/`, and `deploy/ops.py` | Built in week 1 and applied 2026-09-12 with the node off. CI plans pull requests and applies on main since 2026-09-18 (#39) |
+| App changes: `READ_ONLY`, metrics, JSON logs, HTTP eval, image contents, GHCR publish | Built in week 2, running on staging since 2026-09-19 |
+| Kubernetes manifests, `deploy/k8s/` | Built in week 2. Staging answers queries through the SSM tunnel; requests and limits set from measured use |
 | Monitoring and alerts | Week 3 |
 | Deploy pipeline and eval gate | Week 4 |
 | Game day | Week 5 |

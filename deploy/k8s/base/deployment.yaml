@@ -69,16 +69,19 @@ spec:
             periodSeconds: 15
             failureThreshold: 40
           resources:
-            # Provisional: the node has never run. Week 2 ends by measuring
-            # real usage and setting these from it. The pod holds a
-            # bge-small embedder, an int8 ONNX reranker, a BM25 snapshot of
-            # the collection and torch itself.
+            # Measured on staging 2026-09-19 from the container's cgroup:
+            # 469 MiB with its models loaded and an empty index, 804 MiB
+            # with the 5,941-chunk index open, and a 999 MiB peak over 63
+            # queries including four at a time, reranking one pair per
+            # pass. The request covers the loaded index; the limit is about
+            # 1.5 times the peak. With the old whole-pool rerank batch the
+            # same pod passed 2 GiB on its second query.
             requests:
               cpu: 250m
               memory: 900Mi
             limits:
               cpu: 1500m
-              memory: 2Gi
+              memory: 1536Mi
           volumeMounts:
             - name: data
               mountPath: /data

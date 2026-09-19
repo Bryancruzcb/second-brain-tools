@@ -1,7 +1,9 @@
 # Both namespaces share one 8 GB node, so prod asks for what it needs rather
 # than what it can get away with: the scheduler holds this memory for it, and
 # under pressure the kubelet evicts the pod furthest above its request, which
-# is staging. Still provisional until week 2 measures the real numbers.
+# is staging. Staging measured a 999 MiB peak under queries on 2026-09-19
+# (see base/deployment.yaml), so prod's request covers that peak and its
+# limit doubles it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,7 +16,7 @@ spec:
           resources:
             requests:
               cpu: 500m
-              memory: 1500Mi
+              memory: 1Gi
             limits:
               cpu: "2"
-              memory: 2500Mi
+              memory: 2Gi
