@@ -108,6 +108,11 @@ def test_service_ips_match_the_overlays(env):
     assert f"  clusterIP: {ops.SERVICE_IPS[env]}" in lines
 
 
+def test_terraform_tunnel_output_names_the_staging_service():
+    main_tf = (ops.TERRAFORM_DIR / "main.tf").read_text(encoding="utf-8")
+    assert f'staging_service_ip = "{ops.SERVICE_IPS["staging"]}"' in main_tf
+
+
 def test_tunnel_stops_when_the_node_is_off(commands, monkeypatch):
     node_output(monkeypatch, None)
     with pytest.raises(SystemExit, match="node is off"):
