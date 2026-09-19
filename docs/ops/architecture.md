@@ -90,6 +90,6 @@ The deploy flow is in [PLAN.md section 6.4](PLAN.md#64-pipeline).
 | Terraform, `deploy/terraform/`, and `deploy/ops.py` | Built in week 1 and applied 2026-09-12 with the node off. CI plans pull requests and applies on main since 2026-09-18 (#39) |
 | App changes: `READ_ONLY`, metrics, JSON logs, HTTP eval, image contents, GHCR publish | Built in week 2, running on staging since 2026-09-19 |
 | Kubernetes manifests, `deploy/k8s/` | Built in week 2. Staging answers queries through the SSM tunnel; requests and limits set from measured use |
-| Monitoring and alerts | Week 3 |
+| Monitoring and alerts | Built in week 3 and running on the node since 2026-09-19. Alerts become GitHub issues; the canary scores ten eval questions every 15 minutes |
 | Deploy pipeline and eval gate | Week 4 |
 | Game day | Week 5 |

@@ -16,3 +16,12 @@ resources:
 images:
   - name: ghcr.io/bryancruzcb/second-brain-backend
     newTag: unset
+
+# The canary's baseline: the hit rate the same ten questions scored on this
+# index, recorded from the desktop through the tunnel with
+# `python -m eval.canary --record`. Numbers only, and hashed into the
+# ConfigMap's name, so recording a new card rolls the CronJob onto it.
+configMapGenerator:
+  - name: second-brain-canary-card
+    files:
+      - canary-card.json
