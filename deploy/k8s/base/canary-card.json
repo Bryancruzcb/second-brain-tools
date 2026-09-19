@@ -1,0 +1,16 @@
+{
+  "recorded_at": "2026-09-19",
+  "measured_through": "/api/search",
+  "dataset": {
+    "cases": 40,
+    "sha256": "9bbbf2218ef17536f005966d477c1a8fc30e4554fbbd92329097335988ea9cfc",
+    "canary_cases": 10
+  },
+  "metrics": {
+    "k": 8,
+    "hit_rate": 1.0,
+    "mrr": 0.9166666666666666,
+    "cases": 10,
+    "ungradable": 0
+  }
+}

@@ -79,6 +79,29 @@ restart the bridge: `kubectl -n monitoring rollout restart deployment/alert-brid
 `rules/second-brain.test.yml` has a firing and a quiet case for each, run
 with `promtool test rules` in CI.
 
+## What the first run showed, 2026-09-19
+
+The stack came up on a fresh node in about three minutes: all seven pods
+running, every scrape target healthy (the API through its annotations,
+kube-state-metrics, node-exporter, the Pushgateway and Prometheus itself),
+all nine rules loaded, and Grafana provisioning its datasource and
+dashboards with no errors.
+
+The canary ran on schedule. Its first run, 6 minutes into the 22-minute
+first index build, scored 0.4 on a partly built index; once the build
+finished it scored 10 of 10, which is the card in
+`deploy/k8s/base/canary-card.json` (MRR 0.92, recorded from the desktop
+through the tunnel).
+
+**A full index build roughly doubles search latency.** During the build,
+search p95 was 4.45 s and p50 2.61 s, with the node 72 percent busy;
+afterwards the same queries ran at p95 1.97 s and p50 1.72 s. The node's two
+vCPUs are one physical core, so the indexer's embedding work and the API's
+reranker share it. `SearchLatencyHigh` went pending during the build and
+cleared by itself when the build finished. That is the alert doing its job,
+and the first build on a fresh node is its known cause; the nightly run is
+incremental and much shorter.
+
 ## Memory
 
 Requests in `monitoring`: Prometheus 384 MiB (limit 768), Grafana 128 MiB,
