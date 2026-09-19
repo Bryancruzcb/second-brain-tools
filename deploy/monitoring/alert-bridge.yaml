@@ -1,0 +1,116 @@
+# Alertmanager's webhook receiver: alert_bridge.py, run from a ConfigMap in
+# the stock python image, so there is no image to build or publish.
+#
+# The GitHub token never becomes a Kubernetes Secret or touches git. Bryan
+# stores it in Parameter Store (/second-brain-ops/github-alerts-token); the
+# init container reads it with the node's instance role into a memory-backed
+# volume. Until that parameter exists the bridge runs and only logs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-bridge
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alert-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alert-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alert-bridge
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      initContainers:
+        - name: fetch-token
+          image: public.ecr.aws/aws-cli/aws-cli:2.36.46
+          command: ["sh", "-c"]
+          args:
+            - >-
+              aws ssm get-parameter --region us-west-2
+              --name /second-brain-ops/github-alerts-token --with-decryption
+              --query Parameter.Value --output text > /etc/github/token
+              || { echo "no /second-brain-ops/github-alerts-token yet: the bridge will only log";
+              rm -f /etc/github/token; }
+          env:
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: token
+              mountPath: /etc/github
+      containers:
+        - name: bridge
+          image: python:3.12-slim
+          command: ["python", "/app/alert_bridge.py"]
+          env:
+            - name: GITHUB_REPO
+              value: Bryancruzcb/second-brain-tools
+            - name: GITHUB_TOKEN_FILE
+              value: /etc/github/token
+            - name: PORT
+              value: "9095"
+          ports:
+            - name: http
+              containerPort: 9095
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
+            - name: token
+              mountPath: /etc/github
+              readOnly: true
+      volumes:
+        - name: app
+          configMap:
+            name: alert-bridge
+        - name: token
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-bridge
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alert-bridge
+spec:
+  selector:
+    app.kubernetes.io/name: alert-bridge
+  ports:
+    - name: http
+      port: 9095
+      targetPort: http

@@ -1,0 +1,105 @@
+# Grafana with the Prometheus datasource and the dashboards in dashboards/
+# provisioned, so a fresh node shows them on first boot with nothing to click.
+# The chart moved from grafana/helm-charts to grafana-community in 2026.
+#
+# No Kubernetes Secret: the admin password is the SecureString Terraform put
+# in Parameter Store (/second-brain-ops/grafana-admin-password). An init
+# container reads it with the node's instance role into a memory-backed
+# volume, and Grafana reads it from there through its own $__file{} expansion
+# (the default image is distroless, so the older __FILE variables, which
+# needed its /run.sh, don't work). Setting the password variable also stops
+# the chart from generating a Secret of its own. Read it yourself with:
+#   aws ssm get-parameter --name /second-brain-ops/grafana-admin-password --with-decryption
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: grafana
+  namespace: kube-system
+spec:
+  repo: https://grafana-community.github.io/helm-charts
+  chart: grafana
+  version: 13.2.5
+  targetNamespace: monitoring
+  valuesContent: |-
+    fullnameOverride: grafana
+    service:
+      type: ClusterIP
+      port: 80
+      # Pinned for the SSM tunnel, like the API's (see
+      # deploy/k8s/overlays/staging/service-ip.yaml for why).
+      clusterIP: 10.43.0.90
+    persistence:
+      enabled: false
+    testFramework:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    env:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: $__file{/etc/grafana-admin/password}
+    extraInitContainers:
+      - name: fetch-admin-password
+        image: public.ecr.aws/aws-cli/aws-cli:2.36.46
+        command: ["sh", "-c"]
+        args:
+          - >-
+            aws ssm get-parameter --region us-west-2
+            --name /second-brain-ops/grafana-admin-password --with-decryption
+            --query Parameter.Value --output text > /etc/grafana-admin/password
+        env:
+          - name: HOME
+            value: /tmp
+        volumeMounts:
+          - name: grafana-admin
+            mountPath: /etc/grafana-admin
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+    extraVolumes:
+      - name: grafana-admin
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Mi
+    extraVolumeMounts:
+      - name: grafana-admin
+        mountPath: /etc/grafana-admin
+        readOnly: true
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            uid: prometheus
+            type: prometheus
+            url: http://prometheus-server.monitoring.svc
+            access: proxy
+            isDefault: true
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: second-brain
+            folder: Second Brain
+            type: file
+            disableDeletion: true
+            editable: false
+            options:
+              path: /var/lib/grafana/dashboards/second-brain
+    dashboardsConfigMaps:
+      second-brain: grafana-dashboards-second-brain
+    grafana.ini:
+      analytics:
+        check_for_updates: false
+        check_for_plugin_updates: false
+        reporting_enabled: false
+      users:
+        allow_sign_up: false
+      auth.anonymous:
+        enabled: false

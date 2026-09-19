@@ -5,7 +5,8 @@
   python deploy/ops.py plan [--up]  preview changes, with the node if --up
   python deploy/ops.py up           apply with the node
   python deploy/ops.py down         apply without the node, everything else stays
-  python deploy/ops.py tunnel       forward localhost:8000 to staging's API (--env prod)
+  python deploy/ops.py tunnel       forward localhost:8000 to staging's API
+                                    (--to prod; --to grafana on localhost:3000)
 
 Arguments ops.py doesn't know go to terraform, so `up -auto-approve` works.
 Every command is printed before it runs. This is Python instead of a Makefile
@@ -29,6 +30,14 @@ API_PORT = 8000
 # Each namespace's API service address, pinned in
 # deploy/k8s/overlays/<env>/service-ip.yaml, which says why.
 SERVICE_IPS = {"staging": "10.43.0.80", "prod": "10.43.0.81"}
+# What the tunnel reaches: address, service port, and the local port it
+# listens on by default. Grafana's address is pinned in
+# deploy/monitoring/grafana.yaml for the same reason as the API's.
+TUNNEL_TARGETS = {
+    "staging": (SERVICE_IPS["staging"], API_PORT, API_PORT),
+    "prod": (SERVICE_IPS["prod"], API_PORT, API_PORT),
+    "grafana": ("10.43.0.90", 80, 3000),
+}
 TERRAFORM_DIR = Path(__file__).resolve().parent / "terraform"
 BOOTSTRAP_DIR = TERRAFORM_DIR / "bootstrap"
 TFVARS = TERRAFORM_DIR / "terraform.tfvars"
@@ -104,9 +113,10 @@ def parse_args(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
     plan = commands.add_parser("plan")
     plan.add_argument("--up", action="store_true", help="plan with the node enabled")
     tunnel = commands.add_parser("tunnel")
-    tunnel.add_argument("--env", choices=sorted(SERVICE_IPS), default="staging", help="whose API to reach")
-    tunnel.add_argument("--port", type=int, default=API_PORT, help="the API service's port")
-    tunnel.add_argument("--local-port", type=int, help="port on this machine, defaults to --port")
+    tunnel.add_argument("--to", "--env", dest="target", choices=sorted(TUNNEL_TARGETS), default="staging",
+                        help="an API environment, or grafana")
+    tunnel.add_argument("--port", type=int, help="the service's port, if not the target's usual one")
+    tunnel.add_argument("--local-port", type=int, help="port on this machine: 8000 for an API, 3000 for grafana")
     return parser.parse_known_args(argv)
 
 
@@ -140,7 +150,9 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(f"tunnel doesn't take {' '.join(extra)}")
         instance_id = node_instance_id(main_stack)
         aws = find_tool("aws", AWS_FALLBACK)
-        local_port = args.local_port or args.port
+        host, service_port, default_local = TUNNEL_TARGETS[args.target]
+        port = args.port or service_port
+        local_port = args.local_port or default_local
         run([
             aws, "ssm", "start-session",
             "--region", REGION,
@@ -150,7 +162,7 @@ def main(argv: list[str] | None = None) -> None:
             # This one has the agent on the node connect on to the service.
             "--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
             "--parameters",
-            f"host={SERVICE_IPS[args.env]},portNumber={args.port},localPortNumber={local_port}",
+            f"host={host},portNumber={port},localPortNumber={local_port}",
         ])
 
 

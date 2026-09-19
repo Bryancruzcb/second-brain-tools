@@ -60,7 +60,7 @@ jobs:
           pip install -r backend/requirements-dev.txt
 
       - name: Python Syntax Verification
-        run: python -m py_compile backend/main.py backend/config.py backend/logging_setup.py backend/metrics.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/http_eval.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py deploy/sync/sync_vault.py deploy/ops.py
+        run: python -m py_compile backend/main.py backend/config.py backend/logging_setup.py backend/metrics.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/http_eval.py backend/eval/canary.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py deploy/sync/sync_vault.py deploy/ops.py deploy/monitoring/alert_bridge.py
 
       - name: Backend Tests
         run: python -m pytest backend/tests deploy/sync/tests deploy/tests -q
@@ -97,14 +97,15 @@ jobs:
           docker run --rm --entrypoint python second-brain-backend:ci \
             -c "import main; print('backend imports OK')"
 
-      - name: Indexer and Gate Smoke Test
-        # The CronJob and the gate Job run from this image. --help is enough
+      - name: Indexer, Gate and Canary Smoke Test
+        # The CronJobs and the gate Job run from this image. --help is enough
         # to prove the copies landed where their sys.path juggling expects:
         # both modules import config, indexer and retrieval from /app before
         # argparse ever runs.
         run: |
           docker run --rm --entrypoint python second-brain-backend:ci             scripts/rebuild_rag_index.py --help > /dev/null
           docker run --rm --entrypoint python second-brain-backend:ci             -m eval.http_eval --help > /dev/null
+          docker run --rm --entrypoint python second-brain-backend:ci             -m eval.canary --help > /dev/null
           docker run --rm --entrypoint python second-brain-backend:ci             -c "import eval.run_eval, eval.sweep_rerankers; print('eval modules import OK')"
 
       - name: Assert CPU-only Torch
@@ -155,6 +156,59 @@ jobs:
           # The cloud copy is read-only: the desktop sync is the only writer.
           grep -q 'READ_ONLY: "1"' /tmp/staging.yaml
           grep -q 'READ_ONLY: "1"' /tmp/prod.yaml
+
+  # ── Monitoring Verification ─────────────────────────────────────────────────
+  # The monitoring stack is two Helm charts installed by the node's Helm
+  # controller, plus the alert rules, dashboards and the GitHub alert bridge.
+  # Rendering the charts with the committed values catches a wrong key here
+  # instead of on the node (it caught one before the first deploy: Grafana's
+  # distroless image can't read __FILE variables), and promtool runs the
+  # alert rules against their unit tests.
+  monitoring-check:
+    name: Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install helm, kubeconform and promtool
+        run: |
+          curl -sSL https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz \
+            | tar -xz --strip-components=1 linux-amd64/helm
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz kubeconform
+          curl -sSL https://github.com/prometheus/prometheus/releases/download/v3.14.0/prometheus-3.14.0.linux-amd64.tar.gz \
+            | tar -xz --strip-components=1 prometheus-3.14.0.linux-amd64/promtool
+
+      - name: Test the Alert Rules
+        run: |
+          ./promtool check rules deploy/monitoring/rules/second-brain.yml
+          ./promtool test rules deploy/monitoring/rules/second-brain.test.yml
+
+      - name: Render the Charts with the Committed Values
+        run: |
+          for file in prometheus grafana; do
+            manifest=deploy/monitoring/$file.yaml
+            yq -r '.spec.valuesContent' "$manifest" > "/tmp/values-$file.yaml"
+            ./helm template "$file" "$(yq -r '.spec.chart' "$manifest")" \
+              --repo "$(yq -r '.spec.repo' "$manifest")" \
+              --version "$(yq -r '.spec.version' "$manifest")" \
+              --namespace monitoring -f "/tmp/values-$file.yaml" > "/tmp/$file.yaml"
+          done
+          kubectl kustomize deploy/monitoring > /tmp/monitoring.yaml
+          # HelmChart is k3s's own kind, with no schema in kubeconform's catalog;
+          # what it installs is validated through the helm renders above.
+          ./kubeconform -strict -summary -skip HelmChart \
+            /tmp/monitoring.yaml /tmp/prometheus.yaml /tmp/grafana.yaml
+
+      - name: Hold Monitoring to the Design
+        run: |
+          # No Kubernetes Secrets: Grafana's password and the GitHub token come
+          # from Parameter Store through the node's role.
+          ! grep -n '^kind: Secret' /tmp/monitoring.yaml /tmp/prometheus.yaml /tmp/grafana.yaml
+          # Nothing is exposed off the node; the owner uses the SSM tunnel.
+          ! grep -nE '^kind: Ingress|type: (LoadBalancer|NodePort)' \
+            /tmp/monitoring.yaml /tmp/prometheus.yaml /tmp/grafana.yaml
 
   # ── Publish the Backend Image ───────────────────────────────────────────────
   # On main only, and only after the job above built the image and proved it

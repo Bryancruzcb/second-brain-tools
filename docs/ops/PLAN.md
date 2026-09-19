@@ -164,7 +164,7 @@ A PR that changes retrieval on purpose re-records the card against staging with 
 - App metrics come from the instrumentator and the histograms and gauges in section 5. A canary Job runs ten eval-set queries every 15 minutes and records hit rate as a single number.
 - node-exporter covers CPU, memory, and disk.
 - Dashboards are committed as JSON and provisioned, so a fresh environment has them on first boot.
-- Alerts fire when p95 stays above 1.5 seconds for 10 minutes (staging measured 1.92 s through the tunnel on 2026-09-19, so week 3 sets this from the in-cluster histogram), 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to email through SNS. Alert text carries metric names and values, never vault content.
+- Alerts fire when search p95 stays above 3 seconds for 10 minutes (the plan said 1.5; staging measured 1.92 s through the tunnel on 2026-09-19), 5xx responses pass 2 percent, readiness fails, the indexer hasn't succeeded for 26 hours, disk passes 80 percent, or the canary falls below its recorded baseline. Alertmanager sends them to GitHub issues through a small bridge (`deploy/monitoring/alert_bridge.py`); SNS email was dropped after its confirmation mail never arrived. Alert text carries metric names and values, never vault content. `deploy/monitoring/README.md` has each threshold's reason.
 
 ### 6.6 Game day
 
