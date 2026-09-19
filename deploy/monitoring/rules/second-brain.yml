@@ -1,0 +1,123 @@
+# Alert rules for the retrieval API (docs/ops/PLAN.md section 6.5).
+#
+# Every rule aggregates to namespace (or to nothing), so an alert carries
+# only namespace and severity, and alert-bridge.py can name one GitHub issue
+# per alert and namespace. Annotations quote metric values, never content:
+# nothing any of these metrics carries can name a note (backend/metrics.py).
+#
+# Tested with `promtool test rules second-brain.test.yml` in CI.
+groups:
+  - name: second-brain
+    rules:
+      # Staging measured a p95 of 1.92 s through the SSM tunnel on
+      # 2026-09-19, ten queries in a row. 3 s is about 1.5 times that and a
+      # bucket edge in backend/metrics.py, so the quantile isn't
+      # interpolated across a wide bucket right at the threshold.
+      - alert: SearchLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (namespace, le) (
+            rate(http_request_duration_seconds_bucket{handler="/api/search"}[10m])
+          )) > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Search p95 in {{ $labels.namespace }} is {{ printf "%.2f" $value }} s, above 3 s for 10 minutes.'
+
+      # Needs 20 requests in the window: at canary-only traffic one failed
+      # request is 10 percent, and the canary's own alerts cover that case.
+      - alert: ServerErrorsHigh
+        expr: |
+          (
+            sum by (namespace) (rate(http_requests_total{status="5xx"}[10m]))
+            / sum by (namespace) (rate(http_requests_total[10m]))
+          ) > 0.02
+          and sum by (namespace) (increase(http_requests_total[10m])) >= 20
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Server errors in {{ $labels.namespace }} are {{ humanizePercentage $value }} of requests, above 2 percent for 10 minutes.'
+
+      # The first deploy on a fresh node is unready for about two minutes,
+      # until the indexer's first chunks land.
+      - alert: ApiNotReady
+        expr: |
+          max by (namespace) (kube_deployment_spec_replicas{deployment="second-brain"})
+          > max by (namespace) (kube_deployment_status_replicas_available{deployment="second-brain"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'The API in {{ $labels.namespace }} has had fewer ready replicas than it asks for, for 5 minutes.'
+
+      # PLAN.md asks for "the index is older than 26 hours". The API's
+      # index-age gauge can't answer that: an indexer run over an unchanged
+      # vault writes nothing, and the vault syncs by hand. What matters is
+      # whether the nightly job still succeeds, so this watches the
+      # CronJob's last success, and its creation time when it has never
+      # succeeded at all.
+      - alert: IndexerStale
+        expr: |
+          (time() - max by (namespace) (kube_cronjob_status_last_successful_time{cronjob="second-brain-indexer"}) > 93600)
+          or
+          (
+            (time() - max by (namespace) (kube_cronjob_created{cronjob="second-brain-indexer"}) > 93600)
+            unless on (namespace) kube_cronjob_status_last_successful_time{cronjob="second-brain-indexer"}
+          )
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'The indexer in {{ $labels.namespace }} has not succeeded for {{ humanizeDuration $value }}, over 26 hours.'
+
+      - alert: DiskAlmostFull
+        expr: |
+          max(
+            1 - node_filesystem_avail_bytes{mountpoint="/", fstype!="tmpfs"}
+              / node_filesystem_size_bytes{mountpoint="/", fstype!="tmpfs"}
+          ) > 0.8
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'The node disk is {{ humanizePercentage $value }} full, above 80 percent for 10 minutes.'
+
+      # Ten fixed questions every 15 minutes; one miss moves the rate ten
+      # points, which already exceeds the gate's five-point drift rule. Two
+      # runs in a row must be below the recorded baseline.
+      - alert: CanaryHitRateDropped
+        expr: |
+          max by (namespace) (second_brain_canary_hit_rate)
+          < max by (namespace) (second_brain_canary_baseline_hit_rate)
+        for: 20m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Canary hit rate in {{ $labels.namespace }} is {{ humanizePercentage $value }}, below its recorded baseline for two runs.'
+
+      - alert: CanaryErrors
+        expr: max by (namespace) (second_brain_canary_errors) > 0
+        for: 20m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'The canary in {{ $labels.namespace }} could not reach the API for {{ $value }} of its questions, two runs in a row.'
+
+      # The Pushgateway keeps the last push forever, so a canary that stopped
+      # shows up as an old timestamp, and one that never started as nothing.
+      - alert: CanaryNotRunning
+        expr: time() - max(second_brain_canary_last_run_timestamp_seconds) > 2700
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No canary has reported for {{ humanizeDuration $value }}, over 45 minutes.'
+
+      - alert: CanaryNeverReported
+        expr: absent(second_brain_canary_last_run_timestamp_seconds)
+        for: 45m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No canary has reported since Prometheus started, 45 minutes ago or more.'

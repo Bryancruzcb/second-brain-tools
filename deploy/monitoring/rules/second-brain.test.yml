@@ -1,0 +1,241 @@
+# promtool test rules second-brain.test.yml
+# Each alert has a case that fires, with its exact labels and summary, and
+# one that must stay quiet.
+rule_files:
+  - second-brain.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Every search takes 3 to 5 s: p95 interpolates to 4.9 s.
+  - interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="staging", handler="/api/search", le="3.0"}'
+        values: '0x30'
+      - series: 'http_request_duration_seconds_bucket{namespace="staging", handler="/api/search", le="5.0"}'
+        values: '0+60x30'
+      - series: 'http_request_duration_seconds_bucket{namespace="staging", handler="/api/search", le="+Inf"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SearchLatencyHigh
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SearchLatencyHigh
+        exp_alerts:
+          - exp_labels: {namespace: staging, severity: warning}
+            exp_annotations:
+              summary: 'Search p95 in staging is 4.90 s, above 3 s for 10 minutes.'
+
+  # Fast searches never alert.
+  - interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="staging", handler="/api/search", le="1.0"}'
+        values: '0+60x30'
+      - series: 'http_request_duration_seconds_bucket{namespace="staging", handler="/api/search", le="+Inf"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: SearchLatencyHigh
+        exp_alerts: []
+
+  # 6 of every 66 requests fail.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="staging", status="2xx"}'
+        values: '0+60x30'
+      - series: 'http_requests_total{namespace="staging", status="5xx"}'
+        values: '0+6x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ServerErrorsHigh
+        exp_alerts:
+          - exp_labels: {namespace: staging, severity: critical}
+            exp_annotations:
+              summary: 'Server errors in staging are 9.091% of requests, above 2 percent for 10 minutes.'
+
+  # Canary-only traffic: every request fails, but there are too few to judge.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="staging", status="5xx"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ServerErrorsHigh
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'kube_deployment_spec_replicas{namespace="staging", deployment="second-brain"}'
+        values: '1x20'
+      - series: 'kube_deployment_status_replicas_available{namespace="staging", deployment="second-brain"}'
+        values: '0x20'
+      - series: 'kube_deployment_spec_replicas{namespace="prod", deployment="second-brain"}'
+        values: '1x20'
+      - series: 'kube_deployment_status_replicas_available{namespace="prod", deployment="second-brain"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ApiNotReady
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ApiNotReady
+        exp_alerts:
+          - exp_labels: {namespace: staging, severity: critical}
+            exp_annotations:
+              summary: 'The API in staging has had fewer ready replicas than it asks for, for 5 minutes.'
+
+  # Staging last succeeded at time 0; prod's CronJob was created at time 0
+  # and has never succeeded. Both are 28 hours old at the check.
+  # One-minute samples: with hourly ones the series vanishes between them
+  # (Prometheus looks back five minutes) and no `for` can hold.
+  - interval: 1m
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="staging", cronjob="second-brain-indexer"}'
+        values: '0x1700'
+      - series: 'kube_cronjob_created{namespace="staging", cronjob="second-brain-indexer"}'
+        values: '0x1700'
+      - series: 'kube_cronjob_created{namespace="prod", cronjob="second-brain-indexer"}'
+        values: '0x1700'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: IndexerStale
+        exp_alerts: []
+      - eval_time: 28h
+        alertname: IndexerStale
+        exp_alerts:
+          - exp_labels: {namespace: staging, severity: warning}
+            exp_annotations:
+              summary: 'The indexer in staging has not succeeded for 1d 4h 0m 0s, over 26 hours.'
+          - exp_labels: {namespace: prod, severity: warning}
+            exp_annotations:
+              summary: 'The indexer in prod has not succeeded for 1d 4h 0m 0s, over 26 hours.'
+
+  # A nightly success every day keeps it quiet.
+  - interval: 1m
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="staging", cronjob="second-brain-indexer"}'
+        values: '0x1439 86400x300'
+      - series: 'kube_cronjob_created{namespace="staging", cronjob="second-brain-indexer"}'
+        values: '0x1740'
+    alert_rule_test:
+      - eval_time: 28h
+        alertname: IndexerStale
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", fstype="ext4", instance="node"}'
+        values: '10x20'
+      - series: 'node_filesystem_size_bytes{mountpoint="/", fstype="ext4", instance="node"}'
+        values: '100x20'
+      - series: 'node_filesystem_avail_bytes{mountpoint="/run", fstype="tmpfs", instance="node"}'
+        values: '0x20'
+      - series: 'node_filesystem_size_bytes{mountpoint="/run", fstype="tmpfs", instance="node"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DiskAlmostFull
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: 'The node disk is 90% full, above 80 percent for 10 minutes.'
+
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", fstype="ext4", instance="node"}'
+        values: '50x20'
+      - series: 'node_filesystem_size_bytes{mountpoint="/", fstype="ext4", instance="node"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DiskAlmostFull
+        exp_alerts: []
+
+  # One case below baseline, held across two canary runs.
+  - interval: 1m
+    input_series:
+      - series: 'second_brain_canary_hit_rate{namespace="staging", job="second-brain-canary"}'
+        values: '0.8x30'
+      - series: 'second_brain_canary_baseline_hit_rate{namespace="staging", job="second-brain-canary"}'
+        values: '1x30'
+      - series: 'second_brain_canary_hit_rate{namespace="prod", job="second-brain-canary"}'
+        values: '1x30'
+      - series: 'second_brain_canary_baseline_hit_rate{namespace="prod", job="second-brain-canary"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CanaryHitRateDropped
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: CanaryHitRateDropped
+        exp_alerts:
+          - exp_labels: {namespace: staging, severity: warning}
+            exp_annotations:
+              summary: 'Canary hit rate in staging is 80%, below its recorded baseline for two runs.'
+
+  # No card yet, so no baseline: never an alert, whatever the rate.
+  - interval: 1m
+    input_series:
+      - series: 'second_brain_canary_hit_rate{namespace="staging", job="second-brain-canary"}'
+        values: '0.1x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: CanaryHitRateDropped
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'second_brain_canary_errors{namespace="staging", job="second-brain-canary"}'
+        values: '3x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: CanaryErrors
+        exp_alerts:
+          - exp_labels: {namespace: staging, severity: warning}
+            exp_annotations:
+              summary: 'The canary in staging could not reach the API for 3 of its questions, two runs in a row.'
+
+  # Last report at time 0: stale from 45 minutes on.
+  - interval: 1m
+    input_series:
+      - series: 'second_brain_canary_last_run_timestamp_seconds{namespace="staging", job="second-brain-canary"}'
+        values: '0x70'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: CanaryNotRunning
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: CanaryNotRunning
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: 'No canary has reported for 1h 0m 0s, over 45 minutes.'
+      - eval_time: 60m
+        alertname: CanaryNeverReported
+        exp_alerts: []
+
+  # Reporting every 15 minutes (its value is the push time) stays quiet.
+  - interval: 15m
+    input_series:
+      - series: 'second_brain_canary_last_run_timestamp_seconds{namespace="staging", job="second-brain-canary"}'
+        values: '0+900x8'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: CanaryNotRunning
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="prometheus"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CanaryNeverReported
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: CanaryNeverReported
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: 'No canary has reported since Prometheus started, 45 minutes ago or more.'

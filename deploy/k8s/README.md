@@ -6,7 +6,7 @@ that score holds. Neither is reachable from the internet: the node has no
 inbound rules and there is no Ingress, so the way in is an SSM port forward
 (`python deploy/ops.py tunnel`).
 
-    base/            deployment, service, PVC, config, network policies, indexer CronJob
+    base/            deployment, service, PVC, config, network policies, indexer and canary CronJobs
     overlays/staging one API replica on the base's resource requests
     overlays/prod    the same, with the memory and CPU it actually needs held for it
     gate-job.yaml    created per deploy by the pipeline, not part of any overlay
