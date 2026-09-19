@@ -164,7 +164,7 @@ A PR that changes retrieval on purpose re-records the card against staging with 
 - App metrics come from the instrumentator and the histograms and gauges in section 5. A canary Job runs ten eval-set queries every 15 minutes and records hit rate as a single number.
 - node-exporter covers CPU, memory, and disk.
 - Dashboards are committed as JSON and provisioned, so a fresh environment has them on first boot.
-- Alerts fire when p95 stays above 1.5 seconds for 10 minutes, 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to email through SNS. Alert text carries metric names and values, never vault content.
+- Alerts fire when p95 stays above 1.5 seconds for 10 minutes (staging measured 1.92 s through the tunnel on 2026-09-19, so week 3 sets this from the in-cluster histogram), 5xx responses pass 2 percent, readiness fails, the index is older than 26 hours, disk passes 80 percent, or canary hit rate trips the drift rule. Alertmanager sends them to email through SNS. Alert text carries metric names and values, never vault content.
 
 ### 6.6 Game day
 
@@ -195,7 +195,7 @@ Weeks rather than dates, because this shares a calendar with other work.
 |---|---|
 | 0, two days | Done. Prerequisites. Architecture doc with a diagram. `sync_vault.py` and its secret patterns, tested on fake vaults with planted fake keys, then a dry run on the real vault with the refused-file list reviewed on the desktop |
 | 1 | Done, applied 2026-09-12. Terraform for the node, IAM, OIDC roles, SSM, the S3 buckets, the deploys table, the SNS alert topic, and an import of the existing budget. `ops.py up` and `ops.py down` are idempotent, and `ops.py tunnel` opens the port forward. `terraform.yml` with tflint and checkov |
-| 2 | App PRs 1 through 6. Kustomize base and overlays, probes, NetworkPolicies, PVC, CronJob. Staging answers queries through the tunnel. Memory use measured |
+| 2 | Done 2026-09-19. App PRs 1 through 6. Kustomize base and overlays, probes, NetworkPolicies, PVC, CronJob. Staging answers queries through the tunnel. Memory use measured and the requests and limits set from it (`deploy/k8s/README.md`, Measured resources). Staging's first run found and fixed four problems (#38) and CI's OIDC login and a CRLF node-replacement trap (#39) |
 | 3 | Prometheus, Grafana, dashboards as JSON, alert rules, notifications, canary |
 | 4 | `deploy.yml` end to end with gate Job, promote, smoke, rollback, and deploy records. A check that fails the workflow if any log line matches a note path. `nightly-cost.yml` |
 | 5 | Game day, runbooks, postmortem, and `docs/ops/cost.md` from the actual bill |

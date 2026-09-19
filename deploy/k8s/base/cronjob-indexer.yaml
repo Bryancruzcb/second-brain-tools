@@ -76,14 +76,18 @@ spec:
                 capabilities:
                   drop: ["ALL"]
               resources:
+                # Embedding a full rebuild is the heaviest thing on the node.
+                # Two first builds of the 775-file vault on staging peaked at
+                # 1,228 and 1,222 MiB (cgroup) and ran on about one CPU for
+                # 22 minutes; the nightly incremental run touches only what
+                # changed. The request holds that peak for it, the limit
+                # leaves about 40 percent for a growing vault.
                 requests:
                   cpu: 500m
-                  memory: 1Gi
+                  memory: 1280Mi
                 limits:
-                  # Embedding a full rebuild is the heaviest thing on the
-                  # node. Provisional until week 2 measures it.
                   cpu: 1500m
-                  memory: 2500Mi
+                  memory: 1792Mi
               volumeMounts:
                 - name: data
                   mountPath: /data

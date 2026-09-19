@@ -110,18 +110,40 @@ that eventually passes.
 - **No HorizontalPodAutoscaler.** One node, one replica per namespace. The
   interesting failures here are a stale index and a full disk, not load.
 
+## Measured resources
+
+Read from each container's cgroup (`memory.peak`) on staging, on the
+m7i-flex.large with the 775-file vault:
+
+| | 2026-09-18, image `b202502` | 2026-09-19, image `4eb0949` |
+|---|---|---|
+| API, models loaded, empty index | 469 MiB | 469 MiB |
+| API, 5,941-chunk index open | 804 MiB | 799 MiB |
+| API under queries | OOMKilled at the 2 GiB limit on its second query | 999 MiB peak over 63 queries, four at a time among them |
+| Indexer, first build | 1,228 MiB, 22 minutes | 1,222 MiB, 22 minutes |
+
+The difference between the two API rows under queries is the reranker's
+batch: the first image scored the whole 30-deep pool in one ONNX pass, the
+second scores one pair per pass (`RERANK_BATCH_SIZE`, see
+`backend/config.py`). The requests and limits in `base/` and
+`overlays/prod/` come from the second column.
+
+On the whole node that asks for 900 MiB (staging API) plus 1 GiB (prod
+API) plus 1,280 MiB for each indexer, about 4.4 GiB at 06:00 UTC when both
+CronJobs run, out of 7.6 GiB, with monitoring still to come in week 3.
+
+Search latency through the tunnel on 2026-09-19, the same 63 queries: p50
+1.53 s and p95 1.92 s one at a time, and p50 6.6 s four at a time, because
+one API worker serves them in turn.
+
 ## Known follow-ups
 
-- **Resource requests and limits are still provisional.** Staging's first
-  run on 2026-09-18, read from each container's cgroup (`memory.peak`): the
-  indexer peaked at 1,228 MiB during the first build; the API held 469 MiB
-  with its models loaded and an empty index, and 804 MiB once the
-  5,941-chunk index was open. On its second query the kernel OOMKilled the
-  API at the 2 GiB limit. That image reranked the whole 30-deep pool in one
-  ONNX batch, and on the desktop the reranker's memory grows with the batch
-  (see `RERANK_BATCH_SIZE` in `backend/config.py`), so the batch is the
-  likely cause. The reranker now scores one pair per pass; the requests and
-  limits get set from a measurement under queries once that image runs.
+- **The p95 alert in PLAN.md section 6.5 is set at 1.5 seconds**, below the
+  1.92 s staging measured through the tunnel. Week 3 sets it from the
+  in-cluster request histogram instead, or it fires on ordinary traffic.
+- **Both namespaces' indexers start at 06:00 UTC** and each runs on about
+  one of the node's two CPUs. The nightly run is incremental and short, but
+  if it grows, prod's schedule should move later.
 - **The API container runs as root**, because the image has no non-root user
   and the volume is created root-owned. Adding a user to the Dockerfile and
   an `fsGroup` here is a small change that wants a live node to verify, so
