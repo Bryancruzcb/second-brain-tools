@@ -15,8 +15,8 @@ locals {
   # an environment the first time any job names it, with no branch limits, so
   # the role only goes in after both environments are restricted to main.
   github_role_subjects = {
-    terraform-plan  = ["repo:${local.github_repo}:pull_request"]
-    terraform-apply = ["repo:${local.github_repo}:ref:refs/heads/main"]
+    terraform-plan  = ["${local.github_oidc_subject}:pull_request"]
+    terraform-apply = ["${local.github_oidc_subject}:ref:refs/heads/main"]
   }
 }
 
