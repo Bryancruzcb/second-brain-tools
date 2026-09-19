@@ -1,0 +1,115 @@
+# Ten eval questions every 15 minutes, pushed to Prometheus as numbers only
+# (backend/eval/canary.py). The deploy gate scores a build once; this watches
+# the same questions between deploys, so a stale index or a config change
+# that loses notes raises an alert instead of quietly giving worse answers.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: second-brain-canary
+  labels:
+    app.kubernetes.io/name: second-brain
+    app.kubernetes.io/component: canary
+spec:
+  schedule: "*/15 * * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # Ten questions take about 20 seconds; anything near this is stuck.
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: second-brain
+            app.kubernetes.io/component: canary
+        spec:
+          restartPolicy: Never
+          initContainers:
+            # The eval set is private: it lives in the vault bucket, like
+            # the gate's, and never in the image or the repository.
+            - name: fetch-dataset
+              image: public.ecr.aws/aws-cli/aws-cli:2.36.46
+              command: ["aws"]
+              args:
+                - s3
+                - cp
+                - s3://$(VAULT_BUCKET)/eval/dataset.jsonl
+                - /work/dataset.jsonl
+                - --only-show-errors
+              envFrom:
+                - configMapRef:
+                    name: second-brain-ops-env
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+          containers:
+            - name: canary
+              image: ghcr.io/bryancruzcb/second-brain-backend:unset
+              command: ["python", "-m", "eval.canary"]
+              args:
+                - --api
+                - http://second-brain:8000
+                - --dataset
+                - /work/dataset.jsonl
+                - --vault-dir
+                - /data/vault
+                - --card
+                - /etc/canary/canary-card.json
+                - --pushgateway
+                - http://pushgateway.monitoring.svc:9091
+                - --namespace
+                - $(POD_NAMESPACE)
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              envFrom:
+                - configMapRef:
+                    name: second-brain-config
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+                # Read-only: cases whose notes the sync kept home are
+                # ungradable, the same rule the gate uses.
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: canary-card
+                  mountPath: /etc/canary
+                  readOnly: true
+          volumes:
+            - name: work
+              emptyDir: {}
+            - name: data
+              persistentVolumeClaim:
+                claimName: second-brain-data
+            # Recorded once per dataset from the desktop, through the tunnel.
+            # Until it exists the canary pushes its hit rate with no baseline.
+            - name: canary-card
+              configMap:
+                name: second-brain-canary-card
+                optional: true

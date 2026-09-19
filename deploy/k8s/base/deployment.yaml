@@ -24,6 +24,12 @@ spec:
       labels:
         app.kubernetes.io/name: second-brain
         app.kubernetes.io/component: api
+      # Prometheus's default kubernetes-pods job keeps pods that ask for it.
+      # base/networkpolicy.yaml already lets the monitoring namespace in.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: api
