@@ -1,0 +1,60 @@
+# The post-promotion smoke test, created once per deploy by the pipeline
+# after prod has rolled out (PLAN.md section 6.4, step 4):
+#
+#   IMAGE=ghcr.io/bryancruzcb/second-brain-backend:$SHA \
+#     envsubst < deploy/k8s/smoke-job.yaml | kubectl create -n prod -f -
+#
+# Like the gate it is not part of any overlay: a Job in an overlay would run
+# again on every apply and then refuse to be updated, because a Job's pod
+# template is immutable once created. generateName gives each deploy its own.
+#
+# It runs in the cluster because http://second-brain:8000 exists nowhere else:
+# the Service is ClusterIP and there is no Ingress. The Service name resolves
+# in whichever namespace this Job is created in, so the same file checks
+# staging by changing -n. What it prints is a name, pass or fail and numbers
+# (backend/eval/smoke.py), so the workflow log stays clean.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: deploy-smoke-
+  labels:
+    app.kubernetes.io/name: second-brain
+    app.kubernetes.io/component: deploy-smoke
+spec:
+  # No retries. The pipeline rolls prod back on a failure, and a second
+  # attempt would only make a pod that answers intermittently look healthy.
+  backoffLimit: 0
+  # Seven requests, about 15 seconds at the 1.92 s search p95 staging
+  # measured. Anything near this deadline is a pod that stopped answering.
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: second-brain
+        app.kubernetes.io/component: deploy-smoke
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: smoke
+          image: ${IMAGE}
+          command: ["python", "-m", "eval.smoke"]
+          args:
+            - --api
+            - http://second-brain:8000
+          # No envFrom, no volumes and no dataset: the checks are five fixed
+          # generic queries written into the module, and everything else they
+          # read comes back over HTTP. Nothing here touches the vault copy.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # One httpx client and no model, next to an API pod that asks for
+          # 900 MiB on a 7.6 GiB node.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
