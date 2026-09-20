@@ -12,6 +12,8 @@ being deployed and runs one of these scripts there as root.
     deploy-namespace.sh    pin the tag, apply, bootstrap an empty volume, wait
     run-job.sh             run the gate Job or the smoke Job and report
     rollback.sh            undo one Deployment and name the tag it landed on
+    status.sh              read-only: what a namespace looks like right now
+    reindex.sh             run the indexer once against a namespace that serves
 
 The first four run on the GitHub runner; the three shell scripts run on the
 node.
@@ -159,6 +161,30 @@ script's own waits, or SSM kills the command while the script is still
 waiting and the step's exit code says nothing useful. `deploy-namespace.sh`
 waits up to 45 minutes for the first index and 15 for the rollout, so 4200
 seconds; `run-job.sh` waits up to 30 minutes, so 2100.
+
+## status.sh NAMESPACE
+
+Read-only, and the first thing a runbook reaches for: the image each pod runs
+and whether it is Ready, how the last Jobs ended, the CronJobs and their last
+success, the PVC, and how full the node's root disk is. It changes nothing.
+
+It does not print pod logs on purpose. The API's own logs can carry a query,
+and a query is a question about someone's notes. The gate's and the smoke
+test's logs are numbers by construction, and `run-job.sh` prints those itself.
+
+## reindex.sh NAMESPACE
+
+Runs the indexer once against a namespace that is already serving, and waits.
+Until this existed there was no way to do that: `/api/index` is 403 under
+`READ_ONLY=1`, `deploy-namespace.sh` creates its one-off Job only when the
+Deployment has no ready replica, and the CronJob runs at 06:00 UTC. The
+stale-index runbook needs it, and so does game-day scenario 3.
+
+The Job comes from the CronJob (`kubectl create job --from=cronjob/...`), so
+there is one pod template for the indexer and no copy to drift. It refuses to
+start while another indexer Job is active: two writers on one volume is the
+condition behind `docs/ops/postmortem-stale-index.md`. It prints the Job's
+exit, never the indexer's log, which names the files it read.
 
 ## Running one by hand
 

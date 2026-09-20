@@ -92,4 +92,4 @@ The deploy flow is in [PLAN.md section 6.4](PLAN.md#64-pipeline).
 | Kubernetes manifests, `deploy/k8s/` | Built in week 2. Staging answers queries through the SSM tunnel; requests and limits set from measured use |
 | Monitoring and alerts | Built in week 3 and running on the node since 2026-09-19. Alerts become GitHub issues; the canary scores ten eval questions every 15 minutes |
 | Deploy pipeline and eval gate, `deploy/pipeline/` and `.github/workflows/deploy.yml` | Built in week 4, not yet run on a node. Staging, the gate, promote, the smoke Job, rollback on failure, and a DynamoDB item per deploy, every cluster step sent over SSM |
-| Game day | Week 5 |
+| Game day, `deploy/gameday/` and `deploy/runbooks/` | Written in week 5, not yet run. Four scripted failures with their runbooks, and the postmortem for the incident scenario 3 replays |

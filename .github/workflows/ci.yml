@@ -147,6 +147,13 @@ jobs:
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz             | tar -xz kubeconform
           ./kubeconform -strict -summary /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml /tmp/smoke.yaml
 
+      - name: Node Scripts Parse
+        run: |
+          # Everything under deploy/ that the pipeline or a game day sends to
+          # the node. A script with a syntax error would only show up as a
+          # failed step halfway through a deploy.
+          find deploy -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+
       - name: Hold the Manifests to the Design
         run: |
           # A moving tag would make a rollback a race with whatever it points
