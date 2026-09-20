@@ -54,9 +54,11 @@ jobs:
       && vars.OPS_STATE == 'up'
       && vars.AWS_ACCOUNT_ID != ''
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
     outputs:
       sha: ${{ steps.pick.outputs.sha }}
+      deploy: ${{ steps.paths.outputs.deploy }}
     steps:
       - name: Pick the commit
         id: pick
@@ -74,11 +76,38 @@ jobs:
             exit 1
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "deploying $sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "resolved $sha" >> "$GITHUB_STEP_SUMMARY"
+
+      # A merge that only touched docs or the frontend has nothing for the
+      # node to run, and a deploy of it would still cost a rollout and an
+      # eval run. workflow_run cannot take a path filter, so the commit's own
+      # file list is the filter.
+      - name: Does this commit touch anything the node runs?
+        id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.pick.outputs.sha }}
+          BY_HAND: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "$BY_HAND" = true ]; then
+            echo "deploy=yes" >> "$GITHUB_OUTPUT"
+            echo "deploying by hand" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # For a merge commit this is the diff against main before the merge.
+          files=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq '.files[].filename')
+          if printf '%s\n' "$files" | grep -qE '^(backend/|deploy/k8s/|deploy/eval/|deploy/pipeline/)'; then
+            echo "deploy=yes" >> "$GITHUB_OUTPUT"
+            echo "deploying $SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "deploy=no" >> "$GITHUB_OUTPUT"
+            echo "nothing the node runs changed in $SHA, so not deploying" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   staging:
     name: Staging
     needs: setup
+    if: needs.setup.outputs.deploy == 'yes'
     runs-on: ubuntu-latest
     # A fresh namespace builds its index before the API is Ready, which took
     # 22 minutes for 5,941 chunks on this node. The two SSM timeouts below add
@@ -168,6 +197,7 @@ jobs:
   prod:
     name: Production
     needs: [setup, staging]
+    if: needs.setup.outputs.deploy == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     environment: prod
