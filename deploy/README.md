@@ -95,6 +95,12 @@ Tests: `python -m pytest deploy/tests -q`
 
 [monitoring/README.md](monitoring/README.md) has every alert, its threshold and the reason for that threshold. Prometheus, Alertmanager, kube-state-metrics, node-exporter, a Pushgateway and Grafana install as two `HelmChart` objects, so nothing on the node needs helm. Alerts become GitHub issues on this repository through `monitoring/alert_bridge.py`, and the bridge closes the issue when the alert resolves.
 
+The stack is on the node's disk, so a fresh node needs it installed again:
+
+```
+python deploy/pipeline/send_command.py --sha <40-hex commit> --timeout 1500 --script deploy/pipeline/deploy-monitoring.sh
+```
+
 Grafana is a tunnel away:
 
 ```

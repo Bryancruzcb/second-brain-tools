@@ -18,7 +18,18 @@ The canary that feeds the quality alert is a CronJob in each app namespace
 
 ## Apply
 
-    kubectl apply -k deploy/monitoring
+From the desktop, the way everything else reaches the node:
+
+    python deploy/pipeline/send_command.py --sha <40-hex commit> \
+      --timeout 1500 --script deploy/pipeline/deploy-monitoring.sh
+
+That applies this directory, waits for each chart's install Job and for every
+workload's rollout, and prints what is running. On the node itself it is
+`kubectl apply -k deploy/monitoring`.
+
+The stack lives on the node's disk, so every `ops.py down` takes it: a fresh
+node needs this again, which is why the install is a script in the repository
+rather than something remembered.
 
 k3s's built-in Helm controller installs the two charts from their
 `HelmChart` objects, so the node needs no helm binary. The app namespaces
