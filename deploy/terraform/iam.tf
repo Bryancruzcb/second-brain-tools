@@ -10,13 +10,24 @@ locals {
   # Which workflow runs may assume each GitHub role, by the token's sub claim.
   # Pull requests from forks get no token, so pull_request means this repo's branches.
   #
-  # The deploy role waits for week 4 and deploy.yml. It can run commands as root
-  # on the node, and it trusts the staging and prod environments. GitHub creates
-  # an environment the first time any job names it, with no branch limits, so
-  # the role only goes in after both environments are restricted to main.
+  # The deploy role runs commands as root on the node, so it trusts the narrowest
+  # subject deploy.yml can hand it. A job that names a GitHub environment gets a
+  # token whose sub ends in :environment:<name> and never :ref:refs/heads/main,
+  # so this role trusts the two environments instead of the branch. GitHub
+  # creates an environment with no branch limits the first time a job names it,
+  # so restricting staging and prod to main is what keeps a side branch from
+  # deploying; the subject on its own does not.
   github_role_subjects = {
     terraform-plan  = ["${local.github_oidc_subject}:pull_request"]
     terraform-apply = ["${local.github_oidc_subject}:ref:refs/heads/main"]
+    deploy = [
+      "${local.github_oidc_subject}:environment:staging",
+      "${local.github_oidc_subject}:environment:prod",
+    ]
+    # nightly-cost.yml, on a schedule. A scheduled run's token names the
+    # default branch, and the job names no environment, so this is the plain
+    # main subject. It reads two things and changes nothing.
+    cost = ["${local.github_oidc_subject}:ref:refs/heads/main"]
   }
 }
 
@@ -486,4 +497,86 @@ resource "aws_iam_role_policy" "apply" {
   name   = "second-brain-ops-terraform-apply"
   role   = aws_iam_role.github["terraform-apply"].id
   policy = data.aws_iam_policy_document.apply.json
+}
+
+# Deploys, through SSM Run Command. Every cluster step in deploy.yml runs as
+# root on the node, so this role gets the calls that workflow makes and nothing
+# else. No s3, because the node reads the vault and the dataset with its own
+# instance role. No kms. No ssm:StartSession, which would turn the right to
+# start a workflow into an interactive shell on the node.
+
+data "aws_iam_policy_document" "deploy" {
+  #checkov:skip=CKV_AWS_356:Only the two command-output reads and ec2:DescribeInstances trip this. All three are read-only and none of them takes a resource ARN.
+
+  # ops.py down and up replace the node, so the instance id changes every work
+  # session and a literal id here would go stale. SendCommand authorizes the
+  # instance and the document separately, and AWS-RunShellScript is the only
+  # document the pipeline runs.
+  statement {
+    sid     = "RunCommandsOnTheNode"
+    actions = ["ssm:SendCommand"]
+    resources = [
+      "${local.ec2_arn}:instance/*",
+      "arn:aws:ssm:${local.region}::document/AWS-RunShellScript",
+    ]
+  }
+
+  # Reading a command back doesn't support resource-level permissions. These two
+  # are how the workflow waits for a step and picks up its numbers-only output.
+  statement {
+    sid       = "ReadCommandOutput"
+    actions   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
+    resources = ["*"]
+  }
+
+  # DescribeInstances doesn't either. The workflow needs it to find the running
+  # node, since it is the instance id that SendCommand targets.
+  statement {
+    sid       = "FindTheNode"
+    actions   = ["ec2:DescribeInstances"]
+    resources = ["*"]
+  }
+
+  # The pipeline's last step writes one item per deploy, which is how deploy
+  # history stays out of main as bot commits. Query is the read side, and it
+  # can only ever ask by sha, the table's hash key.
+  statement {
+    sid       = "RecordDeploys"
+    actions   = ["dynamodb:PutItem", "dynamodb:Query"]
+    resources = [local.deploys_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "deploy" {
+  name   = "second-brain-ops-deploy"
+  role   = aws_iam_role.github["deploy"].id
+  policy = data.aws_iam_policy_document.deploy.json
+}
+
+# The nightly cost check. It answers two questions: is a node running, and
+# does OPS_STATE say one should be. Both calls are read-only and neither takes
+# a resource ARN, so this role can read nothing else in the account.
+
+data "aws_iam_policy_document" "cost" {
+  #checkov:skip=CKV_AWS_356:Neither DescribeInstances nor GetCostAndUsage takes a resource ARN, and both are read-only.
+
+  statement {
+    sid       = "SeeWhetherTheNodeIsRunning"
+    actions   = ["ec2:DescribeInstances"]
+    resources = ["*"]
+  }
+
+  # One call a night, at a cent a call. It is what puts a real number in
+  # docs/ops/cost.md and in the issue a forgotten node opens.
+  statement {
+    sid       = "ReadTheMonthToDateBill"
+    actions   = ["ce:GetCostAndUsage"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "cost" {
+  name   = "second-brain-ops-cost"
+  role   = aws_iam_role.github["cost"].id
+  policy = data.aws_iam_policy_document.cost.json
 }

@@ -1,0 +1,299 @@
+name: Deploy
+
+# Staging, then the eval gate, then prod, then a smoke test, with a rollback
+# on any failure and one DynamoDB item per deploy. It runs after CI succeeds
+# on main, which is what guarantees the image the node pulls exists: CI's
+# publish job pushes ghcr.io/bryancruzcb/second-brain-backend:<sha> for that
+# same commit.
+#
+# Nothing here talks to the cluster directly. The node has no inbound rules
+# and there is no Ingress, so every cluster step is a script sent over SSM
+# (deploy/pipeline/send_command.py) that runs as root on the node and prints
+# numbers, counts and SHAs. The repository is public and the vault is not:
+# what the gate and the smoke test print is checked for vault content on the
+# node, before it reaches this log.
+#
+# The node exists only while Bryan is working (`ops.py up`), so every job is
+# gated on OPS_STATE. With the node down the run is skipped, not failed.
+#
+# The two jobs name GitHub environments, which is what makes the OIDC token's
+# subject end in :environment:staging or :environment:prod — the only two
+# subjects the deploy role trusts (deploy/terraform/iam.tf). Both environments
+# are restricted to main, or a side branch could deploy.
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit to deploy. Defaults to the branch tip. CI must have published its image."
+        required: false
+        default: ""
+
+permissions: {}
+
+# Deploys queue instead of racing each other onto one node.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-west-2
+  DEPLOY_ROLE: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/second-brain-ops-deploy
+
+jobs:
+  setup:
+    name: Resolve the commit
+    # workflow_run fires for failed CI runs too, and there is nothing to
+    # deploy to while the node is down.
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      && vars.OPS_STATE == 'up'
+      && vars.AWS_ACCOUNT_ID != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+      deploy: ${{ steps.paths.outputs.deploy }}
+    steps:
+      - name: Pick the commit
+        id: pick
+        env:
+          # A workflow_run job checks out the default branch by default, not
+          # the commit that triggered it, so every later job takes this.
+          DISPATCH_SHA: ${{ inputs.sha }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH_SHA: ${{ github.sha }}
+        run: |
+          sha="${DISPATCH_SHA:-${RUN_SHA:-$BRANCH_SHA}}"
+          # It ends up in a shell command on the node and in an image tag.
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "not a commit SHA: $sha" >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "resolved $sha" >> "$GITHUB_STEP_SUMMARY"
+
+      # A merge that only touched docs or the frontend has nothing for the
+      # node to run, and a deploy of it would still cost a rollout and an
+      # eval run. workflow_run cannot take a path filter, so the commit's own
+      # file list is the filter.
+      - name: Does this commit touch anything the node runs?
+        id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.pick.outputs.sha }}
+          BY_HAND: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "$BY_HAND" = true ]; then
+            echo "deploy=yes" >> "$GITHUB_OUTPUT"
+            echo "deploying by hand" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # For a merge commit this is the diff against main before the merge.
+          files=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq '.files[].filename')
+          if printf '%s\n' "$files" | grep -qE '^(backend/|deploy/k8s/|deploy/eval/|deploy/pipeline/)'; then
+            echo "deploy=yes" >> "$GITHUB_OUTPUT"
+            echo "deploying $SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "deploy=no" >> "$GITHUB_OUTPUT"
+            echo "nothing the node runs changed in $SHA, so not deploying" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  staging:
+    name: Staging
+    needs: setup
+    if: needs.setup.outputs.deploy == 'yes'
+    runs-on: ubuntu-latest
+    # A fresh namespace builds its index before the API is Ready, which took
+    # 22 minutes for 5,941 chunks on this node. The two SSM timeouts below add
+    # up to 105 minutes, so this is the backstop rather than the thing that
+    # fires first.
+    timeout-minutes: 120
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SHA: ${{ needs.setup.outputs.sha }}
+      # The bucket's name carries the account id, which is why it is passed in
+      # rather than committed. The AWS action masks that id in this log from
+      # the moment the role is assumed.
+      VAULT_BUCKET: second-brain-vault-${{ vars.AWS_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Deploy to staging
+        id: deploy
+        run: |
+          python deploy/pipeline/send_command.py --sha "$SHA" \
+            --script deploy/pipeline/deploy-namespace.sh --timeout 4200 \
+            -- staging "$SHA" "$VAULT_BUCKET"
+
+      - name: Score it against the recorded card
+        id: gate
+        run: |
+          set +e
+          python deploy/pipeline/send_command.py --sha "$SHA" \
+            --script deploy/pipeline/run-job.sh --timeout 2100 --output-file gate.out \
+            -- staging "$SHA" deploy/k8s/gate-job.yaml gate
+          code=$?
+          set -e
+          # 3 is the gate saying there is no recorded card to compare against,
+          # which is the state of a fresh environment: the card can only be
+          # measured against a cluster serving the synced vault. The deploy
+          # goes on and the record says it was ungated.
+          if [ "$code" = 3 ]; then
+            echo "gated=no" >> "$GITHUB_OUTPUT"
+            echo "staging deployed without a gate: no recorded scorecard yet" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Roll staging back
+        if: failure()
+        run: |
+          python deploy/pipeline/send_command.py --sha "$SHA" \
+            --script deploy/pipeline/rollback.sh --timeout 1200 -- staging
+
+      - name: Record the deploy
+        if: always()
+        env:
+          DEPLOYED: ${{ steps.deploy.outcome }}
+          GATED: ${{ steps.gate.outcome }}
+          UNGATED: ${{ steps.gate.outputs.gated }}
+        run: |
+          outcome=deployed
+          if [ "$DEPLOYED" != success ]; then
+            outcome=rolled-back
+          elif [ "$GATED" != success ]; then
+            outcome=gate-failed
+          elif [ "$UNGATED" = no ]; then
+            outcome=ungated
+          fi
+          python deploy/pipeline/record_deploy.py --sha "$SHA" --namespace staging \
+            --outcome "$outcome" --from gate.out
+
+  prod:
+    name: Production
+    needs: [setup, staging]
+    if: needs.setup.outputs.deploy == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SHA: ${{ needs.setup.outputs.sha }}
+      VAULT_BUCKET: second-brain-vault-${{ vars.AWS_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Promote to prod
+        id: promote
+        run: |
+          python deploy/pipeline/send_command.py --sha "$SHA" \
+            --script deploy/pipeline/deploy-namespace.sh --timeout 4200 \
+            -- prod "$SHA" "$VAULT_BUCKET"
+
+      - name: Smoke test
+        id: smoke
+        run: |
+          python deploy/pipeline/send_command.py --sha "$SHA" \
+            --script deploy/pipeline/run-job.sh --timeout 2100 --output-file smoke.out \
+            -- prod "$SHA" deploy/k8s/smoke-job.yaml smoke
+
+      - name: Roll prod back
+        if: failure()
+        run: |
+          python deploy/pipeline/send_command.py --sha "$SHA" \
+            --script deploy/pipeline/rollback.sh --timeout 1200 -- prod
+
+      - name: Record the deploy
+        if: always()
+        env:
+          PROMOTED: ${{ steps.promote.outcome }}
+          SMOKED: ${{ steps.smoke.outcome }}
+        run: |
+          outcome=deployed
+          if [ "$PROMOTED" != success ]; then
+            outcome=rolled-back
+          elif [ "$SMOKED" != success ]; then
+            outcome=smoke-failed
+          fi
+          python deploy/pipeline/record_deploy.py --sha "$SHA" --namespace prod \
+            --outcome "$outcome" --from smoke.out
+
+  report:
+    name: Report a failed deploy
+    needs: [setup, staging, prod]
+    # SNS mail never arrived, so a failure has to find Bryan the same way an
+    # alert does: as an issue on this repository.
+    if: failure() && needs.setup.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open an issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SHA: ${{ needs.setup.outputs.sha }}
+          STAGING: ${{ needs.staging.result }}
+          PROD: ${{ needs.prod.result }}
+        with:
+          script: |
+            const { SHA, STAGING, PROD } = process.env;
+            const { owner, repo } = context.repo;
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const title = `Deploy failed: ${SHA.slice(0, 7)}`;
+            const body = [
+              `Commit \`${SHA}\` did not finish deploying.`,
+              ``,
+              `| namespace | result |`,
+              `| --- | --- |`,
+              `| staging | ${STAGING} |`,
+              `| prod | ${PROD} |`,
+              ``,
+              `The failing step's own output is in the run: ${run}`,
+              `Both namespaces roll back on failure, so the cluster is on the previous image.`,
+              `\`python deploy/ops.py deploys\` prints what was recorded.`,
+            ].join('\n');
+            await github.rest.issues.create({ owner, repo, title, body, labels: ['deploy-failure'] });

@@ -140,17 +140,18 @@ jobs:
           kubectl kustomize deploy/k8s/overlays/staging > /tmp/staging.yaml
           kubectl kustomize deploy/k8s/overlays/prod > /tmp/prod.yaml
           IMAGE=ghcr.io/bryancruzcb/second-brain-backend:ci             envsubst < deploy/k8s/gate-job.yaml > /tmp/gate.yaml
+          IMAGE=ghcr.io/bryancruzcb/second-brain-backend:ci             envsubst < deploy/k8s/smoke-job.yaml > /tmp/smoke.yaml
 
       - name: Validate Against the Kubernetes Schemas
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz             | tar -xz kubeconform
-          ./kubeconform -strict -summary /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml
+          ./kubeconform -strict -summary /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml /tmp/smoke.yaml
 
       - name: Hold the Manifests to the Design
         run: |
           # A moving tag would make a rollback a race with whatever it points
           # at by the time the node pulls.
-          ! grep -n ":latest" /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml
+          ! grep -n ":latest" /tmp/staging.yaml /tmp/prod.yaml /tmp/gate.yaml /tmp/smoke.yaml
           # Nothing from the internet reaches this node, by design.
           ! grep -nE "^kind: Ingress|type: LoadBalancer" /tmp/staging.yaml /tmp/prod.yaml
           # The cloud copy is read-only: the desktop sync is the only writer.

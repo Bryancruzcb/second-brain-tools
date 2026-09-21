@@ -1,0 +1,108 @@
+name: Nightly cost check
+
+# The node is the only part of this that costs money, and it is meant to
+# exist only while Bryan is working. This asks every night whether a node is
+# running and whether the OPS_STATE repo variable says one should be, and
+# opens an issue when the two disagree. A forgotten node would otherwise run
+# for a month, which is the one mistake here that is expensive.
+#
+# It also reads the month-to-date bill, which is what puts a real number in
+# docs/ops/cost.md. That call costs a cent, once a night.
+#
+# Scheduled runs get a token whose subject names the default branch, and this
+# job names no environment, so the role it assumes is second-brain-ops-cost,
+# which can read those two things and nothing else.
+
+on:
+  schedule:
+    # 08:20 UTC, which is the small hours in California, after a day's usage
+    # has landed in Cost Explorer.
+    - cron: "20 8 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    name: Node state and spend
+    if: vars.AWS_ACCOUNT_ID != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Assume the cost role
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/second-brain-ops-cost
+          aws-region: us-west-2
+          mask-aws-account-id: true
+
+      - name: Compare OPS_STATE with the account
+        id: state
+        env:
+          OPS_STATE: ${{ vars.OPS_STATE }}
+        run: |
+          set +e
+          python deploy/pipeline/node_state.py --ops-state "$OPS_STATE" | tee state.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '### Nightly cost check'
+            echo
+            sed 's/^/    /' state.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+
+      - name: Open an issue
+        if: failure() && steps.state.outcome == 'failure'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const title = 'Node state does not match OPS_STATE';
+            const detail = fs.readFileSync('state.txt', 'utf8');
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = `\`\`\`\n${detail}\`\`\`\n\nChecked by ${run}`;
+            // One issue for this, reopened by a comment rather than duplicated
+            // every night until it is dealt with.
+            const open = await github.paginate(github.rest.issues.listForRepo,
+              { owner, repo, state: 'open', labels: 'cost' });
+            const existing = open.find((i) => i.title === title && !i.pull_request);
+            if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['cost'] });
+            }
+
+      - name: Close the issue once they agree
+        if: success()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const title = 'Node state does not match OPS_STATE';
+            const open = await github.paginate(github.rest.issues.listForRepo,
+              { owner, repo, state: 'open', labels: 'cost' });
+            for (const issue of open.filter((i) => i.title === title && !i.pull_request)) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: 'The node and OPS_STATE agree again.',
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: issue.number,
+                state: 'closed', state_reason: 'completed',
+              });
+            }

@@ -68,7 +68,7 @@ flowchart LR
 |---|---|---|
 | The internet | The node | Nothing. The security group has no inbound rules |
 | The owner | The API and Grafana | SSM Session Manager port forwarding |
-| GitHub Actions on `main` | AWS | The Terraform apply role, which trusts only this repo's `main` branch. The deploy role, trusted for the `staging` and `prod` environments, arrives in week 4 once both only accept `main` |
+| GitHub Actions on `main` | AWS | The Terraform apply role, which trusts only this repo's `main` branch. The deploy role, trusted for the `staging` and `prod` environments only, which is why both environments are restricted to `main`. The cost role, trusted for `main`, reads whether a node is running and the month-to-date bill |
 | Pull requests | AWS | A read-only role for Terraform plans. Forks get no OIDC token |
 | The desktop | The vault bucket | The `second-brain-vault-sync` user, with list, put, and delete on that bucket only |
 | The node | The vault bucket and SSM parameters | Its instance role, read only |
@@ -91,5 +91,5 @@ The deploy flow is in [PLAN.md section 6.4](PLAN.md#64-pipeline).
 | App changes: `READ_ONLY`, metrics, JSON logs, HTTP eval, image contents, GHCR publish | Built in week 2, running on staging since 2026-09-19 |
 | Kubernetes manifests, `deploy/k8s/` | Built in week 2. Staging answers queries through the SSM tunnel; requests and limits set from measured use |
 | Monitoring and alerts | Built in week 3 and running on the node since 2026-09-19. Alerts become GitHub issues; the canary scores ten eval questions every 15 minutes |
-| Deploy pipeline and eval gate | Week 4 |
+| Deploy pipeline and eval gate, `deploy/pipeline/` and `.github/workflows/deploy.yml` | Built in week 4, not yet run on a node. Staging, the gate, promote, the smoke Job, rollback on failure, and a DynamoDB item per deploy, every cluster step sent over SSM |
 | Game day | Week 5 |
