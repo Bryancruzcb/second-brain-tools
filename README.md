@@ -241,6 +241,26 @@ The backend holds its own view of the store: Chroma's client keeps the HNSW inde
 
 Paths are resolved from `OBSIDIAN_VAULT_PATH` and `CHROMA_DB_PATH` (see `.env.template`); the vector index defaults to `backend/chroma_db`.
 
+## Running the retrieval API on AWS
+
+Optional, and separate from everything above: `deploy/` puts the backend on one EC2 node
+running k3s, with a staging and a prod namespace, so that deploys, monitoring and failure
+drills are practised on something real. It does not change how the app runs locally — the
+desktop still makes no cloud calls, and the cloud copy is read-only.
+
+What goes up is code plus a filtered copy of the vault: `deploy/sync/sync_vault.py` drops
+anything the indexer would skip, anything `.cloudignore` names, and any file a secret
+pattern matches, then mirrors the rest into a private S3 bucket. The node has no inbound
+rules and there is no Ingress, so the only ways in are an SSM port forward and a script
+sent over SSM Run Command. A merge to main deploys to staging, scores retrieval against a
+recorded card, promotes to prod, smoke-tests it and rolls back if any step fails.
+
+Start at [deploy/README.md](deploy/README.md). The design is
+[docs/ops/PLAN.md](docs/ops/PLAN.md), the picture is
+[docs/ops/architecture.md](docs/ops/architecture.md), what it costs is
+[docs/ops/cost.md](docs/ops/cost.md), and the one incident this project has had is written
+up in [docs/ops/postmortem-stale-index.md](docs/ops/postmortem-stale-index.md).
+
 ## Validation
 
 ```bash
