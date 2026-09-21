@@ -9,6 +9,7 @@ being deployed and runs one of these scripts there as root.
     output_guard.py        what a node script may print into a public log
     record_deploy.py       one DynamoDB item per deploy, from those numbers
     node_state.py          nightly: is a node running, and should it be
+    deploy-monitoring.sh   install or update the monitoring stack, and wait
     deploy-namespace.sh    pin the tag, apply, bootstrap an empty volume, wait
     run-job.sh             run the gate Job or the smoke Job and report
     rollback.sh            undo one Deployment and name the tag it landed on
@@ -161,6 +162,18 @@ script's own waits, or SSM kills the command while the script is still
 waiting and the step's exit code says nothing useful. `deploy-namespace.sh`
 waits up to 45 minutes for the first index and 15 for the rollout, so 4200
 seconds; `run-job.sh` waits up to 30 minutes, so 2100.
+
+## deploy-monitoring.sh
+
+Applies `deploy/monitoring/` and waits: first for k3s's Helm controller to
+finish each chart's install Job, then for every workload's rollout. It takes
+no namespace, because monitoring is one stack for the whole node and it
+scrapes both app namespaces.
+
+It is here rather than in a script on someone's desktop because the stack
+lives on the node's disk: every `ops.py down` takes it, and a fresh node
+needs it again. "Destroy the environment and rebuild it" has to be
+reproducible from what is committed.
 
 ## status.sh NAMESPACE
 
