@@ -20,7 +20,8 @@ The canary that feeds the quality alert is a CronJob in each app namespace
 
 From the desktop, the way everything else reaches the node:
 
-    python deploy/pipeline/send_command.py --sha <40-hex commit> --timeout 1500       --script deploy/pipeline/deploy-monitoring.sh
+    python deploy/pipeline/send_command.py --sha <40-hex commit> \
+      --timeout 1500 --script deploy/pipeline/deploy-monitoring.sh
 
 That applies this directory, waits for each chart's install Job and for every
 workload's rollout, and prints what is running. On the node itself it is

@@ -98,7 +98,7 @@ Tests: `python -m pytest deploy/tests -q`
 The stack is on the node's disk, so a fresh node needs it installed again:
 
 ```
-python deploy/pipeline/send_command.py --sha <40-hex commit> --timeout 1500   --script deploy/pipeline/deploy-monitoring.sh
+python deploy/pipeline/send_command.py --sha <40-hex commit> --timeout 1500 --script deploy/pipeline/deploy-monitoring.sh
 ```
 
 Grafana is a tunnel away:
