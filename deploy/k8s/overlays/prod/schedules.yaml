@@ -1,0 +1,29 @@
+# Prod's scheduled jobs run offset from staging's, because both namespaces
+# share one node whose two vCPUs are one physical core, and the base gives
+# both namespaces the same schedules.
+#
+# Measured 2026-09-21: with both canaries starting on the same minute, the
+# same ten questions took 3.7 to 4.0 s a search, 3.6 to 3.8 s of it in the
+# reranker, and 235 of prod's 240 canary searches in six hours were over 3 s.
+# SearchLatencyHigh opened and closed fourteen GitHub issues that afternoon.
+# The same ten questions with nothing else running took 1.88 s. The node was
+# 10 percent busy on average: the two pods were only ever slow together.
+#
+# Seven minutes keeps the two canaries well apart; each run takes about half
+# a minute alone.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: second-brain-canary
+spec:
+  schedule: "7-59/15 * * * *"
+---
+# The same mechanism, not yet measured for the indexer: two builds at 06:00
+# UTC would each want the node's one physical core. The nightly run is
+# incremental and short, and half an hour apart costs nothing.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: second-brain-indexer
+spec:
+  schedule: "30 6 * * *"

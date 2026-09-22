@@ -141,9 +141,13 @@ one API worker serves them in turn.
 - **The p95 alert in PLAN.md section 6.5 is set at 1.5 seconds**, below the
   1.92 s staging measured through the tunnel. Week 3 sets it from the
   in-cluster request histogram instead, or it fires on ordinary traffic.
-- **Both namespaces' indexers start at 06:00 UTC** and each runs on about
-  one of the node's two CPUs. The nightly run is incremental and short, but
-  if it grows, prod's schedule should move later.
+- **Done 2026-09-21: prod's scheduled jobs run offset from staging's**
+  (`overlays/prod/schedules.yaml`). The canaries used to start on the same
+  minute in both namespaces, and on this node's one physical core that
+  doubled every canary search: 3.7 to 4.0 s together against 1.88 s alone,
+  nearly all of it in the reranker, and fourteen `SearchLatencyHigh` issues
+  in an afternoon. Prod's canary now runs at 7 past, and its indexer at
+  06:30 rather than 06:00, the same mechanism.
 - **The API container runs as root**, because the image has no non-root user
   and the volume is created root-owned. Adding a user to the Dockerfile and
   an `fsGroup` here is a small change that wants a live node to verify, so
