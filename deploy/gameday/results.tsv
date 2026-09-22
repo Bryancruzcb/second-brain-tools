@@ -1,1 +1,8 @@
 scenario	started_utc	namespace	sha	alert	pending_s	firing_s	recovery_s	clear_s	outcome	detail
+01-kill-pod	2026-09-21T08:25:25Z	prod	1a8fae610491	ApiNotReady	31	none	21	61	recovered	watch=420s strict=200 ready=1
+01-kill-pod	2026-09-21T08:32:50Z	prod	1a8fae610491	ApiNotReady	none	none	21	none	recovered	watch=420s strict=200 ready=1
+01-kill-pod	2026-09-21T08:40:01Z	prod	1a8fae610491	ApiNotReady	31	none	20	61	recovered	watch=420s strict=200 ready=1
+04-bad-config	2026-09-21T08:47:32Z	staging	1a8fae610491	-	none	none	125	none	drift	gate_exit=1 TOP_K=8->1->8 broken_ready=16s restore=17s canary=1.00 base=1.00
+04-bad-config	2026-09-21T08:50:30Z	staging	1a8fae610491	-	none	none	126	none	drift	gate_exit=1 TOP_K=8->1->8 broken_ready=17s restore=17s canary=1.00 base=1.00
+04-bad-config	2026-09-21T08:52:45Z	staging	1a8fae610491	-	none	none	125	none	drift	gate_exit=1 TOP_K=8->1->8 broken_ready=16s restore=17s canary=1.00 base=1.00
+02-fill-disk	2026-09-22T06:30:47Z	-	48581c618b4b	DiskAlmostFull	45	none	378	75	evicted	target=95 kubelet_evicts_under_free=5 evicted=api-staging,api-prod,grafana apinotready=#63,#64 aborted_by_hand=85s

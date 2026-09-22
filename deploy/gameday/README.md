@@ -109,9 +109,32 @@ it wants to time has already happened, for some other reason.
 
 ### 02-fill-disk.sh
 
-Fills the root volume to 95 percent with one filler file, waits for
+Fills the root volume to 83 percent with one filler file, waits for
 `DiskAlmostFull` (80 percent, `for: 10m`), removes the filler and waits for
 the alert to clear.
+
+**Why 83 and not PLAN.md's 95.** The kubelet has lines of its own on this
+disk, and they sit above the alert's. Read from the node's kubelet config on
+2026-09-22 (k3s defaults):
+
+| used | what happens |
+|---|---|
+| 80% | `DiskAlmostFull` goes pending, and fires after 10 minutes |
+| 85% | the kubelet deletes unused container images until the disk is back at 80% |
+| 95% | free space is under 5% and the kubelet evicts pods, taints the node `NoSchedule`, and keeps the taint for 5 minutes after the space comes back |
+
+The first run aimed at 95 percent and landed exactly on the eviction line.
+Within 20 seconds the kubelet evicted both API pods and Grafana; image GC
+then pulled the disk back to 79 percent, so `DiskAlmostFull` was pending for
+30 seconds and never fired. The APIs were down for about six minutes, and
+`ApiNotReady` fired in both namespaces (#63, #64), which is the outage alert
+doing its job for a real outage the game day caused. So the target sits
+between the alert and image GC, and the script reads both kubelet lines live
+and refuses a target at or past either of them.
+
+The lesson for the runbook is the table: the alert gives five points of
+warning before the kubelet starts quietly deleting images, and fifteen
+before it starts evicting pods.
 
 This is the scenario with a blast radius. The root volume holds k3s, the
 images, both namespaces' local-path volumes with the vault copy and the
@@ -120,13 +143,13 @@ the SSM agent down with it, and an SSM agent that cannot run a command cannot
 be told to clean up: the node would have to be destroyed and rebuilt.
 
 **The margin.** The filler is sized from the real free space, never from a
-guess. It targets 95 percent used, it never leaves less than **1 GiB** free
+guess. It targets 83 percent used, it never leaves less than **1 GiB** free
 whatever that target works out to, and it refuses to allocate less than 256
 MiB, which would be noise. It refuses to run at all when the volume is
 already at or past the alert's own 80 percent line, or while an indexer Job
 is running: a rebuild that runs out of space mid-write is a real corrupted
-index, not an experiment. On the 30 GB root volume the 95 percent target
-leaves about 1.5 GB, so the 1 GiB floor only takes over on a smaller disk.
+index, not an experiment. On the 30 GB root volume the 83 percent target
+leaves about 5 GB, so the 1 GiB floor only takes over on a much smaller disk.
 `df`'s Avail already excludes the blocks ext4 reserves for root, and so does
 the `node_filesystem_avail_bytes` the alert reads, so the two agree and the
 true floor is higher than the computed one.

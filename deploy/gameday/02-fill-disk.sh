@@ -14,8 +14,9 @@
 #
 # So the filler is sized from the real free space, never from a guess:
 #
-#   * it targets 95 percent used, the number PLAN.md section 6.6 asks for,
-#     which is well past the alert's 80 percent line;
+#   * it targets a point between DiskAlmostFull's 80 percent line and the
+#     kubelet's first reaction, and it reads the kubelet's lines live
+#     rather than trusting a number (see TARGET_USED_PCT);
 #   * it never leaves less than MIN_FREE_BYTES free, whatever that target
 #     works out to on a bigger or smaller disk;
 #   * it refuses to run at all when the disk is already past the alert's own
@@ -47,12 +48,20 @@ ALERT=DiskAlmostFull
 # (mountpoint "/"), and unlike /tmp it is not a tmpfs, so the bytes land on
 # the disk rather than in RAM. Nothing else on the node uses this name.
 FILLER=/var/tmp/second-brain-gameday-filler
-# PLAN.md section 6.6: "Fill the volume to 95 percent."
-TARGET_USED_PCT=95
+# Between the alert and the kubelet. PLAN.md section 6.6 asked for 95
+# percent, and the first run on 2026-09-22 showed why that is wrong on this
+# node: k3s's kubelet evicts pods once free space falls under 5 percent,
+# which is 95 percent used, and it deletes unused images from 85 percent
+# back down to 80. That run evicted both API pods and Grafana, tainted the
+# node NoSchedule for five minutes after the space came back, and fired
+# ApiNotReady in both namespaces, while DiskAlmostFull never fired at all:
+# image GC pulled the disk under 80 percent within a minute. So the target
+# is above the alert's 80 and below image GC's 85, and the two kubelet lines
+# are checked against the live kubelet config before anything is allocated.
+TARGET_USED_PCT=83
 # The safety margin, in bytes rather than in percent so it does not shrink
-# with the disk. On the 30 GB root volume the 95 percent target leaves about
-# 1.5 GB, so this floor only takes over on a disk small enough that 5 percent
-# would be dangerous.
+# with the disk. On the 30 GB root volume the 83 percent target leaves about
+# 5 GB, so this floor only takes over on a much smaller disk.
 MIN_FREE_BYTES=1073741824
 # Below this there is nothing worth doing: the disk is already close enough
 # to the target that the filler would be noise, and the margin above is
@@ -93,6 +102,33 @@ fi
 PRE_STATE=$(alert_state "$ALERT" "")
 if [ "$PRE_STATE" != none ]; then
   echo "$ALERT is already $PRE_STATE, so there is nothing to time" >&2
+  exit 1
+fi
+
+# --- the kubelet's own lines, read live ---------------------------------------
+# Past image GC's high line the kubelet deletes images until the disk is back
+# under the alert, so the scenario would measure nothing; past the eviction
+# line it takes the API down. A config that cannot be read, or an eviction
+# threshold that is not a percentage, is a refusal rather than a guess.
+NODE=$(kubectl get node -o jsonpath='{.items[0].metadata.name}')
+read -r GC_HIGH_PCT EVICT_FREE_PCT <<<"$(kubectl get --raw "/api/v1/nodes/$NODE/proxy/configz" 2>/dev/null \
+  | python3 -c '
+import json, sys
+c = json.load(sys.stdin)["kubeletconfig"]
+free = str((c.get("evictionHard") or {}).get("nodefs.available", ""))
+print(int(c.get("imageGCHighThresholdPercent") or 0), free[:-1] if free.endswith("%") else 0)
+' 2>/dev/null || echo "0 0")"
+if [ "${GC_HIGH_PCT:-0}" -le 0 ] || [ "${EVICT_FREE_PCT:-0}" -le 0 ]; then
+  echo "refusing: could not read the kubelet's image GC and eviction thresholds" >&2
+  exit 1
+fi
+echo "kubelet: deletes images from ${GC_HIGH_PCT}% used, evicts pods under ${EVICT_FREE_PCT}% free"
+if [ "$TARGET_USED_PCT" -ge "$GC_HIGH_PCT" ]; then
+  echo "refusing: a ${TARGET_USED_PCT}% target is at or past the kubelet's image GC line, ${GC_HIGH_PCT}%" >&2
+  exit 1
+fi
+if [ $(( 100 - TARGET_USED_PCT )) -le "$EVICT_FREE_PCT" ]; then
+  echo "refusing: a ${TARGET_USED_PCT}% target leaves no more free than the kubelet's eviction line, ${EVICT_FREE_PCT}%" >&2
   exit 1
 fi
 
