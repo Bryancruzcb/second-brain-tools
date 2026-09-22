@@ -171,7 +171,7 @@ A PR that changes retrieval on purpose re-records the card against staging with 
 Four scripted scenarios, each run three times and timed.
 
 1. Kill the prod pod. Expect a readiness alert, a restart by Kubernetes, and recovery in under a minute.
-2. Fill the volume to 95 percent. Expect a disk alert and a clean failure from the indexer CronJob. The runbook covers growing the volume.
+2. Fill the volume past the alert's 80 percent line. Expect a disk alert and a clean failure from the indexer CronJob. The runbook covers growing the volume. (This said 95 percent until the first run on 2026-09-22 showed that 95 is the kubelet's own eviction line on this node: it evicted both API pods. The scenario now aims at 83, between the alert and the kubelet's image cleanup at 85; `deploy/gameday/README.md` has the table.)
 3. Run the indexer while the API serves. Expect the index-age gauge to move, PR #25's reopen to pick up the new index, and canary hit rate to stay flat. This is the real incident, replayed.
 4. Run `deploy.yml` by hand on a branch whose config breaks retrieval, for example a top k of 1. Expect the gate to block promotion. Then push the same image to prod by hand, expect the canary alert, and roll back by the runbook.
 

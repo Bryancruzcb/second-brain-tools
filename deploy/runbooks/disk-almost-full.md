@@ -27,7 +27,25 @@ same root volume, so the request is not a quota
 (`deploy/k8s/base/pvc.yaml`). One namespace can fill the disk for everything
 else.
 
-What is not broken: the API keeps serving reads from the index it already has,
+**The kubelet acts on this disk too, and faster than you will.** Read from
+the node's kubelet config on 2026-09-22 (k3s defaults):
+
+| used | what happens |
+|---|---|
+| 80% | this alert goes pending, and fires after 10 minutes |
+| 85% | the kubelet deletes unused container images until the disk is back at 80% |
+| 95% | free space is under 5%, and the kubelet evicts pods and taints the node `NoSchedule` |
+
+So the alert is five points of warning before the kubelet starts quietly
+deleting images, which can pull the disk back under 80 percent and make the
+alert clear while whatever is growing keeps growing. It is fifteen points
+before evictions. At 95 percent the kubelet evicted both API pods and Grafana
+within 20 seconds during the first game day, and the node kept its taint for
+five minutes after the space came back (`evictionPressureTransitionPeriod`),
+so nothing could reschedule in that time either. If you see `ApiNotReady` in
+both namespaces at once, check the disk before anything else.
+
+What is not broken, below that eviction line: the API keeps serving reads from the index it already has,
 and a full disk stops the indexer rather than corrupting anything — the
 CronJob has `backoffLimit: 0`, so a failed run waits for tomorrow instead of
 retrying into the same wall. Nothing on this disk is the only copy of
