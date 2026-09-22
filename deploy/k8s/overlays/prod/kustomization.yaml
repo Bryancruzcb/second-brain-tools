@@ -16,3 +16,4 @@ patches:
       kind: Deployment
       name: second-brain
   - path: service-ip.yaml
+  - path: schedules.yaml
