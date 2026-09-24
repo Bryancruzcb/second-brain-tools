@@ -6,3 +6,8 @@ scenario	started_utc	namespace	sha	alert	pending_s	firing_s	recovery_s	clear_s	o
 04-bad-config	2026-09-21T08:50:30Z	staging	1a8fae610491	-	none	none	126	none	drift	gate_exit=1 TOP_K=8->1->8 broken_ready=17s restore=17s canary=1.00 base=1.00
 04-bad-config	2026-09-21T08:52:45Z	staging	1a8fae610491	-	none	none	125	none	drift	gate_exit=1 TOP_K=8->1->8 broken_ready=16s restore=17s canary=1.00 base=1.00
 02-fill-disk	2026-09-22T06:30:47Z	-	48581c618b4b	DiskAlmostFull	45	none	378	75	evicted	target=95 kubelet_evicts_under_free=5 evicted=api-staging,api-prod,grafana apinotready=#63,#64 aborted_by_hand=85s
+02-fill-disk	2026-09-22T06:44:17Z	-	4c3da6377a9e	DiskAlmostFull	45	646	646	707	cleared	used_pct=34->83->34 filler_gib=13.48 watch=900s
+02-fill-disk	2026-09-22T06:56:16Z	-	4c3da6377a9e	DiskAlmostFull	45	646	646	706	cleared	used_pct=34->83->34 filler_gib=13.47 watch=900s
+02-fill-disk	2026-09-23T19:28:59Z	-	4c3da6377a9e	DiskAlmostFull	60	661	661	721	cleared	used_pct=35->83->35 filler_gib=13.21 watch=900s
+03-stale-index	2026-09-23T19:30:48Z	staging	48581c618b4b	SearchLatencyHigh	none	none	60	none	indexed	chunks=5941->5941 age=132823/133483/133483 p95=1.98/1.98/nan canary_min=1.00 base=1.00 canary_alert=none not_200=0
+03-stale-index	2026-09-23T23:21:28Z	staging	48581c618b4b	SearchLatencyHigh	none	none	181	none	indexed	chunks=5941->6350 age=146653/146713/630 p95=2.94/2.94/2.50 canary_min=1.00 base=1.00 canary_alert=none not_200=0

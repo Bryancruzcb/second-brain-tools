@@ -13,11 +13,33 @@ itself afterwards.
     04-bad-config.sh    break retrieval and check the gate refuses to promote it
     results.tsv         one row per run
 
-**Nothing here has been run yet.** `results.tsv` ships with its header and no
-rows, and no number in this file comes from a game day. The measured numbers
-quoted below are week 3's, from `deploy/monitoring/README.md` and
-`deploy/k8s/README.md`, and they are what the scenarios expect to see again,
-not what they found.
+## What the runs found
+
+The game day ran from 2026-09-21 to 2026-09-23 on one node. `results.tsv`
+has every run, including the one that went wrong and the one that measured
+nothing.
+
+- **01-kill-pod**, prod, three runs. The API was back in 20 to 21 s each
+  time. `ApiNotReady` went pending in two runs and never fired, which is
+  what PLAN.md expects.
+- **02-fill-disk**, four runs. The first aimed at 95 percent, landed on the
+  kubelet's eviction line and took both APIs and Grafana down for about six
+  minutes (the table under its section). The script now aims at 83 percent,
+  and the three runs after that all behaved the same: `DiskAlmostFull`
+  pending at 45 to 60 s, firing at 646 to 661 s (600 of them are the alert's
+  `for:`), and cleared by itself about a minute after the filler went.
+- **03-stale-index**, staging, two runs, not three. The first had nothing to
+  index. The second followed a vault sync of 56 changed notes: the indexer
+  added 409 chunks in 181 s, the API's index age dropped to 0 while the Job
+  was still writing, so PR #25's reopen held, and the canary stayed at 1.00
+  with no readiness check failing. Its section says why a third run needs
+  another sync.
+- **04-bad-config**, staging, three runs. The gate refused `TOP_K=1` every
+  time (`run-job.sh` exit 1, `drift`), and the namespace was serving
+  `TOP_K=8` again 17 s after the restore started.
+
+The numbers quoted in the sections below that are not in `results.tsv` are
+week 3's, from `deploy/monitoring/README.md` and `deploy/k8s/README.md`.
 
 ## Running one
 
@@ -182,9 +204,23 @@ count, the canary's hit rate against its baseline, search p95 and
 finishes, because the p95 expression rates over 10 minutes and a sample taken
 the moment the build ends still carries the build's slow queries.
 
-Week 3 measured a full build at 22 minutes, with search p95 at 4.45 s during
-and 1.97 s after, and `SearchLatencyHigh` going pending and clearing by
-itself. That is what this scenario should reproduce.
+**A run needs something to index.** The Job is incremental: its init
+container syncs the vault from S3, and `rebuild_rag_index.py` runs without
+`--full`, so it embeds only the notes that changed since the last write. The
+run at 2026-09-23 19:30 had nothing new. The Job finished in 60 s, the chunk
+count stayed at 5,941, the index age kept climbing, and nothing was measured.
+That run also overlapped the third disk run, with the root volume at 83
+percent. The run at 23:21 followed a desktop vault sync
+(`deploy/sync/sync_vault.py`) that copied 56 changed notes, and it is the
+real one. So every run starts with a sync that changes something, and three
+comparable runs need three of them, or a `--full` variant of this script,
+which does not exist yet.
+
+Week 3 measured a first build of the whole vault at 22 minutes, with search
+p95 at 4.45 s during and 1.97 s after, and `SearchLatencyHigh` going pending
+and clearing by itself. An incremental run over a few dozen notes is not that
+build and does not reproduce it: the real run finished in 181 s, no query
+landed while it wrote, and `SearchLatencyHigh` never went pending.
 
 Search p95 only moves if somebody is searching. Between deploys the only
 traffic is the canary's ten questions every 15 minutes, so a quiet window
@@ -221,12 +257,12 @@ the deploy actually uses. Its exit codes carry straight through:
 | 3 | `no-card` | there is no recorded scorecard to compare against |
 | other | `gate-error` | a timeout, a failed init container, a bad argument |
 
-**Exit 3 is the state this repository is in today.** The gate compares
-against `cloud-scorecard.json`, which `deploy/eval/README.md` says is not in
-git yet because it can only be measured against a cluster serving the synced
-vault. Until `ops.py record-cloud-scorecard` has written it, this scenario
-reports `no-card` and exits 1, and it has not tested anything. Record the
-card first.
+**Exit 3 means no card.** The gate compares against `cloud-scorecard.json`,
+which can only be measured against a cluster serving the synced vault. It was
+recorded against live staging on 2026-09-21 with `ops.py
+record-cloud-scorecard` (`deploy/k8s/base/cloud-scorecard.json`, commit
+f1cf665), before the three runs in `results.tsv`. Without it this scenario
+reports `no-card`, exits 1, and has not tested anything.
 
 Restoring the ConfigMap is not optional, so it runs from an `EXIT` trap as
 well as on the ordinary path, and the script refuses to start if it cannot
