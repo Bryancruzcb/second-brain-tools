@@ -347,3 +347,31 @@ fn main() {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    #[test]
+    fn parse_links_and_tags_from_one_note() {
+        let note = "\
+---
+tags: [baking, \"sourdough\"]
+---
+[[Sourdough Starter|starter]]
+[[https://example.com]]
+[[file:readme]]
+#vault #second-brain
+";
+        assert_eq!(
+            super::parse_links(note),
+            vec!["Sourdough Starter".to_string()]
+        );
+        let tags: HashSet<String> = super::parse_tags(note).into_iter().collect();
+        let expected: HashSet<String> = ["baking", "sourdough", "vault", "second-brain"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(tags, expected);
+    }
+}
+

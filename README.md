@@ -39,6 +39,12 @@ the note that actually answers the question is among the chunks handed to
 Qwen. The harness is public (`backend/eval/`); the dataset stays local
 because it's my personal notes.
 
+The public score is the fixture at `backend/eval/public/questions.jsonl`,
+scored in CI against the notes in `backend/eval/public/vault`. The measured
+hit-rate@4 is 100% over 3 cases, and the MRR@4 is 1.0. The tables below,
+including the 100% row, are the private 40-question set. They are not this
+fixture.
+
 The August sequence, hit-rate@4 and MRR@4 on the index of that day:
 
 | Change | hit-rate@4 | MRR@4 |
