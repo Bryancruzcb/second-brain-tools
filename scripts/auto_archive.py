@@ -33,18 +33,46 @@ sys.path.insert(0, SCRIPTS_DIR)
 import sb_common  # noqa: E402
 
 
-def already_ran_today() -> bool:
+# Hour (local time) of the scheduled nightly trigger. A daytime run (logon
+# catch-up or manual) no longer satisfies the nightly run, so edits made in
+# the evening still get indexed the same night.
+NIGHTLY_HOUR = int(os.environ.get("AUTO_ARCHIVE_NIGHTLY_HOUR", "21"))
+
+
+def _read_marker():
+    """Last successful run as a datetime, or None. Legacy date-only markers
+    are treated as midnight of that day."""
     try:
         with open(MARKER_FILE, "r", encoding="utf-8") as f:
-            return f.read().strip() == datetime.date.today().isoformat()
+            raw = f.read().strip()
     except OSError:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def already_ran_today(now=None) -> bool:
+    """True when a --daily trigger should skip.
+
+    Skips if a run already succeeded today, unless it is now at/after the
+    nightly hour and today's only success came before it.
+    """
+    now = now or datetime.datetime.now()
+    last = _read_marker()
+    if last is None or last.date() != now.date():
         return False
+    nightly = now.replace(hour=NIGHTLY_HOUR, minute=0, second=0, microsecond=0)
+    if now >= nightly and last < nightly:
+        return False
+    return True
 
 
 def write_success_marker():
     try:
         with open(MARKER_FILE, "w", encoding="utf-8") as f:
-            f.write(datetime.date.today().isoformat())
+            f.write(datetime.datetime.now().isoformat(timespec="seconds"))
     except OSError as e:
         print(f"Could not write success marker: {e}", file=sys.stderr)
 
