@@ -249,6 +249,9 @@ _WEAK_BIGRAM_TOKENS = {
     # skill-boilerplate / status glue that pulled sessions into agent-tooling
     "mode", "status", "scan", "browser", "automation", "cities",
     "designs", "usage", "token",
+    # number words / filler / generic error glue that slipped through Oct 2026
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "besides", "real", "read-only", "error", "issue", "work",
 }
 
 # Exact phrases that repeatedly re-pollute routes even when tokens look topical.
@@ -272,6 +275,14 @@ _BLOCKED_LEARN_PHRASES = {
     "into obsidian",
     "commit callender",
     "analyze this video",
+    "five routes",
+    "besides second",
+    "work read-only",
+    "error code",
+    "code enoent",
+    "real link",
+    "github issue",
+    "real vault",
 }
 
 _VOWELS = set("aeiou")
@@ -311,6 +322,9 @@ def _is_noisy_token(tok: str) -> bool:
         return True
     # Absurd mashed concatenations (keep creatorflow-length product names).
     if len(tok) >= 14 and "-" not in tok:
+        return True
+    # Slash-stripped URL/repo mashes like bryancruzcbsecond-brain-tools.
+    if len(tok) >= 24:
         return True
     # File-type mashups: packdocxpdf, reportpdf, etc. (allow jsonschema-style prefixes).
     if "-" not in tok and len(tok) >= 8:

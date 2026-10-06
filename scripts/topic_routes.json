@@ -32,13 +32,15 @@
         "mac setup prompt",
         "second-brain-tools github",
         "check obsidian",
-        "index review"
+        "index review",
+        "brain repo"
       ],
       "description": "Personal Obsidian vault, local RAG, chat archive, Chroma retrieval, second-brain-tools.",
       "learned_keywords": [
         "merge tasks",
         "brain tools",
-        "second-brain-tools github"
+        "second-brain-tools github",
+        "brain repo"
       ]
     },
     {
@@ -65,7 +67,9 @@
         "release gate",
         "performance-sensitive product",
         "product interfaces",
-        "exercise creatorflow"
+        "exercise creatorflow",
+        "roblox game",
+        "roblox studio"
       ],
       "description": "CreatorFlow Roblox creative tooling, Fable motion handoffs, creator product work.",
       "learned_keywords": [
@@ -79,7 +83,9 @@
         "release gate",
         "performance-sensitive product",
         "product interfaces",
-        "exercise creatorflow"
+        "exercise creatorflow",
+        "roblox game",
+        "roblox studio"
       ]
     },
     {
@@ -160,8 +166,8 @@
     },
     {
       "id": "deadline-compliance",
-      "title": "Deadline Compliance Tool",
-      "folder": "02 Projects/Deadline Compliance Tool",
+      "title": "Deadline Compliance Tool - Market Scan",
+      "folder": "02 Projects",
       "keywords": [
         "deadline compliance",
         "compliance tool",
@@ -373,12 +379,14 @@
         "analyze videos",
         "photos app",
         "link a video",
-        "take videos"
+        "take videos",
+        "evidence screenshots"
       ],
       "description": "ffmpeg, screenshots, images, screen recordings.",
       "learned_keywords": [
         "install ffmpeg",
-        "take videos"
+        "take videos",
+        "evidence screenshots"
       ]
     },
     {
