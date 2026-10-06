@@ -63,7 +63,9 @@ jobs:
         run: python -m py_compile backend/main.py backend/config.py backend/logging_setup.py backend/metrics.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/http_eval.py backend/eval/canary.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py deploy/sync/sync_vault.py deploy/ops.py deploy/monitoring/alert_bridge.py
 
       - name: Backend Tests
-        run: python -m pytest backend/tests deploy/sync/tests deploy/tests -q
+        run: |
+          # backend/tests/test_public_fixture.py is the public score and must fail rather than skip when the fixture is missing.
+          python -m pytest backend/tests deploy/sync/tests deploy/tests -q
 
   # ── Backend Container Verification ──────────────────────────────────────────
   # The image is the only documented deploy artifact and nothing built it until
