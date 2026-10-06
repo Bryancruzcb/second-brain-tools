@@ -14,6 +14,7 @@ variable "alert_email" {
   sensitive   = true
 }
 
+# A push of this directory applies OPS_STATE. Down means the EC2 instance is destroyed.
 variable "node_enabled" {
   description = "Whether the EC2 node exists. Turn it off between work sessions and everything else stays."
   type        = bool
