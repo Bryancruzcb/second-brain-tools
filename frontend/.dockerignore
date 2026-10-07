@@ -1,0 +1,7 @@
+# Keeps host build output and dependencies out of the image: without this,
+# `COPY . .` replaced the container's Linux node_modules with the host's
+# (Windows binaries for next-swc, lightningcss and sharp on a Windows checkout).
+node_modules
+.next
+*.tsbuildinfo
+npm-debug.log*
