@@ -30,8 +30,8 @@ def test_retrieve_parses_chroma_results_into_candidates():
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve("q", model=FakeModel(), collection=coll)
     assert out == [
-        {"id": "id_a", "source": "a.md", "title": "A", "chunk": "chunk one text", "distance": 0.1},
-        {"id": "id_b", "source": "b.md", "title": "B", "chunk": "chunk two text", "distance": 0.4},
+        {"id": "id_a", "source": "a.md", "title": "A", "chunk": "chunk one text", "distance": 0.1, "category": "note"},
+        {"id": "id_b", "source": "b.md", "title": "B", "chunk": "chunk two text", "distance": 0.4, "category": "note"},
     ]
 
 
@@ -39,7 +39,7 @@ def test_retrieve_overfetches_without_chroma_where_when_scoped():
     """Chroma where crashes HNSW here; scope is applied after fetch in Python."""
     coll = FakeCollection(CANNED)
     retrieval.retrieve("q", model=FakeModel(), collection=coll, scope="chats", k=7)
-    assert coll.last_kwargs["n_results"] == 32  # min(max(7*4, 32), 100)
+    assert coll.last_kwargs["n_results"] == 64  # min(max(7*8, 64), 400)
     assert "where" not in coll.last_kwargs
 
 
@@ -158,7 +158,7 @@ def test_hybrid_falls_back_to_vector_only_without_lexical(monkeypatch):
     out = retrieval.retrieve_hybrid("q", model=FakeModel(), collection=coll, lexical=None, k=2)
     assert [c["id"] for c in out] == ["id_a", "id_b"]
     # Default scope=notes over-fetches then post-filters (Chroma where is unsafe).
-    assert coll.last_kwargs["n_results"] == min(max(retrieval.HYBRID_DEPTH * 4, 32), 100)
+    assert coll.last_kwargs["n_results"] == min(max(retrieval.HYBRID_DEPTH * 8, 64), 400)
     assert "where" not in coll.last_kwargs
 
 
