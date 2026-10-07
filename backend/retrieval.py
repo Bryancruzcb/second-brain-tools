@@ -42,12 +42,13 @@ def matches_scope(meta, scope) -> bool:
 def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
     """Embed query_text and return the top-k chunk candidates, best first.
 
-    Returns a list of {"id", "source", "title", "chunk", "distance"} dicts.
+    Returns a list of {"id", "source", "title", "chunk", "distance", "category"} dicts.
     """
     query_embedding = model.encode([config.get_query_prefix() + query_text]).tolist()
     # Over-fetch when scoping so post-filter still fills k. Avoid Chroma `where`
     # — HNSW + where raises "Error finding id" on this build (notes/chats 500).
-    fetch_k = k if scope in (None, "", "all") else min(max(k * 4, 32), 100)
+    # Chat-heavy vaults (~90% chat chunks) need a larger multiplier than 4x.
+    fetch_k = k if scope in (None, "", "all") else min(max(k * 8, 64), 400)
     results = collection.query(
         query_embeddings=query_embedding,
         n_results=fetch_k,
@@ -68,6 +69,7 @@ def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
                 "title": meta.get("title", "Untitled Note"),
                 "chunk": doc,
                 "distance": float(dist),
+                "category": meta.get("category", "note"),
             })
             if len(candidates) >= k:
                 break

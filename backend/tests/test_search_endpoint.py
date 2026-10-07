@@ -39,7 +39,7 @@ def test_search_dedupes_titles_and_keeps_shape(monkeypatch):
     ]
     # The vector leg over-fetches without a Chroma where (HNSW + where raises
     # "Error finding id") and filters by category in Python afterward.
-    assert coll.last_kwargs["n_results"] == min(max(retrieval.HYBRID_DEPTH * 4, 32), 100)
+    assert coll.last_kwargs["n_results"] == min(max(retrieval.HYBRID_DEPTH * 8, 64), 400)
     assert "where" not in coll.last_kwargs
 
 
