@@ -268,7 +268,7 @@ jobs:
 
   # ── Next.js Frontend Verification ───────────────────────────────────────────
   # CI installs with bun (package.json packageManager: bun@1.4.2, frontend/bun.lock).
-  # package-lock.json stays for now because frontend/Dockerfile still runs npm ci.
+  # frontend/Dockerfile installs from the same bun.lock; there is no npm lockfile.
   nextjs-check:
     name: Next.js Frontend
     runs-on: ubuntu-latest

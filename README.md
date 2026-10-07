@@ -189,7 +189,7 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 ### 4. Start the frontend
 
-Prefer Bun (matches `packageManager` in `frontend/package.json`):
+The frontend uses Bun (`packageManager` in `frontend/package.json`, lockfile `frontend/bun.lock`). CI and `frontend/Dockerfile` install from the same lockfile:
 
 ```bash
 cd frontend
@@ -197,19 +197,11 @@ bun install
 bun run dev
 ```
 
-npm still works if you prefer it:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
 Open [http://localhost:3000](http://localhost:3000). The backend must be running for live vault data (`NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000`).
 
 ## Daily workflow
 
-1. Start the backend (`uvicorn` on `:8000`) and the frontend (`bun run dev` / `npm run dev` on `:3000`).
+1. Start the backend (`uvicorn` on `:8000`) and the frontend (`bun run dev` on `:3000`).
 2. Browse **Notes** for the live recent reel; expand a card to read it inline.
 3. Open **Map** to inspect neighborhood connections; click a node to read it and optionally feed Ask context.
 4. Use **Repair** for vault hygiene (broken links, orphans, tagless); refresh the scan when the lists look stale.
@@ -271,9 +263,10 @@ up in [docs/ops/postmortem-stale-index.md](docs/ops/postmortem-stale-index.md).
 
 ```bash
 cd frontend
-npm run lint
-npx tsc --noEmit
-npm run build
+bun install --frozen-lockfile
+bun run lint
+bunx tsc --noEmit
+bun run build
 
 cd ../
 python3 -m py_compile backend/main.py backend/config.py backend/indexer.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/sweep_rerankers.py scripts/*.py
