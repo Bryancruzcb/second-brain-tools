@@ -180,6 +180,17 @@ def write_stub(
     return stub_path
 
 
+def _transcript_excerpt(path: str | None, limit: int = 4000) -> str:
+    """First `limit` chars of a saved transcript, or empty on any IO error."""
+    if not path:
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read(limit)
+    except OSError:
+        return ""
+
+
 def route_chat(
     *,
     source: str,
@@ -194,11 +205,17 @@ def route_chat(
     """Classify a chat and write a topic stub when it matches a route.
 
     Pass transcript_path (absolute) and/or transcript_link (vault wikilink).
+    Routing text is title + first prompt + category + a transcript excerpt, so
+    a generic opener ("hey can you help") does not dump the chat into Inbox
+    when the body names a topic.
     Returns {"route", "stub_path", "project"} or None if no topic matched.
     """
     parts = [title, first_prompt]
     if category:
         parts.append(str(category))
+    excerpt = _transcript_excerpt(transcript_path)
+    if excerpt:
+        parts.append(excerpt)
     text = "\n".join(p for p in parts if p)
     cfg = _load_config()
 
