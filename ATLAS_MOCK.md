@@ -24,6 +24,6 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 ## Notes
 
 - UI look stays the Night Atlas marketing shell; content is real vault titles/counts.
-- Map caps ~42 highest-degree nodes for readability; subtitle shows full vault note count.
+- Map shows ~24 notes across vault folders (Home, School, Projects, …), not KMeans blobs. Chat archives stay off until you toggle them; subtitle shows the hidden count.
 - Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - Inspector can edit and save notes unless the file is a OneDrive placeholder (`read_only_fallback`).
