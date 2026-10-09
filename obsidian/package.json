@@ -1,0 +1,19 @@
+{
+  "name": "night-atlas-ask",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Obsidian command that queries the Night Atlas backend's POST /api/query.",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc --noEmit && bun esbuild.config.mjs",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2",
+    "builtin-modules": "^4",
+    "esbuild": "^0.25",
+    "obsidian": "^1.8",
+    "typescript": "^5"
+  },
+  "packageManager": "bun@1.4.2"
+}
