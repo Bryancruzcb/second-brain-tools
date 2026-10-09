@@ -50,6 +50,19 @@ def get_ollama_num_ctx() -> int:
     top when a prompt exceeds it — which would eat the system prompt once
     conversation history is included. 16K leaves room for eight retrieved
     chunks (~5,100 tokens) plus a full conversation history and a 1K answer.
+
+    Ask, the retrieval query rewrite and scripts/topic_llm.py all send this
+    value: Ollama keeps one runner per model and context size, so any call
+    with a different num_ctx reloads qwen2.5 (~10 s on the desktop).
+
+    8192 was measured against 16384 on the live index on 2026-10-08 (six
+    questions, one with history): prompts were 3,605-4,920 tokens with the
+    same prompt_eval_count at both sizes, answers of the same quality, about
+    14.9 vs 11.5 generated tokens/s and ~0.4 s sooner to the first token
+    (qwen2.5 still spills to the CPU at both sizes on the 6 GB GPU). 16K
+    stays the default because 8K cannot hold the largest of those prompts
+    plus the full history budget (MAX_HISTORY_TOTAL_CHARS, ~3K tokens) and
+    a 1K answer without truncating.
     """
     return _positive_int_env("OLLAMA_NUM_CTX", 16384)
 
