@@ -46,6 +46,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\start-night-
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\uninstall-autostart.ps1
 ```
 
+## Weekly Repair digest
+
+`run-repair-digest.ps1` wraps `scripts/repair_digest.py` for a scheduled task:
+if the backend answers `GET /api/health` it writes
+`%USERPROFILE%\NightAtlas\repair-digest-<yyyy-MM-dd>.md` and
+`repair-digest-latest.json` (also used as `--previous`, so each report diffs
+against the last); if not, it logs and exits 0 without starting anything.
+Log: `%LOCALAPPDATA%\NightAtlas\logs\repair-digest.log`. The task on the
+owner's PC (`NightAtlas-RepairDigest`, Sundays 9:17, only when logged on, start
+when available) runs:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\path\to\second-brain-tools\scripts\windows\run-repair-digest.ps1
+```
+
 ## Tests
 
 `scripts/windows/tests` (Pester 5): unit tests mock every side effect and run
