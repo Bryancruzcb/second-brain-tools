@@ -60,12 +60,50 @@ jobs:
           pip install -r backend/requirements-dev.txt
 
       - name: Python Syntax Verification
-        run: python -m py_compile backend/main.py backend/config.py backend/logging_setup.py backend/metrics.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/http_eval.py backend/eval/canary.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py deploy/sync/sync_vault.py deploy/ops.py deploy/monitoring/alert_bridge.py
+        run: python -m py_compile backend/main.py backend/config.py backend/logging_setup.py backend/metrics.py backend/retrieval.py backend/lexical.py backend/eval/dataset.py backend/eval/scoring.py backend/eval/scorecard.py backend/eval/run_eval.py backend/eval/http_eval.py backend/eval/canary.py backend/eval/sweep_rerankers.py backend/indexer.py backend/scripts/rebuild_rag_index.py deploy/sync/sync_vault.py deploy/ops.py deploy/monitoring/alert_bridge.py scripts/repair_digest.py
 
       - name: Backend Tests
         run: |
           # backend/tests/test_public_fixture.py is the public score and must fail rather than skip when the fixture is missing.
           python -m pytest backend/tests deploy/sync/tests deploy/tests -q
+
+  # ── Windows Autostart Scripts ───────────────────────────────────────────────
+  # scripts/windows/ only ever runs on the owner's Windows desktop, so test it
+  # where it runs: Windows PowerShell 5.1 on a real Windows runner. The unit
+  # tests mock every side effect; the E2E file then starts a tiny real uvicorn
+  # backend through the launcher and the VBS wrapper, and installs and removes
+  # a real Startup shortcut and logon task, all on this throwaway runner.
+  windows-autostart:
+    name: Windows Autostart Scripts
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pester 5
+        run: |
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Import-Module Pester -MinimumVersion 5.5.0
+          (Get-Module Pester).Version.ToString()
+
+      - name: Unit and End-to-End Tests
+        env:
+          NIGHTATLAS_E2E: '1'
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'scripts/windows/tests'
+          $cfg.Run.Exit = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $cfg
 
   # ── Backend Container Verification ──────────────────────────────────────────
   # The image is the only documented deploy artifact and nothing built it until
