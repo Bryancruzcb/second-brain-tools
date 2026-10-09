@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import subprocess
@@ -10,11 +11,12 @@ import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Iterator, Optional
 import numpy as np
 from sklearn.cluster import KMeans
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import chromadb
@@ -25,6 +27,7 @@ import httpx
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_fastapi_instrumentator import metrics as http_metrics
 
+import ask_cache
 import config
 import indexer
 import logging_setup
@@ -346,6 +349,10 @@ def _build_lexical_index():
         logger.info("BM25 lexical index built over %d chunks.", len(lexical_index))
     except Exception as e:
         logger.error(f"Failed to build BM25 index (hybrid degrades to vector-only): {e}")
+    finally:
+        # Every reopen and every ingestion ends here, so this is the one
+        # place the index is known to have changed.
+        invalidate_ask_caches()
 
 def _load_reranker_background():
     """Load the cross-encoder reranker; failure or RERANKER_MODEL=off
@@ -669,6 +676,17 @@ MAX_HISTORY_MESSAGE_CHARS = 3000
 MAX_HISTORY_TOTAL_CHARS = 12000
 
 OLLAMA_CHAT_TIMEOUT_SECONDS = 300
+ASK_MAX_TOKENS = 1024
+
+# Ask-path caches; see ask_cache.py. Retrieval results are keyed by query
+# and retrieval settings, answers by the exact Ollama request.
+retrieval_cache = ask_cache.TTLCache(maxsize=256)
+answer_cache = ask_cache.TTLCache(maxsize=128)
+
+
+def invalidate_ask_caches():
+    retrieval_cache.clear()
+    answer_cache.clear()
 
 
 def clean_history(raw) -> List[Dict[str, str]]:
@@ -701,27 +719,85 @@ def clean_history(raw) -> List[Dict[str, str]]:
     return list(reversed(kept))
 
 
-def ollama_chat(messages: List[Dict[str, str]], max_tokens: int) -> str:
-    """Call Ollama's native chat API.
+def _ollama_chat_body(messages: List[Dict[str, str]], max_tokens: int, stream: bool) -> Dict[str, Any]:
+    """Request body for Ollama's native chat API.
 
     The OpenAI-compatible endpoint cannot set num_ctx, so long prompts were
     silently truncated from the top at Ollama's small default window.
     """
+    return {
+        "model": config.get_ollama_model(),
+        "messages": messages,
+        "stream": stream,
+        "options": {
+            "num_ctx": config.get_ollama_num_ctx(),
+            "num_predict": max_tokens,
+        },
+    }
+
+
+def ollama_chat(messages: List[Dict[str, str]], max_tokens: int) -> str:
+    """One chat completion from Ollama, returned whole."""
     response = httpx.post(
         f"{config.get_ollama_url()}/api/chat",
-        json={
-            "model": config.get_ollama_model(),
-            "messages": messages,
-            "stream": False,
-            "options": {
-                "num_ctx": config.get_ollama_num_ctx(),
-                "num_predict": max_tokens,
-            },
-        },
+        json=_ollama_chat_body(messages, max_tokens, stream=False),
         timeout=OLLAMA_CHAT_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
     return (response.json().get("message") or {}).get("content") or ""
+
+
+def ollama_chat_stream(messages: List[Dict[str, str]], max_tokens: int) -> Iterator[str]:
+    """The same completion as ollama_chat, yielded piece by piece as Ollama emits it."""
+    with httpx.stream(
+        "POST",
+        f"{config.get_ollama_url()}/api/chat",
+        json=_ollama_chat_body(messages, max_tokens, stream=True),
+        timeout=OLLAMA_CHAT_TIMEOUT_SECONDS,
+    ) as response:
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            chunk = json.loads(line)
+            if chunk.get("error"):
+                raise RuntimeError(chunk["error"])
+            text = (chunk.get("message") or {}).get("content") or ""
+            if text:
+                yield text
+            if chunk.get("done"):
+                return
+
+
+def _answer_cache_key(messages: List[Dict[str, str]]) -> str:
+    """Digest of the exact non-streamed Ollama request: model, options and prompt."""
+    body = _ollama_chat_body(messages, ASK_MAX_TOKENS, stream=False)
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def cached_retrieve(query_text, *, scope, **kwargs):
+    """retrieve_for_request behind the retrieval cache.
+
+    The key holds every setting retrieve_hybrid reads per call. The entry
+    holds the components that produced it, so a reloaded model or reranker,
+    a rebuilt BM25 index or a reopened store is a miss even before
+    invalidate_ask_caches runs. Hits stay out of RETRIEVAL_SECONDS.
+    """
+    key = (
+        query_text, scope, tuple(sorted(kwargs.items())),
+        config.get_max_chunks_per_note(), config.query_rewrite_enabled(),
+        config.notes_chat_guard_enabled(), config.sibling_disambig_enabled(),
+        config.get_query_prefix(),
+    )
+    hit = retrieval_cache.get(key)
+    if hit is not None:
+        components, candidates = hit
+        if all(a is b for a, b in zip(components, (model, chroma_collection, lexical_index, cross_encoder))):
+            return list(candidates)
+    candidates = retrieve_for_request(query_text, scope=scope, **kwargs)
+    # Read after the call: a stale-store retry inside it may have reopened.
+    retrieval_cache.put(key, ((model, chroma_collection, lexical_index, cross_encoder), candidates))
+    return list(candidates)
 
 
 class QueryResponse(BaseModel):
@@ -898,10 +974,8 @@ def get_graph():
         edges = graph["edges"]
     return {"nodes": nodes, "edges": edges}
 
-@app.post("/api/query", response_model=QueryResponse)
-def run_query(request: QueryRequest):
-    global model, chroma_collection, lexical_index, cross_encoder
-
+def _ask_query_text(request: QueryRequest) -> str:
+    """The trimmed question, once the engine can serve it; 503/400 otherwise."""
     ensure_chroma_fresh()  # picks up another process's writes; retries a failed reopen
     if model is None or chroma_collection is None:
         raise HTTPException(status_code=503, detail="Vector search engine or embedding model is not initialized.")
@@ -909,79 +983,150 @@ def run_query(request: QueryRequest):
     query_text = request.query.strip()
     if not query_text:
         raise HTTPException(status_code=400, detail="Query text cannot be empty.")
-        
+    return query_text
+
+
+def _prepare_ask(request: QueryRequest, query_text: str):
+    """Retrieve context for an Ask and build the chat messages.
+
+    Returns (sources, messages): the sources list the client shows and the
+    messages Ollama answers from.
+    """
+    history = clean_history(request.history)
+
+    # 1. Embed the retrieval text. Follow-ups like "expand on that" carry
+    # no topic words themselves, so fold the last couple of user turns
+    # into the embedding to keep retrieval anchored to the conversation.
+    recent_user_turns = [m["content"] for m in history if m["role"] == "user"][-2:]
+    retrieval_text = "\n".join(recent_user_turns + [query_text])
+
+    # 2. Retrieve context chunks
+    if request.context_nodes and len(request.context_nodes) > 0:
+        # Specifically requested nodes bypass search entirely.
+        raw = chroma_collection.get(where={"source": {"$in": request.context_nodes}})
+        candidates = [
+            {
+                "source": (meta or {}).get("source", ""),
+                "title": (meta or {}).get("title", "Untitled Note"),
+                "chunk": doc,
+                "distance": 0.0,
+            }
+            for doc, meta in zip(raw.get("documents") or [], raw.get("metadatas") or [])
+        ]
+    else:
+        candidates = cached_retrieve(retrieval_text, scope=request.scope or "notes")
+
+    # 3. Format context source items
+    sources = []
+    context_chunks = []
+    for c in candidates:
+        sources.append({
+            "title": c["title"],
+            "source": c["source"],
+            "snippet": c["chunk"][:400] + "..." if len(c["chunk"]) > 400 else c["chunk"],
+            # A lexical-only fused candidate carries "score", not "distance".
+            "distance": c.get("distance", 0.0),
+        })
+        context_chunks.append(f"From Note: {c['title']}\nContent: {c['chunk']}")
+
+    # 4. Generate prompt context
+    context_str = "\n\n".join(context_chunks)
+
+    system_prompt = (
+        "You are an expert Second Brain Personal AI Assistant. "
+        "Answer the user's question using ONLY the provided Markdown note snippets and the conversation so far as context. "
+        "If the context doesn't contain the answer, explain that you couldn't find sufficient information in their notes "
+        "but supply whatever relevant details are in the context. "
+        "Always cite the source notes by name (e.g., 'According to your notes on [Note Name]...') in a professional, senior portfolio-grade format."
+    )
+
+    # 5. Carry the conversation so far into the local Ollama call
+    messages = (
+        [{"role": "system", "content": system_prompt}]
+        + history
+        + [{"role": "user", "content": f"Context snippets:\n{context_str}\n\nQuestion: {query_text}"}]
+    )
+    logger.info(
+        "Ask prepared for local %s via Ollama (%d history turns, %d sources).",
+        config.get_ollama_model(), len(history), len(sources),
+    )
+    return sources, messages
+
+
+@app.post("/api/query", response_model=QueryResponse)
+def run_query(request: QueryRequest):
+    query_text = _ask_query_text(request)
     try:
-        history = clean_history(request.history)
+        sources, messages = _prepare_ask(request, query_text)
+        key = _answer_cache_key(messages)
+        answer_text = answer_cache.get(key)
+        if answer_text is None:
+            answer_text = ollama_chat(messages, max_tokens=ASK_MAX_TOKENS)
+            if answer_text:
+                answer_cache.put(key, answer_text)
 
-        # 1. Embed the retrieval text. Follow-ups like "expand on that" carry
-        # no topic words themselves, so fold the last couple of user turns
-        # into the embedding to keep retrieval anchored to the conversation.
-        recent_user_turns = [m["content"] for m in history if m["role"] == "user"][-2:]
-        retrieval_text = "\n".join(recent_user_turns + [query_text])
-
-        # 2. Retrieve context chunks
-        if request.context_nodes and len(request.context_nodes) > 0:
-            # Specifically requested nodes bypass search entirely.
-            raw = chroma_collection.get(where={"source": {"$in": request.context_nodes}})
-            candidates = [
-                {
-                    "source": (meta or {}).get("source", ""),
-                    "title": (meta or {}).get("title", "Untitled Note"),
-                    "chunk": doc,
-                    "distance": 0.0,
-                }
-                for doc, meta in zip(raw.get("documents") or [], raw.get("metadatas") or [])
-            ]
-        else:
-            candidates = retrieve_for_request(retrieval_text, scope=request.scope or "notes")
-
-        # 3. Format context source items
-        sources = []
-        context_chunks = []
-        for c in candidates:
-            sources.append({
-                "title": c["title"],
-                "source": c["source"],
-                "snippet": c["chunk"][:400] + "..." if len(c["chunk"]) > 400 else c["chunk"],
-                # A lexical-only fused candidate carries "score", not "distance".
-                "distance": c.get("distance", 0.0),
-            })
-            context_chunks.append(f"From Note: {c['title']}\nContent: {c['chunk']}")
-
-        # 4. Generate prompt context
-        context_str = "\n\n".join(context_chunks)
-        
-        # 5. Generate through local Ollama, carrying the conversation so far
-        api_configured = True
-        logger.info(
-            "Calling local %s via Ollama (%d history turns)...",
-            config.get_ollama_model(), len(history),
-        )
-
-        system_prompt = (
-            "You are an expert Second Brain Personal AI Assistant. "
-            "Answer the user's question using ONLY the provided Markdown note snippets and the conversation so far as context. "
-            "If the context doesn't contain the answer, explain that you couldn't find sufficient information in their notes "
-            "but supply whatever relevant details are in the context. "
-            "Always cite the source notes by name (e.g., 'According to your notes on [Note Name]...') in a professional, senior portfolio-grade format."
-        )
-
-        messages = (
-            [{"role": "system", "content": system_prompt}]
-            + history
-            + [{"role": "user", "content": f"Context snippets:\n{context_str}\n\nQuestion: {query_text}"}]
-        )
-        answer_text = ollama_chat(messages, max_tokens=1024)
-        
         # Emoji/ANSI print here crashed the endpoint on Windows (cp1252
         # stdout raises UnicodeEncodeError inside the handler -> 500).
         logger.info("Model response generated (%d chars, %d sources).", len(answer_text), len(sources))
-                
-        return QueryResponse(answer=answer_text, sources=sources, api_configured=api_configured)
-        
+
+        return QueryResponse(answer=answer_text, sources=sources, api_configured=True)
+
     except Exception as e:
         logger.error(f"RAG search query failure: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _ndjson(event: Dict[str, Any]) -> str:
+    return json.dumps(event) + "\n"
+
+
+@app.post("/api/query/stream")
+def run_query_stream(request: QueryRequest):
+    """/api/query as newline-delimited JSON: the sources first, then the answer as it is generated.
+
+    Events, one JSON object per line:
+      {"type": "sources", "sources": [...], "api_configured": true}  always first
+      {"type": "token", "text": "..."}                              zero or more
+      {"type": "done"}                                              the answer is complete
+      {"type": "error", "detail": "..."}                            generation failed
+
+    Same request body as /api/query. Errors before the stream starts (engine
+    not ready, empty query, retrieval failure) keep their HTTP status codes;
+    once the sources line is out, a generation failure can only arrive as an
+    error event.
+    """
+    query_text = _ask_query_text(request)
+    try:
+        sources, messages = _prepare_ask(request, query_text)
+    except Exception as e:
+        logger.error(f"RAG search query failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    key = _answer_cache_key(messages)
+
+    def events():
+        yield _ndjson({"type": "sources", "sources": sources, "api_configured": True})
+        answer_text = answer_cache.get(key)
+        if answer_text is not None:
+            yield _ndjson({"type": "token", "text": answer_text})
+        else:
+            parts = []
+            try:
+                for text in ollama_chat_stream(messages, max_tokens=ASK_MAX_TOKENS):
+                    parts.append(text)
+                    yield _ndjson({"type": "token", "text": text})
+            except Exception as e:
+                logger.error(f"Streamed answer failure: {e}")
+                yield _ndjson({"type": "error", "detail": str(e)})
+                return
+            answer_text = "".join(parts)
+            if answer_text:
+                answer_cache.put(key, answer_text)
+        logger.info("Model response streamed (%d chars, %d sources).", len(answer_text), len(sources))
+        yield _ndjson({"type": "done"})
+
+    return StreamingResponse(
+        events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache"}
+    )
 
 class CreateNoteRequest(BaseModel):
     title: str
@@ -1193,7 +1338,7 @@ def search_notes(q: str = "", scope: str = "notes"):
         return {"results": []}
 
     try:
-        candidates = retrieve_for_request(q.strip(), scope=scope, k=retrieval.TOP_K)
+        candidates = cached_retrieve(q.strip(), scope=scope, k=retrieval.TOP_K)
         seen_titles = set()
         items = []
         for c in candidates:

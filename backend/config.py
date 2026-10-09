@@ -54,6 +54,24 @@ def get_ollama_num_ctx() -> int:
     return _positive_int_env("OLLAMA_NUM_CTX", 16384)
 
 
+def get_ask_cache_ttl_seconds() -> int:
+    """Lifetime of an Ask cache entry in seconds (ASK_CACHE_TTL_SECONDS).
+
+    Retrieval results and generated answers are cached per process and
+    dropped whenever the index changes; the TTL bounds how long a change
+    this process never noticed can be served. 0 disables both caches;
+    anything unparsable or negative falls back to 900.
+    """
+    raw = os.environ.get("ASK_CACHE_TTL_SECONDS")
+    if raw is None:
+        return 900
+    try:
+        value = int(raw)
+    except ValueError:
+        return 900
+    return value if value >= 0 else 900
+
+
 def _positive_int_env(name: str, default: int) -> int:
     """Parse an env var as a positive int; anything else yields the default."""
     try:

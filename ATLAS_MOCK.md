@@ -8,7 +8,7 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 
 - Backend must be running at `http://127.0.0.1:8000` (override with `NEXT_PUBLIC_API_URL`).
 - Vault index / health cache should be populated (`/api/ready`, `/api/health`, `/api/graph`).
-- Ask uses `POST /api/query` (Ollama). If Ollama is down, Ask shows a clear error.
+- Ask uses `POST /api/query/stream` (Ollama, NDJSON: sources first, then the answer). `POST /api/query` is the same Ask returned whole. If Ollama is down, Ask shows a clear error.
 
 ## Endpoints used
 
@@ -17,7 +17,7 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 | Recent reel   | `GET /api/recent`, `GET /api/note/{ref}` |
 | Map           | `GET /api/graph` (client-side layout)    |
 | Repair/Health | `GET /api/health`                        |
-| Ask           | `POST /api/query`                        |
+| Ask           | `POST /api/query/stream`, `POST /api/query` |
 | Command search | `GET /api/search`                       |
 | Save note      | `POST /api/note/{ref}`                  |
 
