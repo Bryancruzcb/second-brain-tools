@@ -35,6 +35,7 @@ import metrics
 import health_hygiene
 import lexical
 import retrieval
+import ask_history
 
 # Configure logging
 logging_setup.configure()
@@ -875,12 +876,19 @@ def cached_retrieve(query_text, *, scope, **kwargs):
     holds the components that produced it, so a reloaded model or reranker,
     a rebuilt BM25 index or a reopened store is a miss even before
     invalidate_ask_caches runs. Hits stay out of RETRIEVAL_SECONDS.
+
+    The recency boost makes ranking depend on the clock, so the key also
+    carries the recency settings and the current UTC day: a cached ranking
+    never outlives the day it was computed on (the TTL bounds it further).
     """
     key = (
         query_text, scope, tuple(sorted(kwargs.items())),
         config.get_max_chunks_per_note(), config.query_rewrite_enabled(),
         config.notes_chat_guard_enabled(), config.sibling_disambig_enabled(),
         config.get_query_prefix(),
+        config.get_recency_weight(), config.get_recency_half_life_days(),
+        config.get_recency_intent_weight(), config.get_recency_intent_half_life_days(),
+        config.get_recency_intent_pool(), int(time.time() // 86400),
     )
     hit = retrieval_cache.get(key)
     if hit is not None:
@@ -1171,11 +1179,18 @@ def run_query(request: QueryRequest):
         # stdout raises UnicodeEncodeError inside the handler -> 500).
         logger.info("Model response generated (%d chars, %d sources).", len(answer_text), len(sources))
 
+        _record_ask(request, query_text, answer_text, sources)
         return QueryResponse(answer=answer_text, sources=sources, api_configured=True)
 
     except Exception as e:
         logger.error(f"RAG search query failure: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _record_ask(request: QueryRequest, query_text: str, answer_text: str, sources) -> None:
+    """Save an answered Ask to history, cache hit or not, for both Ask endpoints."""
+    ask_history.record(query_text, answer_text, sources, scope=request.scope or "notes",
+                       context_nodes=request.context_nodes)
 
 
 def _ndjson(event: Dict[str, Any]) -> str:
@@ -1224,6 +1239,7 @@ def run_query_stream(request: QueryRequest):
             if answer_text:
                 answer_cache.put(key, answer_text)
         logger.info("Model response streamed (%d chars, %d sources).", len(answer_text), len(sources))
+        _record_ask(request, query_text, answer_text, sources)
         yield _ndjson({"type": "done"})
 
     return StreamingResponse(
@@ -1456,6 +1472,30 @@ def search_notes(q: str = "", scope: str = "notes"):
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return {"results": []}
+
+
+# ── Ask history ───────────────────────────────────────────────────────────
+# Every answered /api/query and /api/query/stream (cache hits included) is
+# saved by _record_ask() -> ask_history.record(), whichever
+# client asked (web UI, Obsidian plugin, MCP). See ask_history.py.
+
+@app.get("/api/ask/history")
+def get_ask_history(limit: int = 0):
+    """Saved asks, newest first: question, answer, sources, asked_at (epoch seconds)."""
+    entries = ask_history.list_entries(limit=limit if limit > 0 else None)
+    return {"enabled": ask_history.enabled(), "entries": entries}
+
+
+@app.delete("/api/ask/history", dependencies=[Depends(deny_when_read_only)])
+def clear_ask_history():
+    return {"status": "cleared", "removed": ask_history.clear()}
+
+
+@app.delete("/api/ask/history/{entry_id}", dependencies=[Depends(deny_when_read_only)])
+def delete_ask_history_entry(entry_id: str):
+    if not ask_history.delete(entry_id):
+        raise HTTPException(status_code=404, detail="No such history entry.")
+    return {"status": "deleted", "id": entry_id}
 
 
 if __name__ == "__main__":

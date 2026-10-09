@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, askQueryStream, composePrompts, fetchNote, type AskScope } from "@/lib/api";
 import { useWorkspace } from "./context";
+import { AskHistory, type AskHistoryEntry } from "./AskHistory";
 
 type AskAnswer = {
   query: string;
@@ -13,10 +14,12 @@ type AskAnswer = {
 export function AskView() {
   const { askContextId, setAskContextId } = useWorkspace();
   const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<AskScope>("notes");
+  const [scopeChoice, setScope] = useState<AskScope>("notes");
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [fetchedContext, setFetchedContext] = useState<{
     id: string;
     title: string;
@@ -49,8 +52,9 @@ export function AskView() {
       ? fetchedContext.title
       : fallbackTitle;
 
-  const runAsk = useCallback(async () => {
-    const trimmed = query.trim();
+  const runAsk = useCallback(async (override?: { query: string; scope: AskScope }) => {
+    const trimmed = (override?.query ?? query).trim();
+    const scope = override?.scope ?? scopeChoice;
     if (!trimmed || loading) return;
     setLoading(true);
     setError(null);
@@ -87,8 +91,35 @@ export function AskView() {
       setAnswer(null);
     } finally {
       setLoading(false);
+      setActiveHistoryId(null);
+      setHistoryVersion((v) => v + 1);
     }
-  }, [query, askContextId, loading, scope]);
+  }, [query, askContextId, loading, scopeChoice]);
+
+  const showSaved = useCallback((entry: AskHistoryEntry) => {
+    setQuery(entry.question);
+    setScope(entry.scope);
+    setError(null);
+    setActiveHistoryId(entry.id);
+    setAnswer({
+      query: entry.question,
+      body: entry.answer || "No answer returned.",
+      sourceTitles: entry.sources
+        .map((s) => s.title)
+        .filter(Boolean)
+        .filter((t, i, arr) => arr.indexOf(t) === i)
+        .slice(0, 6),
+    });
+  }, []);
+
+  const askAgain = useCallback(
+    (entry: AskHistoryEntry) => {
+      setQuery(entry.question);
+      setScope(entry.scope);
+      void runAsk({ query: entry.question, scope: entry.scope });
+    },
+    [runAsk],
+  );
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-y-auto px-5 py-6">
@@ -108,7 +139,7 @@ export function AskView() {
             { id: "all", label: "All" },
           ] as const
         ).map((opt) => {
-          const active = scope === opt.id;
+          const active = scopeChoice === opt.id;
           return (
             <button
               key={opt.id}
@@ -123,9 +154,9 @@ export function AskView() {
         })}
       </div>
       <p className="mb-4 text-[12px] text-muted">
-        {scope === "notes" && "Written vault notes only."}
-        {scope === "chats" && "Exported AI chat transcripts only."}
-        {scope === "all" && "Notes and chat transcripts together."}
+        {scopeChoice === "notes" && "Written vault notes only."}
+        {scopeChoice === "chats" && "Exported AI chat transcripts only."}
+        {scopeChoice === "all" && "Notes and chat transcripts together."}
       </p>
 
       <div className="compose-bar">
@@ -186,6 +217,13 @@ export function AskView() {
           )}
         </div>
       )}
+
+      <AskHistory
+        version={historyVersion}
+        activeId={activeHistoryId}
+        onSelect={showSaved}
+        onRerun={askAgain}
+      />
 
       <div className="mt-5 flex flex-col gap-1.5">
         {composePrompts.map((p) => (
