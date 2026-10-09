@@ -36,19 +36,26 @@ def _repo_backend() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 
-def _ollama_endpoints() -> tuple[str, str]:
-    """Same stack as Ask Qwen: backend config OLLAMA_URL / OLLAMA_MODEL."""
+def _ollama_endpoints() -> tuple[str, str, int | None]:
+    """Same stack as Ask Qwen: backend config OLLAMA_URL / OLLAMA_MODEL / OLLAMA_NUM_CTX.
+
+    The context window has to match Ask's: Ollama keeps one runner per model
+    and context size, so a classify call with its own num_ctx unloads qwen2.5
+    and the next Ask pays ~10 s to load it back (measured 2026-10-08). None
+    when the backend config can't be imported; the call then leaves num_ctx
+    to Ollama rather than guess a second default here.
+    """
     backend = _repo_backend()
     if backend not in os.sys.path:
         os.sys.path.insert(0, backend)
     try:
         import config  # type: ignore
 
-        return config.get_ollama_url(), config.get_ollama_model()
+        return config.get_ollama_url(), config.get_ollama_model(), config.get_ollama_num_ctx()
     except Exception:
         url = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
         model = os.environ.get("OLLAMA_MODEL", "qwen2.5")
-        return url, model
+        return url, model, None
 
 
 def is_middling_embed(decision: dict[str, Any]) -> bool:
@@ -110,17 +117,16 @@ def _parse_response(raw: str, known_ids: set[str]) -> tuple[str | None, float]:
 
 
 def _call_ollama(messages: list[dict[str, str]], timeout: float) -> str:
-    url, model = _ollama_endpoints()
+    url, model, num_ctx = _ollama_endpoints()
+    options: dict[str, Any] = {"num_predict": 80, "temperature": 0.0}
+    if num_ctx:
+        options["num_ctx"] = num_ctx
     payload = {
         "model": model,
         "messages": messages,
         "stream": False,
         "format": "json",
-        "options": {
-            "num_ctx": 2048,
-            "num_predict": 80,
-            "temperature": 0.0,
-        },
+        "options": options,
     }
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(

@@ -260,3 +260,35 @@ def test_route_chat_skips_llm_when_embed_unavailable(monkeypatch, tmp_path):
     assert result is not None
     assert result["route"]["id"] == "chat-inbox"
     assert called["n"] == 0
+
+
+def test_classify_call_shares_asks_context_window(monkeypatch):
+    """A different num_ctx makes Ollama reload qwen2.5 before the next Ask."""
+    import json
+
+    sys.path.insert(0, str(ROOT / "backend"))
+    import main
+
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "12288")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5")
+    sent = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"message": {"content": "{}"}}).encode("utf-8")
+
+    def fake_urlopen(req, timeout):
+        sent.update(json.loads(req.data.decode("utf-8")))
+        return Resp()
+
+    monkeypatch.setattr(topic_llm.urllib.request, "urlopen", fake_urlopen)
+    topic_llm._call_ollama([{"role": "user", "content": "x"}], timeout=1)
+    ask = main._ollama_chat_body([], main.ASK_MAX_TOKENS, stream=False)
+    assert sent["options"]["num_ctx"] == ask["options"]["num_ctx"] == 12288
+    assert sent["model"] == ask["model"]
