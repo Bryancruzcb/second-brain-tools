@@ -4,9 +4,16 @@ import { layoutGraph as layoutVaultGraph } from "./graphLayout";
 export type { GraphCluster, GraphLayout } from "./graphLayout";
 export { folderCluster, isChatNote } from "./graphLayout";
 
-export const API_BASE =
+/**
+ * Empty by default: the browser calls same-origin /api/..., and the Next.js
+ * server proxies it to the backend (ATLAS_BACKEND_URL in next.config.ts), so
+ * the page works from any device that can reach this server. Set
+ * NEXT_PUBLIC_API_URL only to have the browser call a backend directly.
+ */
+export const API_BASE = (
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) ||
-  "http://127.0.0.1:8000";
+  ""
+).replace(/\/+$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -30,7 +37,7 @@ async function apiResponse(path: string, init?: RequestInit): Promise<Response> 
       },
     });
   } catch {
-    throw new ApiError("Backend unreachable. Is FastAPI running on :8000?", 0);
+    throw new ApiError("Backend unreachable. Is FastAPI running?", 0);
   }
   if (!res.ok) {
     let detail = res.statusText;

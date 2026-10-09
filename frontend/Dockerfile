@@ -13,8 +13,11 @@ RUN bun install --frozen-lockfile
 # Copy source files
 COPY . .
 
-# Set environment for production build
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000
+# The browser calls same-origin /api/* and Next.js proxies it to the backend.
+# Rewrites are fixed at build time, so the backend address is a build arg
+# (docker-compose passes the backend service's address).
+ARG ATLAS_BACKEND_URL=http://127.0.0.1:8000
+ENV ATLAS_BACKEND_URL=${ATLAS_BACKEND_URL}
 RUN bun run build
 
 # ── Stage 2: Production runner ────────────────────────────────────────────────
