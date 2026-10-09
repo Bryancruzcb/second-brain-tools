@@ -260,6 +260,14 @@ Copy `obsidian/manifest.json` and `obsidian/main.js` into `<vault>/.obsidian/plu
 5. Use **Ask** for grounded Q&A over the vault (needs Ollama).
 6. After `auto_archive` updates the vector index from outside a running backend, restart the backend or re-index so the in-memory BM25 leg matches Chroma.
 
+### Start with Windows (optional)
+
+`scripts/windows/install-autostart.ps1` adds one logon entry, `NightAtlas-Autostart` (a Startup-folder shortcut by default), that starts the backend and frontend hidden at logon, skips any service whose port already answers, and logs to `%LOCALAPPDATA%\NightAtlas\logs`. Preview with `-DryRun`; remove with `scripts/windows/uninstall-autostart.ps1`. Details: [`scripts/windows/README.md`](scripts/windows/README.md).
+
+### Weekly Repair digest (read-only)
+
+`python scripts/repair_digest.py --out repair-digest.md --json-out last.json --previous last.json` summarizes the Repair view (broken links, orphans, tagless notes) as Markdown with a week-over-week diff. It only calls `GET /api/health` (falling back to reading `backend/health_cache.json` when the backend is down), never triggers a scan or writes to the vault or index, refuses output paths inside `OBSIDIAN_VAULT_PATH`, and flags a scan older than 7 days as stale. Stdlib only.
+
 ## Automated chat archiving
 
 `scripts/auto_archive.py` runs the whole maintenance pass in one shot:
