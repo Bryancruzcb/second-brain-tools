@@ -35,6 +35,15 @@ async def app(scope, receive, send):
         & python -m venv (Join-Path $script:Repo 'backend\venv')
         & (Join-Path $script:Repo 'backend\venv\Scripts\python.exe') -m pip install -q 'uvicorn==0.51.0'
         $script:Ports = @()
+        # Run a script in a separate powershell.exe and wait for that process
+        # only (not its children, which the launcher leaves running).
+        function script:Invoke-Ps([string]$File, [string[]]$Arguments) {
+            $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $File + '"')) + @($Arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+            $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argv -WindowStyle Hidden -PassThru
+            $null = $p.Handle
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "$File timed out" }
+            return $p.ExitCode
+        }
     }
     AfterAll {
         foreach ($p in $script:Ports) {
@@ -50,15 +59,11 @@ async def app(scope, receive, send):
         $port = Get-FreePort; $script:Ports += $port
         $logs = Join-Path $script:Repo 'logs-a'
         $launcher = Join-Path $script:WinDir 'start-night-atlas.ps1'
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -RepoRoot $script:Repo -SkipFrontend `
-            -BackendPort $port -LogDir $logs -HealthTimeoutSeconds 120
-        $LASTEXITCODE | Should -Be 0
+        Invoke-Ps $launcher @('-RepoRoot', $script:Repo, '-SkipFrontend', '-BackendPort', "$port", '-LogDir', $logs, '-HealthTimeoutSeconds', '120') | Should -Be 0
         Test-Health $port | Should -BeTrue
         (Get-Content -Raw (Join-Path $logs 'autostart.log')) | Should -Match "backend : up on port $port"
 
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -RepoRoot $script:Repo -SkipFrontend `
-            -BackendPort $port -LogDir $logs -HealthTimeoutSeconds 120
-        $LASTEXITCODE | Should -Be 0
+        Invoke-Ps $launcher @('-RepoRoot', $script:Repo, '-SkipFrontend', '-BackendPort', "$port", '-LogDir', $logs, '-HealthTimeoutSeconds', '120') | Should -Be 0
         (Get-Content -Raw (Join-Path $logs 'autostart.log')) | Should -Match "port $port already answering"
         @(Get-ChildItem -LiteralPath $logs -Filter 'backend-*.out.log').Count | Should -Be 1
     }
@@ -66,9 +71,7 @@ async def app(scope, receive, send):
     It 'DryRun starts nothing' {
         $port = Get-FreePort
         $logs = Join-Path $script:Repo 'logs-dry'
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WinDir 'start-night-atlas.ps1') `
-            -RepoRoot $script:Repo -SkipFrontend -BackendPort $port -LogDir $logs -DryRun
-        $LASTEXITCODE | Should -Be 0
+        Invoke-Ps (Join-Path $script:WinDir 'start-night-atlas.ps1') @('-RepoRoot', $script:Repo, '-SkipFrontend', '-BackendPort', "$port", '-LogDir', $logs, '-DryRun') | Should -Be 0
         Start-Sleep -Seconds 3
         Test-Health $port | Should -BeFalse
         (Get-Content -Raw (Join-Path $logs 'autostart.log')) | Should -Match 'DRY RUN'
@@ -88,9 +91,7 @@ async def app(scope, receive, send):
     It 'installs and uninstalls a real Startup shortcut' {
         $startup = Join-Path $script:Repo 'Startup'
         New-Item -ItemType Directory -Force -Path $startup | Out-Null
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WinDir 'install-autostart.ps1') `
-            -RepoRoot $script:Repo -StartupDir $startup
-        $LASTEXITCODE | Should -Be 0
+        Invoke-Ps (Join-Path $script:WinDir 'install-autostart.ps1') @('-RepoRoot', $script:Repo, '-StartupDir', $startup) | Should -Be 0
         $lnkPath = Join-Path $startup 'NightAtlas-Autostart.lnk'
         $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($lnkPath)
         $lnk.TargetPath | Should -Match 'wscript\.exe$'
@@ -98,24 +99,19 @@ async def app(scope, receive, send):
         $lnk.Arguments | Should -Match ([regex]::Escape('"' + $script:Repo + '"'))
         $lnk.Description | Should -Be $script:Marker
         # Idempotent re-run.
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WinDir 'install-autostart.ps1') `
-            -RepoRoot $script:Repo -StartupDir $startup
-        $LASTEXITCODE | Should -Be 0
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WinDir 'uninstall-autostart.ps1') `
-            -Method StartupFolder -StartupDir $startup
+        Invoke-Ps (Join-Path $script:WinDir 'install-autostart.ps1') @('-RepoRoot', $script:Repo, '-StartupDir', $startup) | Should -Be 0
+        Invoke-Ps (Join-Path $script:WinDir 'uninstall-autostart.ps1') @('-Method', 'StartupFolder', '-StartupDir', $startup) | Should -Be 0
         Test-Path -LiteralPath $lnkPath | Should -BeFalse
     }
 
     It 'installs and uninstalls a real logon task without touching other tasks' {
         $before = @(Get-ScheduledTask | ForEach-Object { $_.TaskPath + $_.TaskName }) | Sort-Object
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WinDir 'install-autostart.ps1') `
-            -Method Task -RepoRoot $script:Repo
-        $LASTEXITCODE | Should -Be 0
+        Invoke-Ps (Join-Path $script:WinDir 'install-autostart.ps1') @('-Method', 'Task', '-RepoRoot', $script:Repo) | Should -Be 0
         $t = Get-ScheduledTask -TaskName 'NightAtlas-Autostart' -TaskPath '\'
         $t.Description | Should -Be $script:Marker
         $t.Actions[0].Execute | Should -Be 'wscript.exe'
         $t.State | Should -Not -Be 'Running'   # installing starts nothing
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WinDir 'uninstall-autostart.ps1') -Method Task
+        Invoke-Ps (Join-Path $script:WinDir 'uninstall-autostart.ps1') @('-Method', 'Task') | Should -Be 0
         Get-ScheduledTask -TaskName 'NightAtlas-Autostart' -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
         $after = @(Get-ScheduledTask | ForEach-Object { $_.TaskPath + $_.TaskName }) | Sort-Object
         Compare-Object $before $after | Should -BeNullOrEmpty

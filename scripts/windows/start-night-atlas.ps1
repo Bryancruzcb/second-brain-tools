@@ -168,9 +168,15 @@ function Start-NightAtlasService {
         return 'dry-run'
     }
     Write-NightAtlasLog "$Name : starting $display; logs $out"
+    # cmd.exe does the redirection so Start-Process can use ShellExecute: with
+    # -RedirectStandard* it would create the service with handle inheritance
+    # on, and a long-lived uvicorn holding this launcher's stdout pipe makes
+    # anything that runs the launcher in a pipeline wait forever.
+    $quoted = @($ArgumentList | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+    $cmdLine = '/d /c ""{0}" {1} > "{2}" 2> "{3}""' -f $FilePath, ($quoted -join ' '), $out, $err
     try {
-        $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory `
-            -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -ErrorAction Stop
+        $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList $cmdLine -WorkingDirectory $WorkingDirectory `
+            -WindowStyle Hidden -PassThru -ErrorAction Stop
     } catch {
         Write-NightAtlasLog "$Name : Start-Process failed: $($_.Exception.Message)" 'ERROR'
         return 'failed'

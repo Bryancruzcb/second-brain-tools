@@ -92,8 +92,8 @@ Describe 'start-night-atlas.ps1' {
         } finally { $l.Stop() }
         $r.backend | Should -Be 'already-running'
         $r.frontend | Should -Be 'started'
-        Should -Invoke Start-Process -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'uvicorn' }
-        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'dev' }
+        Should -Invoke Start-Process -Times 0 -Exactly -ParameterFilter { "$ArgumentList" -like '*uvicorn*' }
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { "$ArgumentList" -like '*run dev*' }
     }
 
     It 'starts both services hidden from the right directories with per-run logs' {
@@ -105,11 +105,12 @@ Describe 'start-night-atlas.ps1' {
         $r.frontend | Should -Be 'started'
         Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 5 }
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
-            $FilePath -like '*venv*python.exe' -and ($ArgumentList -join ' ') -eq "-m uvicorn main:app --host 127.0.0.1 --port $($script:BPort)" -and
-            $WorkingDirectory -like '*backend' -and $WindowStyle -eq 'Hidden' -and $RedirectStandardOutput -like '*backend-*.out.log'
+            $FilePath -eq 'cmd.exe' -and $WindowStyle -eq 'Hidden' -and $WorkingDirectory -like '*backend' -and
+            -not $PSBoundParameters.ContainsKey('RedirectStandardOutput') -and
+            "$ArgumentList" -like ('/d /c ""*venv*python.exe" -m uvicorn main:app --host 127.0.0.1 --port {0} > "*backend-*.out.log" 2> "*backend-*.err.log""' -f $script:BPort)
         }
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
-            $FilePath -eq 'C:\fake\bun.exe' -and ($ArgumentList -join ' ') -eq 'run dev' -and $WorkingDirectory -like '*frontend'
+            $FilePath -eq 'cmd.exe' -and "$ArgumentList" -like '/d /c ""C:\fake\bun.exe" run dev > *' -and $WorkingDirectory -like '*frontend'
         }
         Should -Invoke Wait-NightAtlasHealthy -Times 1 -Exactly -ParameterFilter { $Kind -eq 'http' -and $Port -eq $script:BPort }
         Should -Invoke Wait-NightAtlasHealthy -Times 1 -Exactly -ParameterFilter { $Kind -eq 'tcp' -and $Port -eq $script:FPort }

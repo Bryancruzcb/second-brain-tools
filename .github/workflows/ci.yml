@@ -76,6 +76,8 @@ jobs:
   windows-autostart:
     name: Windows Autostart Scripts
     runs-on: windows-latest
+    # A launcher that hangs should fail in minutes, not burn the 6 h default.
+    timeout-minutes: 20
     defaults:
       run:
         shell: powershell
