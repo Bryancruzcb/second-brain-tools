@@ -219,3 +219,72 @@ def test_ollama_chat_stream_raises_on_an_error_line(monkeypatch):
     monkeypatch.setattr(main.httpx, "stream", FakeStream)
     with pytest.raises(RuntimeError, match="model not found"):
         list(main.ollama_chat_stream([], max_tokens=1))
+
+
+# ── every path that changes the index clears the Ask caches ──────────────
+
+def _warm(client):
+    """Fill both caches and return them so a test can watch them empty."""
+    client.post("/api/query", json={"query": "levain"})
+    assert len(main.retrieval_cache) == 1 and len(main.answer_cache) == 1
+
+
+@pytest.fixture
+def fake_rebuilds(monkeypatch):
+    """Reopen and BM25 rebuild on fakes: no real store is opened or closed."""
+    reopened = CountingCollection(CANNED)
+    monkeypatch.setattr(main.lexical.LexicalIndex, "build", classmethod(lambda cls, c: FakeLexical([])))
+    monkeypatch.setattr(main, "_open_chroma", lambda db_path: (object(), reopened))
+    monkeypatch.setattr(main, "_close_chroma", lambda client: None)
+    monkeypatch.setattr(main, "_chroma_write_stamp", lambda db_path=None: ("new",))
+    monkeypatch.setattr(main, "_chroma_last_reopen", float("-inf"))
+    monkeypatch.setattr(main, "_ingesting", False)
+    return reopened
+
+
+def test_refresh_after_an_external_reindex_clears_the_caches(armed, fake_rebuilds, monkeypatch):
+    # rebuild_rag_index.py (nightly, and the scheduled refresh runs) ends
+    # with POST /api/lexical/refresh, which reopens a tracked store.
+    _, calls = armed
+    monkeypatch.setattr(main, "chroma_client", object())
+    monkeypatch.setattr(main, "_chroma_stamp_seen", ("old",))
+    client = TestClient(main.app)
+    monkeypatch.setattr(main, "ensure_chroma_fresh", lambda: False)  # warm without reopening
+    _warm(client)
+    resp = client.post("/api/lexical/refresh")
+    assert resp.status_code == 200 and resp.json()["reopened"] is True
+    assert len(main.retrieval_cache) == 0 and len(main.answer_cache) == 0
+    client.post("/api/query", json={"query": "levain"})
+    assert fake_rebuilds.calls == 1 and calls["chat"] == 2  # served from the reopened store
+
+
+def test_refresh_without_a_tracked_store_clears_the_caches(armed, fake_rebuilds):
+    client = TestClient(main.app)
+    _warm(client)
+    resp = client.post("/api/lexical/refresh")
+    assert resp.status_code == 200 and resp.json()["reopened"] is False
+    assert len(main.retrieval_cache) == 0 and len(main.answer_cache) == 0
+
+
+def test_a_write_noticed_at_query_time_clears_the_caches(armed, fake_rebuilds, monkeypatch):
+    # No refresh call arrived (backend was unreachable from the indexer): the
+    # next query sees the write stamp move, reopens, and must not answer
+    # from the cache it filled before the write.
+    coll, calls = armed
+    client = TestClient(main.app)
+    _warm(client)
+    monkeypatch.setattr(main, "chroma_client", object())
+    monkeypatch.setattr(main, "_chroma_stamp_seen", ("old",))
+    client.post("/api/query", json={"query": "levain"})
+    assert coll.calls == 1 and fake_rebuilds.calls == 1 and calls["chat"] == 2
+
+
+def test_in_process_ingestion_clears_the_caches(armed, fake_rebuilds, monkeypatch):
+    client = TestClient(main.app)
+    _warm(client)
+    monkeypatch.setattr(main.indexer, "index_vault", lambda *a, **k: {
+        "files_scanned": 1, "files_reindexed": 1, "files_skipped": 0,
+        "files_pruned": 0, "chunks_written": 1, "batches_failed": 0,
+    })
+    main.run_ingestion_sync()
+    assert len(main.retrieval_cache) == 0 and len(main.answer_cache) == 0
