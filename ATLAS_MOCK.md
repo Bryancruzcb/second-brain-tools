@@ -6,7 +6,7 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 
 ## Requirements
 
-- Backend must be running at `http://127.0.0.1:8000` (override with `NEXT_PUBLIC_API_URL`).
+- Backend must be running at `http://127.0.0.1:8000`. The browser calls same-origin `/api/...` and Next.js proxies it there; change the target with `ATLAS_BACKEND_URL` (server-side), or set `NEXT_PUBLIC_API_URL` to have the browser call a backend directly.
 - Vault index / health cache should be populated (`/api/ready`, `/api/health`, `/api/graph`).
 - Ask uses `POST /api/query/stream` (Ollama, NDJSON: sources first, then the answer). `POST /api/query` is the same Ask returned whole. If Ollama is down, Ask shows a clear error.
 
