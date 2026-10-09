@@ -22,7 +22,9 @@
 [CmdletBinding()]
 param(
     # Checkout that holds backend\ (and frontend\ unless -FrontendDir is given).
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    # Defaults to the checkout this script lives in (resolved below: Windows
+    # PowerShell 5.1 leaves $PSScriptRoot empty in param defaults under -File).
+    [string]$RepoRoot = '',
     # Frontend directory; defaults to <RepoRoot>\frontend.
     [string]$FrontendDir = '',
     [string]$BackendHost = '127.0.0.1',
@@ -267,6 +269,7 @@ function Invoke-NightAtlasAutostart {
 
 # Dot-sourcing (the Pester tests) loads the functions without running anything.
 if ($MyInvocation.InvocationName -ne '.') {
+    if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
     $r = Invoke-NightAtlasAutostart -RepoRoot $RepoRoot -FrontendDir $FrontendDir -BackendHost $BackendHost `
         -BackendPort $BackendPort -FrontendPort $FrontendPort -SkipBackend ([bool]$SkipBackend) `
         -SkipFrontend ([bool]$SkipFrontend) -StartDelaySeconds $StartDelaySeconds `

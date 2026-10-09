@@ -21,7 +21,9 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    # Defaults to the checkout this script lives in (resolved below: Windows
+    # PowerShell 5.1 leaves $PSScriptRoot empty in param defaults under -File).
+    [string]$RepoRoot = '',
     [string]$ApiUrl = 'http://127.0.0.1:8000',
     [string]$OutDir = '',
     [string]$LogDir = ''
@@ -98,5 +100,6 @@ function Invoke-RepairDigest {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
+    if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
     exit (Invoke-RepairDigest -RepoRoot $RepoRoot -ApiUrl $ApiUrl -OutDir $OutDir -LogDir $LogDir)
 }
