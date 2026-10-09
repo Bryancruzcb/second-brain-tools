@@ -194,3 +194,14 @@ def test_previous_and_json_out_can_be_the_same_rolling_file(backend, tmp_path):
     md2 = (tmp_path / "w2.md").read_text(encoding="utf-8")
     assert "| Broken links | 2 | +0 (was 2) |" in md2
     assert "- Broken links: 0 new, 0 resolved" in md2
+
+
+def test_flags_health_cache_behind_index():
+    snap = {"source": "x", "data": HEALTH, "is_scanning": False, "last_scan_time": time.time(),
+            "freshness": {"health_stale": True, "indexed_notes": 900}}
+    s = rd.summarize(snap)
+    assert s["health_lags_index"] is True
+    assert "**Behind the index:**" in rd.render_markdown(s)
+    s2 = rd.summarize(dict(snap, freshness=None))
+    assert s2["health_lags_index"] is False
+    assert "Behind the index" not in rd.render_markdown(s2)

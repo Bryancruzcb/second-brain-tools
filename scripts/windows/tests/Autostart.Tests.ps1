@@ -143,6 +143,25 @@ Describe 'start-night-atlas.ps1' {
         Should -Invoke Start-Process -Times 0 -Exactly
     }
 
+    It 'never starts the backend from a git worktree' {
+        Set-Content -LiteralPath (Join-Path $script:Repo '.git') -Value 'gitdir: C:/elsewhere/.git/worktrees/main'
+        $r = Invoke-NightAtlasAutostart -RepoRoot $script:Repo -FrontendDir '' -BackendHost '127.0.0.1' -BackendPort $script:BPort `
+            -FrontendPort $script:FPort -SkipBackend $false -SkipFrontend $true -StartDelaySeconds 0 -HealthTimeoutSeconds 1 `
+            -LogDir $script:Logs -DryRun $false
+        $r.backend | Should -Be 'failed'
+        Should -Invoke Start-Process -Times 0 -Exactly
+        Get-Content -Raw (Join-Path $script:Logs 'autostart.log') | Should -Match 'git worktree'
+    }
+
+    It 'starts the backend from a primary checkout (.git directory)' {
+        Mock Wait-NightAtlasHealthy { $true }
+        New-Item -ItemType Directory -Force -Path (Join-Path $script:Repo '.git') | Out-Null
+        $r = Invoke-NightAtlasAutostart -RepoRoot $script:Repo -FrontendDir '' -BackendHost '127.0.0.1' -BackendPort $script:BPort `
+            -FrontendPort $script:FPort -SkipBackend $false -SkipFrontend $true -StartDelaySeconds 0 -HealthTimeoutSeconds 1 `
+            -LogDir $script:Logs -DryRun $false
+        $r.backend | Should -Be 'started'
+    }
+
     It 'exits without starting anything while another launcher holds the lock' {
         $sync = [hashtable]::Synchronized(@{ held = $false; release = $false })
         $ps = [powershell]::Create()
@@ -205,6 +224,13 @@ Describe 'install-autostart.ps1' {
         { Install-NightAtlasAutostart -Method StartupFolder -ScriptDir $script:WinDir -RepoRoot $script:Repo -FrontendDir '' `
             -BackendPort 8000 -FrontendPort 3000 -StartDelaySeconds 20 -StartupDir $script:Startup -DryRun $false } | Should -Throw '*backend*'
         Should -Invoke New-NightAtlasShortcut -Times 0 -Exactly
+    }
+
+    It 'refuses a worktree as -RepoRoot' {
+        Set-Content -LiteralPath (Join-Path $script:Repo '.git') -Value 'gitdir: C:/elsewhere'
+        { Install-NightAtlasAutostart -Method Task -ScriptDir $script:WinDir -RepoRoot $script:Repo -FrontendDir '' `
+            -BackendPort 8000 -FrontendPort 3000 -StartDelaySeconds 20 -StartupDir $script:Startup -DryRun $false } | Should -Throw '*worktree*'
+        Should -Invoke Register-ScheduledTask -Times 0 -Exactly
     }
 
     It 'DryRun writes nothing' {

@@ -71,6 +71,8 @@ def fetch_health(base_url: str, timeout: float = 10.0) -> Dict[str, Any]:
         "data": payload["data"],
         "is_scanning": bool(payload.get("is_scanning")),
         "last_scan_time": float(payload.get("last_scan_time") or 0.0),
+        # Backends since PR #77 report whether the health cache lags the index.
+        "freshness": payload.get("freshness") if isinstance(payload.get("freshness"), dict) else None,
     }
 
 
@@ -121,6 +123,8 @@ def summarize(snapshot: Dict[str, Any], now: Optional[float] = None, stale_days:
         "scan_age_days": round(age_days, 2) if age_days is not None else None,
         "stale": age_days is None or age_days > stale_days,
         "is_scanning": snapshot.get("is_scanning", False),
+        "health_lags_index": bool((snapshot.get("freshness") or {}).get("health_stale")),
+        "indexed_notes": (snapshot.get("freshness") or {}).get("indexed_notes"),
         "total_notes": data.get("total_notes", 0),
         "total_links": data.get("total_links", 0),
         "counts": {c: len(items[c]) for c in CATEGORIES},
@@ -157,6 +161,12 @@ def render_markdown(summary: Dict[str, Any], delta=None, previous=None, limit: i
         lines.append(
             f"> **Stale:** the last scan is older than {stale_days:g} days (or missing). "
             "Open Repair and press Scan to refresh it; this digest does not trigger scans."
+        )
+    if summary.get("health_lags_index"):
+        lines.append("")
+        lines.append(
+            f"> **Behind the index:** the backend reports this scan covers fewer or older notes than the "
+            f"index ({summary.get('indexed_notes')} indexed); it rescans on its own when the index changes."
         )
     if summary["is_scanning"]:
         lines.append("")

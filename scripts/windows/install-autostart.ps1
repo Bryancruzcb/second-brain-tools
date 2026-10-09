@@ -75,6 +75,11 @@ function Assert-NightAtlasLayout {
         if (-not (Test-Path -LiteralPath (Join-Path $ScriptDir $f))) { throw "Missing $f next to this installer ($ScriptDir)." }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'backend'))) { throw "No backend\ under -RepoRoot '$RepoRoot'." }
+    # The backend must come from the primary checkout (the live index); a
+    # linked worktree has a .git file and an empty backend\chroma_db.
+    if (Test-Path -LiteralPath (Join-Path $RepoRoot '.git') -PathType Leaf) {
+        throw "-RepoRoot '$RepoRoot' is a git worktree; point it at the primary checkout (use -FrontendDir for a worktree frontend)."
+    }
     $fe = $FrontendDir
     if (-not $fe) { $fe = Join-Path $RepoRoot 'frontend' }
     if (-not (Test-Path -LiteralPath $fe)) { throw "Frontend directory '$fe' does not exist (pass -FrontendDir)." }

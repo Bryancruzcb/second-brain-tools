@@ -34,6 +34,9 @@ param(
     [int]$StartDelaySeconds = 0,
     [int]$HealthTimeoutSeconds = 180,
     [string]$LogDir = '',
+    # The backend must run from the primary checkout (its backend\chroma_db is
+    # the live index; a worktree's is empty). Override only if you mean it.
+    [switch]$AllowWorktreeBackend,
     [switch]$DryRun
 )
 
@@ -81,6 +84,13 @@ function Test-NightAtlasBackendHealthy {
     } catch {
         return $false
     }
+}
+
+function Test-NightAtlasWorktree {
+    # A linked git worktree has a .git *file*; the primary checkout a .git directory.
+    param([string]$Path)
+    $git = Join-Path $Path '.git'
+    return ((Test-Path -LiteralPath $git -PathType Leaf))
 }
 
 function Resolve-NightAtlasPython {
@@ -189,7 +199,7 @@ function Invoke-NightAtlasAutostart {
     param(
         [string]$RepoRoot, [string]$FrontendDir, [string]$BackendHost, [int]$BackendPort,
         [int]$FrontendPort, [bool]$SkipBackend, [bool]$SkipFrontend, [int]$StartDelaySeconds,
-        [int]$HealthTimeoutSeconds, [string]$LogDir, [bool]$DryRun
+        [int]$HealthTimeoutSeconds, [string]$LogDir, [bool]$DryRun, [bool]$AllowWorktreeBackend = $false
     )
     if (-not $LogDir) { $LogDir = Get-NightAtlasDefaultLogDir }
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -217,7 +227,10 @@ function Invoke-NightAtlasAutostart {
         }
         $result = @{ backend = 'skipped'; frontend = 'skipped'; locked = $false }
 
-        if (-not $SkipBackend) {
+        if (-not $SkipBackend -and -not $AllowWorktreeBackend -and (Test-NightAtlasWorktree -Path $RepoRoot)) {
+            Write-NightAtlasLog "backend : $RepoRoot is a git worktree, not the primary checkout; its index is not the live one. Not starting (pass -AllowWorktreeBackend to override)." 'ERROR'
+            $result.backend = 'failed'
+        } elseif (-not $SkipBackend) {
             $python = Resolve-NightAtlasPython -BackendDir $backendDir
             $result.backend = Start-NightAtlasService -Name 'backend' -FilePath $python `
                 -ArgumentList @('-m', 'uvicorn', 'main:app', '--host', $BackendHost, '--port', "$BackendPort") `
@@ -251,7 +264,8 @@ if ($MyInvocation.InvocationName -ne '.') {
     $r = Invoke-NightAtlasAutostart -RepoRoot $RepoRoot -FrontendDir $FrontendDir -BackendHost $BackendHost `
         -BackendPort $BackendPort -FrontendPort $FrontendPort -SkipBackend ([bool]$SkipBackend) `
         -SkipFrontend ([bool]$SkipFrontend) -StartDelaySeconds $StartDelaySeconds `
-        -HealthTimeoutSeconds $HealthTimeoutSeconds -LogDir $LogDir -DryRun ([bool]$DryRun)
+        -HealthTimeoutSeconds $HealthTimeoutSeconds -LogDir $LogDir -DryRun ([bool]$DryRun) `
+        -AllowWorktreeBackend ([bool]$AllowWorktreeBackend)
     if ($r.backend -eq 'failed' -or $r.frontend -eq 'failed') { exit 1 }
     exit 0
 }
