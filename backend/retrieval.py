@@ -9,6 +9,7 @@ import time
 
 import config
 import metrics
+import note_time
 import query_rewrite
 
 # Resolved once at import, the same moment uvicorn, the eval and the sweep
@@ -391,9 +392,11 @@ def apply_recency(candidates, *, intent=False, now=None):
     min-max of rerank_score when every candidate has one, else its rank
     (the fused order). The final score is relevance + weight · decay(mtime),
     with weight ASK_RECENCY_WEIGHT (mild, default 0.1) for ordinary
-    questions and ASK_RECENCY_INTENT_WEIGHT (default 0.6, shorter half-life)
-    when the question asks for recent notes. A strongly relevant old note
-    therefore still beats a barely relevant new one. Ties keep input order.
+    questions and ASK_RECENCY_INTENT_WEIGHT (default 1.0, shorter half-life)
+    when the question asks for recent notes. The note's time is its
+    file-name date when it has one, else its mtime (see note_time.py). For
+    ordinary questions a strongly relevant old note still beats a barely
+    relevant new one. Ties keep input order.
     """
     candidates = list(candidates)
     if len(candidates) < 2:
@@ -404,7 +407,9 @@ def apply_recency(candidates, *, intent=False, now=None):
     else:
         weight = config.get_recency_weight()
         half_life = config.get_recency_half_life_days()
-    if weight <= 0 or not any(isinstance(c.get("mtime"), (int, float)) for c in candidates):
+    if weight <= 0 or not any(
+        note_time.note_timestamp(c.get("source"), c.get("mtime")) is not None for c in candidates
+    ):
         return candidates
     now = time.time() if now is None else now
 
@@ -424,7 +429,8 @@ def apply_recency(candidates, *, intent=False, now=None):
 
     scored = []
     for i, cand in enumerate(candidates):
-        boost = weight * recency_decay(cand.get("mtime"), now=now, half_life_days=half_life)
+        when = note_time.note_timestamp(cand.get("source"), cand.get("mtime"))
+        boost = weight * recency_decay(when, now=now, half_life_days=half_life)
         scored.append((relevance[i] + boost, i, cand))
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [cand for _, _, cand in scored]
@@ -441,7 +447,10 @@ def add_recent_candidates(pool, lexical, *, scope, k):
         return list(pool)
     seen = {c.get("id") or (c["source"], c["chunk"]) for c in pool}
     out = list(pool)
-    for cand in lexical.recent(scope=scope, k=k):
+    # Over-fetch, then drop what the notes-chat guard would drop anyway
+    # (AI Chat Link stubs live outside the chat folders) so k real notes join.
+    recent = filter_notes_chat_guard(lexical.recent(scope=scope, k=k * 4), scope)[:k]
+    for cand in recent:
         key = cand.get("id") or (cand["source"], cand["chunk"])
         if key not in seen:
             seen.add(key)

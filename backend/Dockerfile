@@ -46,6 +46,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # moved to backend/scripts/ and is not a runtime dependency, so it is gone.
 COPY backend/main.py .
 COPY backend/ask_cache.py .
+COPY backend/ask_history.py .
+COPY backend/note_time.py .
 COPY backend/config.py .
 COPY backend/indexer.py .
 COPY backend/lexical.py .

@@ -172,3 +172,36 @@ def test_ordinary_question_does_not_widen_the_pool(monkeypatch):
     out = retrieval.retrieve_hybrid("working project notes", model=FakeModel(),
                                     collection=coll, lexical=lex, k=4)
     assert "fresh" not in [c["id"] for c in out]
+
+
+def test_recent_candidates_skip_chat_link_stubs_in_notes_scope(monkeypatch):
+    monkeypatch.setenv("NOTES_CHAT_GUARD", "1")
+    stub = {"id": "s", "source": "02 Projects/X/AI Chat Links/stub.md", "title": "stub",
+            "chunk": "link", "category": "note", "mtime": NOW}
+    real = {"id": "r", "source": "02 Projects/X/plan.md", "title": "plan",
+            "chunk": "plan", "category": "note", "mtime": NOW - DAY}
+    out = retrieval.add_recent_candidates([], _RecentLexical([], [stub, real]), scope="notes", k=1)
+    assert [c["id"] for c in out] == ["r"]
+
+
+def test_note_time_prefers_file_name_date_over_noisy_mtime():
+    import calendar
+    import note_time
+    jul20 = calendar.timegm((2026, 7, 20, 12, 0, 0))
+    assert note_time.note_timestamp("05 AI Chats/Claude/2026-07-20 - Eval - ab12.md", NOW) == jul20
+    assert note_time.note_timestamp(r"05 AI Chats\Claude\2026-07-20 - Eval.md", None) == jul20
+    assert note_time.note_timestamp("02 Projects/Plan.md", NOW) == NOW
+    assert note_time.note_timestamp("2026-13-40 bogus.md", NOW) == NOW
+    assert note_time.note_timestamp("Plan.md", None) is None
+
+
+def test_bulk_touched_old_chat_does_not_count_as_recent():
+    # Re-imported yesterday (fresh mtime) but the chat itself is from July 2026.
+    old_chat = {"id": "c", "source": "05 AI Chats/2026-07-20 - old chat.md", "chunk": "",
+                "rerank_score": 5.0, "mtime": NOW - DAY}
+    fresh = {"id": "f", "source": "02 Projects/plan.md", "chunk": "",
+             "rerank_score": 4.9, "mtime": NOW - DAY}
+    weak = {"id": "w", "source": "02 Projects/weak.md", "chunk": "",
+            "rerank_score": 0.0, "mtime": NOW - 900 * DAY}
+    out = retrieval.apply_recency([old_chat, fresh, weak], now=NOW)
+    assert [c["id"] for c in out] == ["f", "c", "w"]

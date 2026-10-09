@@ -332,8 +332,12 @@ def get_recency_weight() -> float:
 
 
 def get_recency_intent_weight() -> float:
-    """Recency boost when the question asks for recent things (ASK_RECENCY_INTENT_WEIGHT, default 0.6)."""
-    return _float_env("ASK_RECENCY_INTENT_WEIGHT", 0.6)
+    """Recency boost when the question asks for recent things (ASK_RECENCY_INTENT_WEIGHT, default 1.0).
+
+    On the same 0..1 relevance scale, so for "what have I been working on
+    lately" a note from today ties with the most relevant note in the pool.
+    """
+    return _float_env("ASK_RECENCY_INTENT_WEIGHT", 1.0)
 
 
 def get_recency_intent_half_life_days() -> float:

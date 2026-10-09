@@ -11,6 +11,8 @@ import re
 
 from rank_bm25 import BM25Okapi
 
+import note_time
+
 TOKEN_RE = re.compile(r"[a-z0-9_]+")
 
 
@@ -55,26 +57,26 @@ class LexicalIndex:
     def recent(self, scope="notes", k=10):
         """One chunk from each of the ``k`` most recently modified notes, newest first.
 
-        Uses the mtime the indexer stamped on every chunk, so it costs a sort
+        A note's time is its file-name date when it has one, else the mtime
+        the indexer stamped on every chunk (note_time.py), so it costs a sort
         over the in-memory entries and no disk access. Candidates carry no
         score of their own; the caller ranks them.
         """
         if k <= 0:
             return []
-        newest = {}
+        newest = {}  # source -> (when, entry)
         for entry in self._entries:
-            mtime = entry.get("mtime")
-            if not isinstance(mtime, (int, float)):
-                continue
+            if entry["source"] in newest:
+                continue  # every chunk of a note shares its time; keep the first
             if scope == "chats" and entry["category"] != "chat":
                 continue
             if scope == "notes" and entry["category"] == "chat":
                 continue
-            prev = newest.get(entry["source"])
-            if prev is None or mtime > prev.get("mtime"):
-                newest[entry["source"]] = entry
-        ranked = sorted(newest.values(), key=lambda e: e["mtime"], reverse=True)[:k]
-        return [dict(e) for e in ranked]
+            when = note_time.note_timestamp(entry["source"], entry.get("mtime"))
+            if when is not None:
+                newest[entry["source"]] = (when, entry)
+        ranked = sorted(newest.values(), key=lambda pair: pair[0], reverse=True)[:k]
+        return [dict(entry) for _, entry in ranked]
 
     def __len__(self):
         return len(self._entries)
