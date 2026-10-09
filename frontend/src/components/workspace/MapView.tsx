@@ -46,7 +46,8 @@ function topInCluster(nodes: GraphNode[], cluster: string): string | null {
 }
 
 export function MapView() {
-  const { mapFocusId, selectNote, selectedNoteId } = useWorkspace();
+  const { mapFocusId, selectNote, selectedNoteId, folderFilter, setFolderFilter } =
+    useWorkspace();
   const [raw, setRaw] = useState<{
     nodes: Parameters<typeof layoutGraph>[0];
     edges: Parameters<typeof layoutGraph>[1];
@@ -54,7 +55,10 @@ export function MapView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [cluster, setCluster] = useState("all");
+  // The sidebar's FOLDERS list and this select share one filter.
+  const cluster = folderFilter ?? "all";
+  const setCluster = (value: string) =>
+    setFolderFilter(value === "all" ? null : value);
   const [includeChats, setIncludeChats] = useState(false);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [cam, setCam] = useState({ x: 0, y: 0, k: 1 });

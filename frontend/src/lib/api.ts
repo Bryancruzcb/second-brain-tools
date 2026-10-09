@@ -214,9 +214,11 @@ export function layoutGraph(
 /* ---------- endpoints ---------- */
 
 export async function fetchReady() {
-  return apiFetch<{ ready: boolean; components: Record<string, boolean> }>(
-    "/api/ready",
-  );
+  return apiFetch<{
+    ready: boolean;
+    index_populated?: boolean;
+    components: Record<string, boolean>;
+  }>("/api/ready");
 }
 
 export async function fetchHealth() {
@@ -280,6 +282,17 @@ export async function saveNote(noteRef: string, content: string) {
   return apiFetch<{ status: string; message?: string }>(`/api/note/${enc}`, {
     method: "POST",
     body: JSON.stringify({ content }),
+  });
+}
+
+/**
+ * POST /api/note/create: writes a root-level Markdown note. The backend
+ * sanitizes the title and answers 409 when that note already exists.
+ */
+export async function createNote(title: string, content = "") {
+  return apiFetch<{ status: string; title: string }>("/api/note/create", {
+    method: "POST",
+    body: JSON.stringify({ title, content }),
   });
 }
 

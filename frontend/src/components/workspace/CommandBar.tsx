@@ -15,7 +15,11 @@ export function CommandBar() {
   const [active, setActive] = useState(0);
 
   useEffect(() => {
-    if (commandOpen) inputRef.current?.focus();
+    if (!commandOpen) return;
+    // Return focus to whatever opened the dialog (e.g. the sidebar button).
+    const opener = document.activeElement as HTMLElement | null;
+    inputRef.current?.focus();
+    return () => opener?.focus?.();
   }, [commandOpen]);
 
   const trimmed = q.trim();
@@ -52,17 +56,21 @@ export function CommandBar() {
     VIEW_META[id].label.toLowerCase().includes(q.trim().toLowerCase() || ""),
   );
 
-  const openHit = (hit: SearchHit) => {
-    selectNote(hit.id, { view: "notes" });
+  const close = () => {
     setCommandOpen(false);
     setQ("");
+  };
+
+  const openHit = (hit: SearchHit) => {
+    selectNote(hit.id, { view: "notes" });
+    close();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     const total = viewJumps.length + shownHits.length;
     if (e.key === "Escape") {
-      setCommandOpen(false);
-      (e.target as HTMLInputElement).blur();
+      e.preventDefault();
+      close();
       return;
     }
     if (e.key === "ArrowDown") {
@@ -86,51 +94,55 @@ export function CommandBar() {
     }
   };
 
-  const open = commandOpen || q.length > 0;
+  // Interim search dialog opened by the sidebar button and ⌘K. The full ⌘K
+  // palette (sections, highlights, Ask/New note actions) replaces it later.
+  if (!commandOpen) return null;
 
   return (
-    <div className="relative border-b border-hairline bg-page px-4 py-2.5">
+    <div
+      className="fixed inset-0 z-50 flex justify-center bg-black/55 px-4 pt-[12vh]"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search notes and views"
+        className="relative h-fit w-full max-w-[640px] rounded-card border border-dialog bg-surface p-2 shadow-[var(--shadow-dialog)]"
+      >
       <label className="sr-only" htmlFor="atlas-search">
         Search notes and commands
       </label>
-      <div className="compose-bar max-w-3xl">
-        <Search className="h-4 w-4 shrink-0 text-muted" strokeWidth={1.75} />
+      <div className="flex h-[52px] items-center gap-3 px-3">
+        <Search aria-hidden className="h-[18px] w-[18px] shrink-0 text-tertiary" strokeWidth={1.75} />
         <input
           id="atlas-search"
           ref={inputRef}
           type="search"
           role="combobox"
-          aria-expanded={open}
+          aria-expanded
           aria-controls="atlas-search-results"
           autoComplete="off"
           placeholder="Search notes or jump to a view"
           value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setCommandOpen(true);
-          }}
-          onFocus={() => setCommandOpen(true)}
-          onBlur={() => {
-            window.setTimeout(() => setCommandOpen(false), 120);
-          }}
+          onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
+          className="min-w-0 flex-1 bg-transparent text-[17px] text-primary outline-none placeholder:text-tertiary"
         />
-        <span className="mono hidden shrink-0 text-[10px] text-muted sm:inline">
-          ⌘K
-        </span>
+        <kbd className="kbd">esc</kbd>
       </div>
-      {open && (
-        <ul
+      <ul
           id="atlas-search-results"
           role="listbox"
-          className="absolute z-20 mt-1 w-[min(48rem,calc(100%-2rem))] overflow-hidden rounded-[11px] border border-hairline bg-panel shadow-[var(--shadow)]"
+          className="max-h-[400px] overflow-y-auto border-t border-divider pt-1"
         >
           {viewJumps.map((id, i) => (
             <li key={id} role="option" aria-selected={active === i}>
               <button
                 type="button"
-                className={`flex w-full items-center justify-between px-3 py-2 text-left text-[13px] ${
-                  active === i ? "bg-elevated" : ""
+                className={`flex w-full items-center justify-between min-h-11 rounded-control px-3 py-2 text-left text-[14px] ${
+                  active === i ? "bg-active" : "hover:bg-hover"
                 }`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -155,8 +167,8 @@ export function CommandBar() {
               <li key={hit.id} role="option" aria-selected={active === idx}>
                 <button
                   type="button"
-                  className={`flex w-full flex-col px-3 py-2 text-left ${
-                    active === idx ? "bg-elevated" : ""
+                  className={`flex min-h-11 w-full flex-col rounded-control px-3 py-2 text-left ${
+                    active === idx ? "bg-active" : "hover:bg-hover"
                   }`}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => openHit(hit)}
@@ -173,7 +185,7 @@ export function CommandBar() {
             <li className="px-3 py-2 text-[12px] text-muted">No matching notes.</li>
           )}
         </ul>
-      )}
+      </div>
     </div>
   );
 }

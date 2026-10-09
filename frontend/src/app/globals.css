@@ -1,92 +1,203 @@
 @import "tailwindcss";
 
+/*
+ * Atlas design tokens. Every color, radius and font in the UI comes from here.
+ * :root holds the raw values; @theme inline exposes them to Tailwind
+ * (bg-sidebar, text-tertiary, border-control, rounded-card, font-mono, ...).
+ */
 :root {
   color-scheme: dark;
 
-  --page: #0d1117;
-  --panel: #161b22;
-  --elevated: #1c222b;
-  --ink: #f4f1e8;
-  --muted: #aeb6c2;
-  --hairline: #2a3340;
-  --accent: #c9f568;
-  --accent-hover: #d4f784;
-  --accent-ink: #0d1117;
-  --sky: #61a8ff;
-  --success: #68d9b0;
-  --warning: #e8b94f;
-  --danger: #f06f62;
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  --radius-sm: 7px;
-  --radius: 11px;
-  --radius-lg: 16px;
+  /* Backgrounds */
+  --bg-page: #0e0f11;
+  --bg-sidebar: #111316;
+  --bg-panel: #131518;
+  --bg-status: #141619;
+  --bg-surface: #16181b;
+  --bg-nav-hover: #181a1e;
+  --bg-hover: #1a1d21;
+  --bg-active: #1d2024;
+  --bg-chip-active: #23262b;
+  --bg-segment-active: #26292e;
+
+  /* Borders */
+  --border-divider: #1f2226;
+  --border-row: #22262b;
+  --border-control: #262a2f;
+  --border-dialog: #2a2e33;
+  --border-button: #2e3238;
+  --border-strong: #3a3f46;
+
+  /* Text */
+  --text-primary: #ecedee;
+  --text-reader: #c9cdd2;
+  --text-secondary: #a4a9b0;
+  --text-tertiary: #868c94;
+
+  /* Accent (lime) */
+  --accent: #c8f25a;
+  --accent-hover: #e4ff9e;
+  --accent-ink: #11130e;
+  --accent-tint: rgba(200, 242, 90, 0.12);
+  --accent-tint-border: rgba(200, 242, 90, 0.25);
+
+  /* Status */
+  --success: #5fd3a0;
+  --success-ring: rgba(95, 211, 160, 0.18);
+  --warning: #f5a35c;
+  --warning-tint: rgba(245, 163, 92, 0.16);
+  --danger: #f08db2;
+
+  /* Folder colors (lib/folders.ts maps folder names onto these) */
+  --folder-career: #7aa7ff;
+  --folder-vault: #b59bff;
+  --folder-school: #5fd3a0;
+  --folder-projects: #f5a35c;
+  --folder-memory: #62cbe0;
+  --folder-imported: #9aa1ab;
+  --folder-home: #f08db2;
+
+  /* Radii */
+  --r-control: 10px;
+  --r-button: 11px;
+  --r-item: 12px;
+  --r-tile: 14px;
+  --r-card: 16px;
+  --r-chip: 999px;
+
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  --shadow-dialog: 0 30px 90px rgba(0, 0, 0, 0.6);
+
+  /* Legacy names still used by views that have not been restyled yet. */
+  --page: var(--bg-page);
+  --panel: var(--bg-panel);
+  --elevated: var(--bg-surface);
+  --ink: var(--text-primary);
+  --muted: var(--text-secondary);
+  --hairline: var(--border-divider);
+  --sky: var(--folder-career);
+  --radius-sm: 8px;
+  --radius: var(--r-button);
+  --radius-lg: var(--r-card);
 }
 
 @theme inline {
-  --color-page: var(--page);
-  --color-panel: var(--panel);
-  --color-elevated: var(--elevated);
-  --color-ink: var(--ink);
-  --color-muted: var(--muted);
-  --color-hairline: var(--hairline);
+  --color-page: var(--bg-page);
+  --color-sidebar: var(--bg-sidebar);
+  --color-panel: var(--bg-panel);
+  --color-status: var(--bg-status);
+  --color-surface: var(--bg-surface);
+  --color-nav-hover: var(--bg-nav-hover);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-chip-active: var(--bg-chip-active);
+  --color-segment-active: var(--bg-segment-active);
+
+  --color-divider: var(--border-divider);
+  --color-row: var(--border-row);
+  --color-control: var(--border-control);
+  --color-dialog: var(--border-dialog);
+  --color-button: var(--border-button);
+  --color-strong: var(--border-strong);
+
+  --color-primary: var(--text-primary);
+  --color-reader: var(--text-reader);
+  --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-tertiary);
+
   --color-accent: var(--accent);
-  --color-sky: var(--sky);
-  --font-sans: var(--font-instrument);
-  --font-mono: var(--font-ibm);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-tint-border: var(--accent-tint-border);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-danger: var(--danger);
+
+  /* legacy aliases */
+  --color-ink: var(--text-primary);
+  --color-muted: var(--text-secondary);
+  --color-elevated: var(--bg-surface);
+  --color-hairline: var(--border-divider);
+  --color-sky: var(--folder-career);
+
+  --radius-control: var(--r-control);
+  --radius-button: var(--r-button);
+  --radius-item: var(--r-item);
+  --radius-tile: var(--r-tile);
+  --radius-card: var(--r-card);
+  --radius-chip: var(--r-chip);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo,
+    monospace;
 }
 
-* {
-  box-sizing: border-box;
-}
+/* Element defaults live in the base layer so Tailwind utilities override them. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-  background: var(--page);
-  color: var(--ink);
-}
+  html,
+  body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg-page);
+    color: var(--text-primary);
+  }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  body {
+    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--text-primary);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
   }
 }
 
-body {
-  font-family: var(--font-instrument), "Instrument Sans", ui-sans-serif,
-    system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  font-size: 15px;
-  line-height: 1.5;
-}
-
-::selection {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
-  color: var(--ink);
-}
-
-button,
-input,
-textarea,
-select {
-  font: inherit;
-  color: inherit;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
 .mono {
-  font-family: var(--font-ibm), "IBM Plex Mono", ui-monospace, SFMono-Regular,
-    Menlo, monospace;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo,
+    monospace;
   letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus ring: 2px solid lime, offset 2px. Every interactive element gets it
+   from the base layer; .focus-ring forces it where a utility removed it. */
+@layer base {
+  :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
 .focus-ring:focus-visible {
@@ -94,11 +205,39 @@ a {
   outline-offset: 2px;
 }
 
+/* Section label: 11px / 600 / uppercase / 0.08em / tertiary */
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-button);
+  border-radius: 6px;
+  background: var(--bg-page);
+  color: var(--text-tertiary);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* ---------- App shell ---------- */
+
 .workspace {
   display: grid;
-  grid-template-columns: 13.5rem minmax(0, 1fr);
-  min-height: 100dvh;
-  background: var(--page);
+  grid-template-columns: 236px minmax(0, 1fr);
+  height: 100dvh;
+  background: var(--bg-page);
 }
 
 .workspace-main {
@@ -113,6 +252,74 @@ a {
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 22px;
+  padding: 18px 14px;
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-divider);
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+/* Under ~800px the sidebar stacks above the content. */
+@media (max-width: 800px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(80dvh, 1fr);
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .sidebar {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-divider);
+  }
+
+  .sidebar-spacer {
+    display: none;
+  }
+
+  .sidebar-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar-list {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .sidebar-list > li {
+    max-width: 100%;
+  }
+
+  .sidebar-list > li > button {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .sidebar-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 480px) {
+  .sidebar-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .panel {
@@ -336,11 +543,4 @@ a {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-@media (max-width: 768px) {
-  .workspace {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-  }
 }

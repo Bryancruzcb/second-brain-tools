@@ -12,13 +12,18 @@ type AskAnswer = {
 };
 
 export function AskView() {
-  const { askContextId, setAskContextId } = useWorkspace();
+  const {
+    askContextId,
+    setAskContextId,
+    askHistoryVersion,
+    bumpAskHistory,
+    askPick,
+  } = useWorkspace();
   const [query, setQuery] = useState("");
   const [scopeChoice, setScope] = useState<AskScope>("notes");
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [historyVersion, setHistoryVersion] = useState(0);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [fetchedContext, setFetchedContext] = useState<{
     id: string;
@@ -92,9 +97,9 @@ export function AskView() {
     } finally {
       setLoading(false);
       setActiveHistoryId(null);
-      setHistoryVersion((v) => v + 1);
+      bumpAskHistory();
     }
-  }, [query, askContextId, loading, scopeChoice]);
+  }, [query, askContextId, loading, scopeChoice, bumpAskHistory]);
 
   const showSaved = useCallback((entry: AskHistoryEntry) => {
     setQuery(entry.question);
@@ -111,6 +116,15 @@ export function AskView() {
         .slice(0, 6),
     });
   }, []);
+
+  // A question picked under RECENT QUESTIONS in the sidebar.
+  const [shownPick, setShownPick] = useState<number | null>(
+    () => askPick?.nonce ?? null,
+  );
+  if (askPick && askPick.nonce !== shownPick) {
+    setShownPick(askPick.nonce);
+    showSaved(askPick.entry);
+  }
 
   const askAgain = useCallback(
     (entry: AskHistoryEntry) => {
@@ -219,7 +233,7 @@ export function AskView() {
       )}
 
       <AskHistory
-        version={historyVersion}
+        version={askHistoryVersion}
         activeId={activeHistoryId}
         onSelect={showSaved}
         onRerun={askAgain}
