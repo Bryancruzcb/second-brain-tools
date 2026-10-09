@@ -1,0 +1,3 @@
+node_modules/
+# Build output. Copy it into the vault with manifest.json; see README.md.
+main.js
