@@ -30,8 +30,8 @@ def test_retrieve_parses_chroma_results_into_candidates():
     coll = FakeCollection(CANNED)
     out = retrieval.retrieve("q", model=FakeModel(), collection=coll)
     assert out == [
-        {"id": "id_a", "source": "a.md", "title": "A", "chunk": "chunk one text", "distance": 0.1, "category": "note"},
-        {"id": "id_b", "source": "b.md", "title": "B", "chunk": "chunk two text", "distance": 0.4, "category": "note"},
+        {"id": "id_a", "source": "a.md", "title": "A", "chunk": "chunk one text", "distance": 0.1, "category": "note", "mtime": None},
+        {"id": "id_b", "source": "b.md", "title": "B", "chunk": "chunk two text", "distance": 0.4, "category": "note", "mtime": None},
     ]
 
 

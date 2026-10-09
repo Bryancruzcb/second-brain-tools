@@ -364,3 +364,37 @@ export const composePrompts = [
   "Summarize vault health issues to fix",
   "Which notes are most connected?",
 ];
+
+/* ---------- Ask history ---------- */
+
+export type AskHistoryEntry = {
+  id: string;
+  /** epoch seconds */
+  asked_at: number;
+  question: string;
+  answer: string;
+  scope: AskScope;
+  sources: { title: string; source: string; snippet: string }[];
+  context_nodes?: string[];
+};
+
+/** Every answered Ask (web, Obsidian, MCP), newest first; saved by the backend. */
+export async function fetchAskHistory(limit = 0) {
+  const q = limit > 0 ? `?limit=${limit}` : "";
+  return apiFetch<{ enabled: boolean; entries: AskHistoryEntry[] }>(
+    `/api/ask/history${q}`,
+  );
+}
+
+export async function deleteAskHistoryEntry(id: string) {
+  return apiFetch<{ status: string }>(
+    `/api/ask/history/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function clearAskHistory() {
+  return apiFetch<{ status: string; removed: number }>("/api/ask/history", {
+    method: "DELETE",
+  });
+}

@@ -26,3 +26,10 @@ def _no_background_health_scans(monkeypatch):
     main = sys.modules.get("main")
     if main is not None and hasattr(main, "start_health_scan"):
         monkeypatch.setattr(main, "start_health_scan", lambda reason: False)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_ask_history(monkeypatch, tmp_path):
+    """Every answered /api/query is saved to Ask history; keep test asks out
+    of the live backend/ask_history.json."""
+    monkeypatch.setenv("ASK_HISTORY_PATH", str(tmp_path / "ask_history.json"))

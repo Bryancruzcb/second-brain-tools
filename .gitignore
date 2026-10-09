@@ -55,3 +55,7 @@ scripts/topic_keyword_learning.log
 backend/eval/results_rewrite_*.json
 backend/eval/_rewrite_*.log
 
+
+# Ask history (questions + answers quoting private notes) stays local
+backend/ask_history.json
+backend/.ask_history.*.tmp

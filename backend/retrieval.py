@@ -3,6 +3,10 @@
 Extracted from main.py's run_query so the eval harness measures exactly
 what the app does — same reason indexer.py was unified in PR #3.
 """
+import math
+import re
+import time
+
 import config
 import metrics
 import query_rewrite
@@ -70,6 +74,7 @@ def retrieve(query_text, *, model, collection, scope="notes", k=TOP_K):
                 "chunk": doc,
                 "distance": float(dist),
                 "category": meta.get("category", "note"),
+                "mtime": meta.get("mtime"),
             })
             if len(candidates) >= k:
                 break
@@ -346,6 +351,104 @@ def sibling_disambiguate(query_text, candidates, score_key=None):
     return [cand for _, _, cand in scored]
 
 
+# ── recency (ASK_RECENCY_*) ───────────────────────────────────────────────
+
+_RECENCY_INTENT_RE = re.compile(
+    r"\b("
+    r"latest|recent|recently|lately|newest|nowadays|currently|"
+    r"today|tonight|yesterday|this (?:morning|afternoon|evening|week|month|year)|"
+    r"(?:last|past) (?:few |couple(?: of)? )?(?:day|days|night|week|weeks|month|months)|"
+    r"what['’]?s new|anything new|new (?:stuff|things|ideas)|"
+    r"so far|right now|these days|been (?:working|doing|up to|thinking)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+SECONDS_PER_DAY = 86400.0
+
+
+def has_recency_intent(query_text) -> bool:
+    """True when the question asks about recent things ("lately", "this week", ...)."""
+    return bool(_RECENCY_INTENT_RE.search(query_text or ""))
+
+
+def recency_decay(mtime, *, now, half_life_days) -> float:
+    """0.5 ** (age / half-life): 1.0 for a note touched now, 0.5 at one half-life.
+
+    No mtime (old index, context-node lookups) → 0, i.e. no boost at all.
+    Future mtimes (clock skew, synced files) count as brand new.
+    """
+    if not isinstance(mtime, (int, float)) or half_life_days <= 0:
+        return 0.0
+    age_days = max(0.0, (now - float(mtime)) / SECONDS_PER_DAY)
+    return math.pow(0.5, age_days / half_life_days)
+
+
+def apply_recency(candidates, *, intent=False, now=None):
+    """Re-order a ranked pool so newer notes win when relevance is comparable.
+
+    Each candidate's relevance is put on a 0..1 scale within the pool —
+    min-max of rerank_score when every candidate has one, else its rank
+    (the fused order). The final score is relevance + weight · decay(mtime),
+    with weight ASK_RECENCY_WEIGHT (mild, default 0.1) for ordinary
+    questions and ASK_RECENCY_INTENT_WEIGHT (default 0.6, shorter half-life)
+    when the question asks for recent notes. A strongly relevant old note
+    therefore still beats a barely relevant new one. Ties keep input order.
+    """
+    candidates = list(candidates)
+    if len(candidates) < 2:
+        return candidates
+    if intent:
+        weight = config.get_recency_intent_weight()
+        half_life = config.get_recency_intent_half_life_days()
+    else:
+        weight = config.get_recency_weight()
+        half_life = config.get_recency_half_life_days()
+    if weight <= 0 or not any(isinstance(c.get("mtime"), (int, float)) for c in candidates):
+        return candidates
+    now = time.time() if now is None else now
+
+    scores = [c.get("rerank_score") for c in candidates]
+    n = len(candidates)
+    if all(isinstance(s, (int, float)) for s in scores):
+        lo, hi = min(scores), max(scores)
+        span = hi - lo
+        relevance = [(s - lo) / span if span > 0 else 1.0 for s in scores]
+        # The pool arrives in its final relevance order, which the sibling
+        # pass may have nudged away from raw rerank_score; never let a
+        # candidate's relevance exceed the one ranked above it.
+        for i in range(1, n):
+            relevance[i] = min(relevance[i], relevance[i - 1])
+    else:
+        relevance = [1.0 - i / (n - 1) for i in range(n)]
+
+    scored = []
+    for i, cand in enumerate(candidates):
+        boost = weight * recency_decay(cand.get("mtime"), now=now, half_life_days=half_life)
+        scored.append((relevance[i] + boost, i, cand))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [cand for _, _, cand in scored]
+
+
+def add_recent_candidates(pool, lexical, *, scope, k):
+    """Append the ``k`` most recently modified notes to the pool (deduped by chunk id).
+
+    For recency-intent questions, so "what have I been working on lately"
+    sees this week's notes even when an older note matches the words better.
+    The reranker then scores them like any other candidate.
+    """
+    if k <= 0 or lexical is None or not hasattr(lexical, "recent"):
+        return list(pool)
+    seen = {c.get("id") or (c["source"], c["chunk"]) for c in pool}
+    out = list(pool)
+    for cand in lexical.recent(scope=scope, k=k):
+        key = cand.get("id") or (cand["source"], cand["chunk"])
+        if key not in seen:
+            seen.add(key)
+            out.append(cand)
+    return out
+
+
 def retrieve_hybrid(query_text, *, model, collection, lexical=None,
                     cross_encoder=None, scope="notes", k=TOP_K, max_per_source=None):
     """Vector + BM25 fused with RRF, optionally reranked by a cross-encoder,
@@ -366,6 +469,8 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
     """
     if max_per_source is None:
         max_per_source = config.get_max_chunks_per_note()
+    # Read intent from the user's words, before any rewrite expands them.
+    recency_intent = has_recency_intent(query_text)
     query_text = query_rewrite.rewrite_for_retrieval(query_text)
     # Notes-chat guard: fetch deeper legs, drop chat stubs per-leg, then
     # fuse the surviving HYBRID_DEPTH notes so RRF depth stays comparable
@@ -383,9 +488,13 @@ def retrieve_hybrid(query_text, *, model, collection, lexical=None,
         if deep:
             keyword = filter_notes_chat_guard(keyword, scope)[:HYBRID_DEPTH]
         fused = rrf_fuse([vector, keyword], k=RERANK_DEPTH)
+    if recency_intent:
+        fused = add_recent_candidates(fused, lexical, scope=scope,
+                                      k=config.get_recency_intent_pool())
     pool = filter_notes_chat_guard(fused, scope)
     pool = sibling_disambiguate(query_text, pool)
     if cross_encoder is not None:
         pool = rerank(query_text, pool, cross_encoder=cross_encoder, k=len(pool))
         pool = sibling_disambiguate(query_text, pool, score_key="rerank_score")
+    pool = apply_recency(pool, intent=recency_intent)
     return cap_per_source(pool, max_per_source)[:k]

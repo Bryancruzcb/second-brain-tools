@@ -298,3 +298,75 @@ def read_only() -> bool:
 def reranker_disabled(name: str) -> bool:
     """Shared kill-switch semantics for RERANKER_MODEL values."""
     return name.strip().lower() in ("", "off", "none", "disabled")
+
+
+# ── Ask recency + history ─────────────────────────────────────────────────
+
+def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    """Parse an env var as a float >= minimum; anything else yields the default."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+def get_recency_half_life_days() -> float:
+    """Age in days at which a note's recency boost halves (ASK_RECENCY_HALF_LIFE_DAYS, default 30)."""
+    value = _float_env("ASK_RECENCY_HALF_LIFE_DAYS", 30.0)
+    return value if value > 0 else 30.0
+
+
+def get_recency_weight() -> float:
+    """Mild recency boost for ordinary questions (ASK_RECENCY_WEIGHT, default 0.1).
+
+    Added on a 0..1 scale where 1 is the spread between the best and worst
+    relevance score in the reranked pool, so a brand-new note gains at most
+    a tenth of that spread: enough to break near-ties, never enough to bury
+    a clearly better old note. 0 turns recency off for ordinary questions.
+    """
+    return _float_env("ASK_RECENCY_WEIGHT", 0.1)
+
+
+def get_recency_intent_weight() -> float:
+    """Recency boost when the question asks for recent things (ASK_RECENCY_INTENT_WEIGHT, default 0.6)."""
+    return _float_env("ASK_RECENCY_INTENT_WEIGHT", 0.6)
+
+
+def get_recency_intent_half_life_days() -> float:
+    """Half-life used for recency-intent questions (ASK_RECENCY_INTENT_HALF_LIFE_DAYS, default 7)."""
+    value = _float_env("ASK_RECENCY_INTENT_HALF_LIFE_DAYS", 7.0)
+    return value if value > 0 else 7.0
+
+
+def get_recency_intent_pool() -> int:
+    """How many of the most recently modified notes join the candidate pool
+    for a recency-intent question (ASK_RECENCY_INTENT_POOL, default 12; 0 = none)."""
+    raw = os.environ.get("ASK_RECENCY_INTENT_POOL")
+    if raw is None:
+        return 12
+    try:
+        value = int(raw)
+    except ValueError:
+        return 12
+    return value if value >= 0 else 12
+
+
+def get_ask_history_path() -> str:
+    """Where Ask history is stored (ASK_HISTORY_PATH).
+
+    Defaults to backend/ask_history.json next to this file (gitignored), so
+    it does not depend on the working directory uvicorn was started from.
+    """
+    configured = os.environ.get("ASK_HISTORY_PATH")
+    if configured and configured.strip():
+        return configured.strip()
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "ask_history.json")
+
+
+def get_ask_history_max() -> int:
+    """Most Ask history entries kept, oldest dropped first (ASK_HISTORY_MAX, default 300)."""
+    return _positive_int_env("ASK_HISTORY_MAX", 300)
