@@ -73,7 +73,7 @@ Describe 'run-repair-digest.ps1' {
 
     It 'a native command writing to stderr does not abort the wrapper' -Skip:($env:OS -ne 'Windows_NT') {
         $ErrorActionPreference = 'Stop'   # what the wrapper effectively runs under in Windows PowerShell
-        $r = Invoke-RepairDigestPython -Python 'cmd.exe' -Arguments @('/c', 'echo out & echo err 1>&2 & exit /b 3')
+        $r = Invoke-RepairDigestPython -Python 'cmd.exe' -Arguments @('/c', 'echo out & echo err 1>&2 & exit 3')
         $r.Code | Should -Be 3
         ($r.Output -join ' ') | Should -Match 'err'
     }
