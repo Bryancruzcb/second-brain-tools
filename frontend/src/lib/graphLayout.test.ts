@@ -127,4 +127,87 @@ describe("layoutGraph", () => {
     expect(laid.degrees["00 Home/Home.md"]).toBe(1);
     expect(laid.degrees["03 School/Graphs.md"]).toBe(1);
   });
+
+  test("lays out the whole vault when no cap is given", () => {
+    const nodes: LayoutNode[] = [];
+    const edges: LayoutEdge[] = [];
+    const folders = ["04 Career", "Vault", "03 School", "02 Projects", "01 Memory"];
+    for (let i = 0; i < 900; i++) {
+      const folder = folders[i % folders.length];
+      nodes.push(node(`${folder}/Note ${i}.md`, `Note ${i}`));
+      if (i > 0) edges.push({ source: `${folder}/Note ${i}.md`, target: nodes[i - 1].id });
+    }
+    for (let i = 0; i < 400; i++) nodes.push(node(`05 AI Chats/Chat ${i}.md`, `Chat ${i}`));
+
+    const started = performance.now();
+    const laid = layoutGraph(nodes, edges, { width: 600, height: 500 });
+    const elapsed = performance.now() - started;
+
+    expect(laid.shownNodes).toBe(900);
+    expect(laid.hiddenChats).toBe(400);
+    expect(laid.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
+    expect(laid.width).toBeGreaterThanOrEqual(600);
+    expect(elapsed).toBeLessThan(1500);
+
+    const withChats = layoutGraph(nodes, edges, { includeChats: true });
+    expect(withChats.shownNodes).toBe(1300);
+  });
+
+  test("folder halos do not overlap and contain their notes", () => {
+    const nodes: LayoutNode[] = [];
+    for (const folder of ["04 Career", "03 School", "02 Projects", "00 Home"]) {
+      for (let i = 0; i < 25; i++) nodes.push(node(`${folder}/N${i}.md`, `N${i}`));
+    }
+    const laid = layoutGraph(nodes, []);
+    for (let i = 0; i < laid.clusters.length; i++) {
+      for (let j = i + 1; j < laid.clusters.length; j++) {
+        const a = laid.clusters[i];
+        const b = laid.clusters[j];
+        expect(Math.hypot(a.cx - b.cx, a.cy - b.cy)).toBeGreaterThanOrEqual(a.r + b.r - 1);
+      }
+    }
+    for (const n of laid.nodes) {
+      const c = laid.clusters.find((cl) => cl.key === n.cluster)!;
+      expect(Math.hypot(n.x - c.cx, n.y - c.cy)).toBeLessThan(c.r);
+    }
+  });
+
+  test("puts a linked chat next to the notes it links to", () => {
+    const nodes = [
+      node("04 Career/Resume.md", "Resume"),
+      node("03 School/Graphs.md", "Graphs"),
+      node("03 School/Trees.md", "Trees"),
+      node("05 AI Chats/resume chat.md", "resume chat"),
+      node("05 AI Chats/lonely chat.md", "lonely chat"),
+    ];
+    const edges: LayoutEdge[] = [
+      { source: "05 AI Chats/resume chat.md", target: "04 Career/Resume.md" },
+    ];
+    const laid = layoutGraph(nodes, edges, { includeChats: true });
+    const at = (id: string) => laid.nodes.find((n) => n.id === id)!;
+    const chat = at("05 AI Chats/resume chat.md");
+    expect(chat.chat).toBe(true);
+    expect(dist(chat, at("04 Career/Resume.md"))).toBeLessThan(
+      dist(chat, at("03 School/Graphs.md")),
+    );
+    // An unlinked chat gets its own "Chats" halo instead.
+    expect(laid.clusters.some((c) => c.key === "Chats")).toBe(true);
+    expect(laid.edges).toEqual([["05 AI Chats/resume chat.md", "04 Career/Resume.md"]]);
+  });
+
+  test("sizes dots by link count within 4–9 world units", () => {
+    const nodes: LayoutNode[] = [node("00 Home/Home.md", "Home")];
+    const edges: LayoutEdge[] = [];
+    for (let i = 0; i < 40; i++) {
+      nodes.push(node(`03 School/N${i}.md`, `N${i}`));
+      edges.push({ source: "00 Home/Home.md", target: `03 School/N${i}.md` });
+    }
+    nodes.push(node("02 Projects/Alone.md", "Alone"));
+    const laid = layoutGraph(nodes, edges);
+    const home = laid.nodes.find((n) => n.id === "00 Home/Home.md")!;
+    const alone = laid.nodes.find((n) => n.id === "02 Projects/Alone.md")!;
+    expect(home.degree).toBe(40);
+    expect(home.r).toBe(9);
+    expect(alone.r).toBe(4);
+  });
 });

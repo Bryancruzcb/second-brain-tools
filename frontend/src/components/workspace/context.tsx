@@ -47,6 +47,7 @@ export type FolderSummary = {
 /** Vault-wide data the shell needs: counts, folders, open Health items. */
 type VaultState = {
   status: "loading" | "ok" | "error";
+  graphStatus: "loading" | "ok" | "error";
   nodes: BackendGraphNode[];
   edges: BackendGraphEdge[];
   health: BackendHealthData | null;
@@ -70,6 +71,10 @@ type WorkspaceValue = {
 
   /* Vault data shared by the sidebar (and later the views). */
   vaultStatus: VaultState["status"];
+  /** Raw /api/graph data (shared so the Map does not fetch it twice). */
+  graphStatus: VaultState["graphStatus"];
+  graphNodes: BackendGraphNode[];
+  graphEdges: BackendGraphEdge[];
   folders: FolderSummary[];
   noteCount: number | null;
   chatCount: number | null;
@@ -92,6 +97,24 @@ const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 
 const VAULT_REFRESH_MS = 60_000;
 
+function graphSignature(nodes: BackendGraphNode[], edges: BackendGraphEdge[]): string {
+  let h = 0;
+  const add = (str: string) => {
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  };
+  for (const n of nodes) {
+    add(n.id);
+    add(n.label || "");
+    add((n.tags || []).join(","));
+  }
+  for (const e of edges) {
+    add(e.source);
+    add(e.target);
+    add(e.is_ghost ? "g" : "");
+  }
+  return `${nodes.length}:${edges.length}:${h}`;
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [view, setViewState] = useState<ViewId>("notes");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -102,6 +125,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState<ReadyState>(null);
   const [vault, setVault] = useState<VaultState>({
     status: "loading",
+    graphStatus: "loading",
     nodes: [],
     edges: [],
     health: null,
@@ -182,14 +206,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const [graph, health] = await Promise.allSettled([fetchGraph(), fetchHealth()]);
       if (cancelled) return;
       if (graph.status === "rejected" && health.status === "rejected") {
-        setVault((v) => ({ ...v, status: "error" }));
+        setVault((v) => ({ ...v, status: "error", graphStatus: "error" }));
         return;
       }
-      setVault({
-        status: "ok",
-        nodes: graph.status === "fulfilled" ? graph.value.nodes || [] : [],
-        edges: graph.status === "fulfilled" ? graph.value.edges || [] : [],
-        health: health.status === "fulfilled" ? health.value.data || null : null,
+      const nodes = graph.status === "fulfilled" ? graph.value.nodes || [] : [];
+      const edges = graph.status === "fulfilled" ? graph.value.edges || [] : [];
+      setVault((prev) => {
+        // Keep the old arrays when the graph did not change, so the periodic
+        // refresh does not re-run the Map layout or reset its camera.
+        const same =
+          graphSignature(prev.nodes, prev.edges) === graphSignature(nodes, edges);
+        return {
+          status: "ok",
+          graphStatus: graph.status === "fulfilled" ? "ok" : "error",
+          nodes: same ? prev.nodes : nodes,
+          edges: same ? prev.edges : edges,
+          health: health.status === "fulfilled" ? health.value.data || null : null,
+        };
       });
     };
     void load();
@@ -279,6 +312,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setCommandOpen,
       ready,
       vaultStatus: vault.status,
+      graphStatus: vault.graphStatus,
+      graphNodes: vault.nodes,
+      graphEdges: vault.edges,
       folders,
       noteCount,
       chatCount,
@@ -302,6 +338,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       commandOpen,
       ready,
       vault.status,
+      vault.graphStatus,
+      vault.nodes,
+      vault.edges,
       folders,
       noteCount,
       chatCount,
