@@ -117,3 +117,41 @@ async def app(scope, receive, send):
         Compare-Object $before $after | Should -BeNullOrEmpty
     }
 }
+
+# Regression: Windows PowerShell 5.1 leaves $PSScriptRoot empty in param
+# defaults under -File, so a default -RepoRoot computed there failed before
+# the script ran (the weekly digest task hit this). Each script must work
+# with no -RepoRoot at all, from this checkout.
+Describe 'scripts run without -RepoRoot' -Skip:(-not $script:RunE2E) {
+    BeforeAll {
+        $script:WinDir = Split-Path -Parent $PSScriptRoot
+        $script:Checkout = Split-Path -Parent (Split-Path -Parent $script:WinDir)
+        $script:Tmp = Join-Path $env:RUNNER_TEMP ('norepo-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Force -Path $script:Tmp | Out-Null
+        function script:Run-Ps([string]$File, [string[]]$Arguments) {
+            $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $File + '"')) + @($Arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
+            $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argv -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput (Join-Path $script:Tmp 'out.txt') -RedirectStandardError (Join-Path $script:Tmp 'err.txt')
+            $null = $p.Handle
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "$File timed out" }
+            return $p.ExitCode
+        }
+    }
+
+    It 'run-repair-digest.ps1 (backend down -> logs, exit 0)' {
+        $logs = Join-Path $script:Tmp 'digest-logs'
+        Run-Ps (Join-Path $script:WinDir 'run-repair-digest.ps1') @('-ApiUrl', 'http://127.0.0.1:1', '-LogDir', $logs, '-OutDir', (Join-Path $script:Tmp 'out')) | Should -Be 0
+        Get-Content -Raw (Join-Path $logs 'repair-digest.log') | Should -Match 'Nothing was started'
+    }
+
+    It 'start-night-atlas.ps1 -DryRun resolves the checkout' {
+        $logs = Join-Path $script:Tmp 'launcher-logs'
+        Run-Ps (Join-Path $script:WinDir 'start-night-atlas.ps1') @('-SkipBackend', '-SkipFrontend', '-LogDir', $logs, '-DryRun') | Should -Be 0
+        Get-Content -Raw (Join-Path $logs 'autostart.log') | Should -Match ([regex]::Escape("repo=$($script:Checkout)"))
+    }
+
+    It 'install-autostart.ps1 -DryRun resolves the checkout' {
+        Run-Ps (Join-Path $script:WinDir 'install-autostart.ps1') @('-DryRun', '-StartupDir', $script:Tmp) | Should -Be 0
+        Get-Content -Raw (Join-Path $script:Tmp 'out.txt') | Should -Match ([regex]::Escape('-RepoRoot ' + $script:Checkout))
+    }
+}

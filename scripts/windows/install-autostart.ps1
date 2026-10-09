@@ -26,7 +26,9 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [ValidateSet('StartupFolder', 'Task')][string]$Method = 'StartupFolder',
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    # Defaults to the checkout this script lives in (resolved below: Windows
+    # PowerShell 5.1 leaves $PSScriptRoot empty in param defaults under -File).
+    [string]$RepoRoot = '',
     [string]$FrontendDir = '',
     [int]$BackendPort = 8000,
     [int]$FrontendPort = 3000,
@@ -160,6 +162,7 @@ function Install-NightAtlasAutostart {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
+    if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
     $r = Install-NightAtlasAutostart -Method $Method -ScriptDir $PSScriptRoot -RepoRoot $RepoRoot -FrontendDir $FrontendDir `
         -BackendPort $BackendPort -FrontendPort $FrontendPort -StartDelaySeconds $StartDelaySeconds `
         -StartupDir $StartupDir -DryRun ([bool]$DryRun) -WhatIf:$WhatIfPreference
