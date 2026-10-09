@@ -28,7 +28,8 @@ Both of these came from running it against my own vault and watching it stall.
 - **Ask** — streams from `POST /api/query/stream` (NDJSON: the sources as soon as retrieval finishes, then the answer as Qwen writes it); `POST /api/query` returns the same answer whole and keeps its shape for Ask Anywhere. Both share a per-process retrieval and answer cache that is dropped whenever the index changes (`ASK_CACHE_TTL_SECONDS`, default 900; 0 turns it off). Optional context chip from Map/Notes; clear errors when Ollama is down.
 - **Shell** — persistent left rail, command search (`⌘K` / `GET /api/search`), one active view. Shortcuts `⌘1`–`⌘4`.
 - **API client** — `frontend/src/lib/api.ts`; `NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000`. See [`ATLAS_MOCK.md`](ATLAS_MOCK.md) for the endpoint table.
-- **MCP server** (`backend/mcp_server.py`) on the official Python SDK over stdio, so Claude Desktop, Claude Code, Cursor, or VS Code can call the vault's hybrid search as a tool. It is a thin client over `GET /api/search`, so the index and both torch models stay in one process, and it checks `GET /api/ready` first: that endpoint reports whether the embedding model, Chroma collection, lexical index, and reranker have actually loaded, where `/api/health` answers 200 before they have. (`GET /api/ready?strict=1` answers 503 instead of 200 while anything is still cold or the index is empty, for a Kubernetes readiness probe, which reads the status line and not the body.) This is the one path where note text leaves the machine, because the caller is a hosted model.
+- **MCP server** (`backend/mcp_server.py`) on the official Python SDK over stdio, so Claude Desktop, Claude Code, Codex, Cursor, or VS Code can call the vault as tools: `search_vault` returns ranked passages from `GET /api/search`, and `query_vault` returns Ask's grounded answer and sources from `POST /api/query`. It is a thin HTTP client, so the index and both torch models stay in one process, and it checks `GET /api/ready` first: that endpoint reports whether the embedding model, Chroma collection, lexical index, and reranker have actually loaded, where `/api/health` answers 200 before they have. (`GET /api/ready?strict=1` answers 503 instead of 200 while anything is still cold or the index is empty, for a Kubernetes readiness probe, which reads the status line and not the body.) This is the one path where note text leaves the machine, because the caller is a hosted model.
+- **Obsidian command** (`obsidian/`) — a small plugin that sends a question, or the selected text, to `POST /api/query` and shows the answer and its sources in a modal inside Obsidian, with "Insert into note" as a callout. Backend URL and scope are plugin settings. See [`obsidian/README.md`](obsidian/README.md).
 - **Clipper / vault archive scripts** — Chrome extension for web clips into the vault inbox, plus `scripts/auto_archive.py` for chat export, health report, incremental re-embed, and backup.
 
 ## Retrieval quality
@@ -198,6 +199,57 @@ bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). The backend must be running for live vault data (`NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000`).
+
+### 5. Connect a coding AI (optional)
+
+`backend/mcp_server.py` talks to the running backend over HTTP, so start the backend first. Install the SDK into the backend venv:
+
+```bash
+cd backend
+source venv/bin/activate
+pip install -r requirements-mcp.txt
+```
+
+Then register it, with absolute paths (on Windows the interpreter is `backend\venv\Scripts\python.exe`). `SECOND_BRAIN_API_URL` defaults to `http://127.0.0.1:8000`; `SECOND_BRAIN_MCP_QUERY_TIMEOUT` (default 300 s) bounds `query_vault`, which waits on Ollama.
+
+Claude Code:
+
+```bash
+claude mcp add second-brain -- /abs/repo/backend/venv/bin/python /abs/repo/backend/mcp_server.py
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.second-brain]
+command = "/abs/repo/backend/venv/bin/python"
+args = ["/abs/repo/backend/mcp_server.py"]
+```
+
+Cursor (`~/.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "second-brain": {
+      "command": "/abs/repo/backend/venv/bin/python",
+      "args": ["/abs/repo/backend/mcp_server.py"]
+    }
+  }
+}
+```
+
+Both tools send note text to whichever hosted model is calling them (see the privacy note at the top of `mcp_server.py`).
+
+### 6. Ask from inside Obsidian (optional)
+
+```bash
+cd obsidian
+bun install
+bun run build
+```
+
+Copy `obsidian/manifest.json` and `obsidian/main.js` into `<vault>/.obsidian/plugins/night-atlas-ask/`, enable **Night Atlas Ask** under Settings → Community plugins, and run **Night Atlas Ask: Ask vault** from the command palette. Details in [`obsidian/README.md`](obsidian/README.md).
 
 ## Daily workflow
 

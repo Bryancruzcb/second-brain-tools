@@ -1,10 +1,10 @@
-"""MCP server exposing the vault's hybrid retrieval as a tool.
+"""MCP server exposing the vault's hybrid retrieval and grounded answers as tools.
 
 Runs over stdio as a subprocess of an MCP client (Claude Desktop, Claude Code,
-Cursor, VS Code). It is a thin HTTP client for the backend's existing
-GET /api/search: it loads no models and opens no second ChromaDB handle, so
-the 195 MB index and the two torch models stay in exactly one process. Running
-them twice would double ~1.2 GB of resident memory to serve the same index.
+Codex, Cursor, VS Code). It is a thin HTTP client for the backend's existing
+GET /api/search (search_vault) and POST /api/query (query_vault): it loads no
+models and opens no second ChromaDB handle, so the 195 MB index and the two
+torch models stay in exactly one process. Running them twice would double ~1.2 GB of resident memory to serve the same index.
 
 Start the backend first, then point a client at this file:
 
@@ -21,7 +21,8 @@ Install with:  pip install -r requirements-mcp.txt
 
 PRIVACY: this is the one path in the repo where note text leaves the machine.
 The server is local, but the caller is a hosted model, so every snippet it
-returns is uploaded to that provider. README.md's "nothing leaves the machine"
+returns (and every query_vault answer, which quotes the notes) is uploaded to
+that provider. README.md's "nothing leaves the machine"
 describes the web UI and the Ollama generation path. It does not describe this.
 """
 import os
@@ -33,6 +34,10 @@ from mcp.server.fastmcp import FastMCP
 
 BACKEND_URL = os.environ.get("SECOND_BRAIN_API_URL", "http://127.0.0.1:8000")
 TIMEOUT_SECONDS = float(os.environ.get("SECOND_BRAIN_MCP_TIMEOUT", "30"))
+# /api/query waits on local Ollama generation, which the backend itself allows
+# up to 300 s (OLLAMA_CHAT_TIMEOUT_SECONDS in main.py). The 30 s search budget
+# would abandon most answers on a CPU-only machine.
+QUERY_TIMEOUT_SECONDS = float(os.environ.get("SECOND_BRAIN_MCP_QUERY_TIMEOUT", "300"))
 
 mcp = FastMCP("second-brain")
 
@@ -123,6 +128,83 @@ def search_vault(
         lines.append(f"{i}. {item['title']}")
         lines.append(f"   path: {item['id']}")
         lines.append(f"   {item['snippet']}")
+    return "\n".join(lines)
+
+
+def _error_detail(resp: httpx.Response) -> str:
+    """FastAPI's {"detail": ...} when present, else the bare status."""
+    try:
+        detail = resp.json().get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    if detail:
+        return f"HTTP {resp.status_code}: {detail}"
+    return f"HTTP {resp.status_code}"
+
+
+@mcp.tool()
+def query_vault(
+    question: str,
+    scope: Literal["notes", "chats", "all"] = "notes",
+    notes: list[str] | None = None,
+) -> str:
+    """Ask Bryan's Obsidian vault a question and get a grounded answer with sources.
+
+    The backend retrieves passages exactly as search_vault does, then has its
+    local model (Ollama) write an answer that cites the source notes. Prefer
+    search_vault when you want raw passages to reason over yourself; use this
+    when a synthesized answer is what you need. It is slower: generation runs
+    on Bryan's machine and can take a minute or more.
+
+    Args:
+        question: A natural-language question about his notes, projects,
+            decisions or past AI sessions.
+        scope: "notes" (default) searches written notes only, "chats" searches
+            exported AI chat transcripts, "all" searches both. Ignored when
+            notes is given.
+        notes: Optional vault-relative note paths (the "path" values that
+            search_vault returns). When given, retrieval is skipped and the
+            answer is grounded in these notes only.
+
+    Returns:
+        The answer, then the source notes it was grounded in.
+    """
+    if not question.strip():
+        return "No question given."
+
+    problem = _readiness_error()
+    if problem:
+        return problem
+
+    payload: dict = {"query": question.strip(), "scope": scope}
+    if notes:
+        payload["context_nodes"] = notes
+
+    try:
+        resp = httpx.post(
+            f"{BACKEND_URL}/api/query", json=payload, timeout=QUERY_TIMEOUT_SECONDS
+        )
+    except httpx.TimeoutException:
+        return (
+            f"The backend did not answer within {QUERY_TIMEOUT_SECONDS:g} s. "
+            "Generation may still be running; raise SECOND_BRAIN_MCP_QUERY_TIMEOUT "
+            "or use search_vault for passages without an answer."
+        )
+    except httpx.RequestError as exc:
+        return f"Could not reach the Second Brain backend at {BACKEND_URL}: {exc}"
+    if resp.status_code != 200:
+        # 500 is what the backend returns when Ollama is down or the model is
+        # missing; its detail says which, so pass it through.
+        return f"The backend could not answer: {_error_detail(resp)}."
+
+    body = resp.json()
+    lines = [(body.get("answer") or "").strip() or "(The backend returned an empty answer.)"]
+    sources = body.get("sources") or []
+    if sources:
+        lines.append("")
+        lines.append("Sources:")
+        for i, src in enumerate(sources, 1):
+            lines.append(f"{i}. {src.get('title', 'Untitled Note')} ({src.get('source', '')})")
     return "\n".join(lines)
 
 

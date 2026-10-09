@@ -16,3 +16,13 @@ def _fresh_ask_caches():
     if main is not None:
         main.invalidate_ask_caches()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_background_health_scans(monkeypatch):
+    """A real health scan writes health_cache.json into the working directory,
+    which is the live backend's cache when pytest runs from backend/. Tests
+    that exercise the trigger stub or capture start_health_scan themselves."""
+    main = sys.modules.get("main")
+    if main is not None and hasattr(main, "start_health_scan"):
+        monkeypatch.setattr(main, "start_health_scan", lambda reason: False)

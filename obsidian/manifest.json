@@ -1,0 +1,9 @@
+{
+  "id": "night-atlas-ask",
+  "name": "Night Atlas Ask",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Ask your vault a question through the local Night Atlas backend (POST /api/query) and read the grounded answer without leaving Obsidian.",
+  "author": "Bryan Cruz",
+  "isDesktopOnly": false
+}
