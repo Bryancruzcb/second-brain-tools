@@ -71,9 +71,17 @@ Describe 'run-repair-digest.ps1' {
         Should -Invoke Invoke-RepairDigestPython -Times 0 -Exactly
     }
 
-    It 'a native command writing to stderr does not abort the wrapper' -Skip:($env:OS -ne 'Windows_NT') {
+}
+
+# Outside the Describe above so its Invoke-RepairDigestPython mock doesn't apply.
+Describe 'Invoke-RepairDigestPython (unmocked)' {
+    It 'a native command writing to stderr does not abort the wrapper, and its exit code survives' {
         $ErrorActionPreference = 'Stop'   # what the wrapper effectively runs under in Windows PowerShell
-        $r = Invoke-RepairDigestPython -Python 'cmd.exe' -Arguments @('/c', 'echo out & echo err 1>&2 & exit 3')
+        if ($env:OS -eq 'Windows_NT') {
+            $r = Invoke-RepairDigestPython -Python 'cmd.exe' -Arguments @('/c', 'echo out & echo err 1>&2 & exit 3')
+        } else {
+            $r = Invoke-RepairDigestPython -Python '/bin/sh' -Arguments @('-c', 'echo out; echo err 1>&2; exit 3')
+        }
         $r.Code | Should -Be 3
         ($r.Output -join ' ') | Should -Match 'err'
     }
