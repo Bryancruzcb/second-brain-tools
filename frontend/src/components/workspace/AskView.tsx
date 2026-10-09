@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, askQuery, composePrompts, fetchNote, type AskScope } from "@/lib/api";
+import { ApiError, askQueryStream, composePrompts, fetchNote, type AskScope } from "@/lib/api";
 import { useWorkspace } from "./context";
 
 type AskAnswer = {
@@ -54,22 +54,30 @@ export function AskView() {
     if (!trimmed || loading) return;
     setLoading(true);
     setError(null);
+    setAnswer(null);
     try {
-      const res = await askQuery({
-        query: trimmed,
-        contextNodes: askContextId ? [askContextId] : undefined,
-        scope,
-      });
-      const titles = (res.sources || [])
-        .map((s) => s.title)
-        .filter(Boolean)
-        .filter((t, i, arr) => arr.indexOf(t) === i)
-        .slice(0, 6);
-      setAnswer({
-        query: trimmed,
-        body: res.answer || "No answer returned.",
-        sourceTitles: titles,
-      });
+      const full = await askQueryStream(
+        {
+          query: trimmed,
+          contextNodes: askContextId ? [askContextId] : undefined,
+          scope,
+        },
+        {
+          onSources: (sources) => {
+            const titles = sources
+              .map((s) => s.title)
+              .filter(Boolean)
+              .filter((t, i, arr) => arr.indexOf(t) === i)
+              .slice(0, 6);
+            setAnswer({ query: trimmed, body: "", sourceTitles: titles });
+          },
+          onToken: (text) =>
+            setAnswer((prev) => prev && { ...prev, body: prev.body + text }),
+        },
+      );
+      if (!full) {
+        setAnswer((prev) => prev && { ...prev, body: "No answer returned." });
+      }
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -161,7 +169,9 @@ export function AskView() {
 
       {answer && (
         <div className="ask-answer mt-4" role="status" aria-live="polite">
-          <p className="whitespace-pre-wrap">{answer.body}</p>
+          <p className="whitespace-pre-wrap">
+            {answer.body || (loading ? "Writing…" : "")}
+          </p>
           {answer.sourceTitles.length > 0 && (
             <div className="ask-sources">
               <span className="ask-sources-label">

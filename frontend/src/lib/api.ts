@@ -17,7 +17,7 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiResponse(path: string, init?: RequestInit): Promise<Response> {
   const url = `${API_BASE}${path}`;
   let res: Response;
   try {
@@ -46,6 +46,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(detail || `Request failed (${res.status})`, res.status);
   }
+  return res;
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiResponse(path, init);
   return res.json() as Promise<T>;
 }
 
@@ -300,6 +305,58 @@ export async function askQuery(opts: {
       scope: opts.scope ?? "notes",
     }),
   });
+}
+
+type AskStreamEvent =
+  | { type: "sources"; sources: BackendQuerySource[]; api_configured: boolean }
+  | { type: "token"; text: string }
+  | { type: "done" }
+  | { type: "error"; detail: string };
+
+/**
+ * askQuery over POST /api/query/stream: onSources fires as soon as retrieval
+ * is done, onToken for each piece of the answer as the model writes it.
+ * Resolves with the full answer.
+ */
+export async function askQueryStream(
+  opts: Parameters<typeof askQuery>[0],
+  handlers: {
+    onSources: (sources: BackendQuerySource[]) => void;
+    onToken: (text: string) => void;
+  },
+): Promise<string> {
+  const res = await apiResponse("/api/query/stream", {
+    method: "POST",
+    headers: { Accept: "application/x-ndjson" },
+    body: JSON.stringify({
+      query: opts.query,
+      context_nodes: opts.contextNodes?.length ? opts.contextNodes : undefined,
+      history: opts.history,
+      scope: opts.scope ?? "notes",
+    }),
+  });
+  if (!res.body) throw new ApiError("Streaming is not supported here.", 0);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  let answer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += value;
+    const lines = buffered.split("\n");
+    buffered = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as AskStreamEvent;
+      if (event.type === "sources") handlers.onSources(event.sources);
+      else if (event.type === "token") {
+        answer += event.text;
+        handlers.onToken(event.text);
+      } else if (event.type === "error") throw new ApiError(event.detail, 0);
+      else if (event.type === "done") return answer;
+    }
+  }
+  throw new ApiError("The answer stream ended early.", 0);
 }
 
 export const composePrompts = [
