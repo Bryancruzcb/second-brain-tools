@@ -202,7 +202,8 @@ Describe 'install-autostart.ps1' {
         New-Item -ItemType Directory -Force -Path $script:Startup | Out-Null
         Mock New-NightAtlasShortcut { }
         Mock Get-ScheduledTask { $null }
-        Mock Register-ScheduledTask { }
+        # The real cmdlet types these as CIM instances; the mocked builders return strings.
+        Mock Register-ScheduledTask { } -RemoveParameterType Action, Trigger, Settings, Principal
         Mock New-ScheduledTaskAction { 'action' }
         Mock New-ScheduledTaskTrigger { 'trigger' }
         Mock New-ScheduledTaskSettingsSet { 'settings' }
