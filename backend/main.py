@@ -78,6 +78,9 @@ health_cache = {
 }
 is_scanning = False
 last_scan_time = 0.0
+_scan_lock = threading.Lock()
+# index_freshness() result, keyed by the Chroma write stamp it was read under.
+_freshness_cache: Dict[str, Any] = {"stamp": None, "value": None}
 
 def _load_fast_sync():
     """Load ChromaDB and Cache on startup."""
@@ -370,6 +373,9 @@ async def lifespan(app: FastAPI):
     # imported, so take the uvicorn.access handler away once more.
     logging_setup.configure()
     _load_fast_sync()
+    # The indexer usually runs while the backend is down (nightly job), so the
+    # refresh call that would rescan never arrives; catch up on startup.
+    rescan_health_if_stale("health cache older than the index at startup")
     asyncio.create_task(asyncio.to_thread(_load_model_background))
     asyncio.create_task(asyncio.to_thread(_build_lexical_index))
     asyncio.create_task(asyncio.to_thread(_load_reranker_background))
@@ -654,6 +660,93 @@ def run_health_scan_sync():
     finally:
         is_scanning = False
 
+def index_freshness() -> Dict[str, Any]:
+    """How current the vector index is, read from the store's own metadata.
+
+    indexed_notes counts distinct sources; newest_note_mtime is the newest
+    file mtime among them (what the indexer stamped on each chunk). Cached per
+    Chroma write stamp, so polling costs one sqlite SELECT between index runs.
+    Never raises: a store that can't be read reports None for both.
+    """
+    stamp = _chroma_write_stamp() if _chroma_stamp_seen is not None else None
+    if stamp is not None and _freshness_cache["stamp"] == stamp and _freshness_cache["value"] is not None:
+        return _freshness_cache["value"]
+    value: Dict[str, Any] = {"indexed_notes": None, "newest_note_mtime": None}
+    collection = chroma_collection
+    if collection is not None:
+        try:
+            metadatas = collection.get(include=["metadatas"]).get("metadatas") or []
+            sources, newest = set(), None
+            for meta in metadatas:
+                if not isinstance(meta, dict):
+                    continue
+                if meta.get("source"):
+                    sources.add(meta["source"])
+                mtime = meta.get("mtime")
+                if isinstance(mtime, (int, float)) and (newest is None or mtime > newest):
+                    newest = float(mtime)
+            value = {"indexed_notes": len(sources), "newest_note_mtime": newest}
+        except Exception as e:
+            logger.warning("Could not read index freshness: %s", e)
+    if stamp is not None:
+        _freshness_cache["stamp"], _freshness_cache["value"] = stamp, value
+    return value
+
+
+def health_cache_stale(fresh: Optional[Dict[str, Any]] = None) -> bool:
+    """Whether the health cache (Map, Recent, Repair) lags the vector index.
+
+    The cache is only rebuilt by a health scan, while the index is rebuilt by
+    an out-of-process job, so the two drift apart: in Sept/Oct 2026 the cache
+    sat a month behind (320 notes against 900 indexed) and Recent showed
+    nothing newer than its last scan. Stale when the note counts differ or the
+    index holds a note newer than the last scan.
+    """
+    fresh = fresh or index_freshness()
+    indexed = fresh.get("indexed_notes")
+    if not indexed:
+        return False
+    if len(health_cache.get("nodes") or []) != indexed:
+        return True
+    newest = fresh.get("newest_note_mtime")
+    return newest is not None and newest > (last_scan_time or 0.0)
+
+
+def freshness_report() -> Dict[str, Any]:
+    """The freshness block /api/ready and /api/health expose. Times are epoch seconds."""
+    fresh = index_freshness()
+    return {
+        "indexed_notes": fresh.get("indexed_notes"),
+        "newest_indexed_note_mtime": fresh.get("newest_note_mtime"),
+        "health_scanned_at": last_scan_time or None,
+        "health_notes": len(health_cache.get("nodes") or []),
+        "health_stale": health_cache_stale(fresh),
+        "is_scanning": is_scanning,
+    }
+
+
+def start_health_scan(reason: str) -> bool:
+    """Run run_health_scan_sync on a background thread unless one is running."""
+    global is_scanning
+    with _scan_lock:
+        if is_scanning:
+            return False
+        is_scanning = True
+    logger.info("Starting background health scan: %s", reason)
+    threading.Thread(target=run_health_scan_sync, name="health-scan", daemon=True).start()
+    return True
+
+
+def rescan_health_if_stale(reason: str) -> bool:
+    """Start a health scan when the cache lags the index. Never raises."""
+    try:
+        if health_cache_stale():
+            return start_health_scan(reason)
+    except Exception as e:
+        logger.warning("Health staleness check failed: %s", e)
+    return False
+
+
 class QueryRequest(BaseModel):
     query: str
     context_nodes: Optional[List[str]] = None
@@ -735,7 +828,8 @@ def get_health():
     return {
         "data": health_cache,
         "is_scanning": is_scanning,
-        "last_scan_time": last_scan_time
+        "last_scan_time": last_scan_time,
+        "freshness": freshness_report(),
     }
 
 @app.get("/api/ready")
@@ -789,7 +883,12 @@ def get_ready(strict: bool = False):
             status_code=503,
             detail={"ready": False, "index_populated": populated, "components": components},
         )
-    return {"ready": ready, "index_populated": populated, "components": components}
+    return {
+        "ready": ready,
+        "index_populated": populated,
+        "components": components,
+        "freshness": freshness_report(),
+    }
 
 
 def _index_populated() -> bool:
@@ -882,7 +981,10 @@ def refresh_lexical():
         _build_lexical_index()
         reopened = False
     size = len(lexical_index) if lexical_index is not None else 0
-    return {"status": "ok", "chunks": size, "reopened": reopened}
+    # Map, Recent and Repair read the health cache, not the store; rebuild it
+    # too or they keep showing the vault as of the last manual scan.
+    health_scan = rescan_health_if_stale("index changed on disk (refresh requested)")
+    return {"status": "ok", "chunks": size, "reopened": reopened, "health_scan_started": health_scan}
 
 
 
