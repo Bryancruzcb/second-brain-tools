@@ -199,3 +199,74 @@ def test_domain_hint_expansions_cover_remaining_miss_cues():
         "in the session where i redid my resume"
     )
     assert "Resume" in resume or "rebuild" in resume.casefold()
+
+
+# ── the Ollama call itself ────────────────────────────────────────────────
+
+def _fake_stream(monkeypatch, lines):
+    """httpx.stream double: records the request and how many lines were read."""
+    seen = {"read": 0}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self):
+            for line in lines:
+                seen["read"] += 1
+                yield line
+
+    class Stream:
+        def __init__(self, method, url, json, timeout):
+            seen.update(method=method, url=url, body=json)
+
+        def __enter__(self):
+            return Response()
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(query_rewrite.httpx, "stream", Stream)
+    return seen
+
+
+def _piece(text, done=False):
+    import json
+    return json.dumps({"message": {"content": text}, "done": done})
+
+
+def test_rewrite_asks_for_the_answer_calls_context_window(monkeypatch):
+    # A different num_ctx makes Ollama unload the model and load it again,
+    # once for the rewrite and once more for the answer that follows.
+    import main
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "12288")
+    seen = _fake_stream(monkeypatch, [_piece("levain starter", done=True)])
+    assert query_rewrite._call_ollama_rewrite("levain") == "levain starter"
+    answer_body = main._ollama_chat_body([], main.ASK_MAX_TOKENS, stream=True)
+    assert seen["body"]["options"]["num_ctx"] == answer_body["options"]["num_ctx"] == 12288
+    assert seen["body"]["model"] == answer_body["model"]
+    assert seen["body"]["stream"] is True and seen["method"] == "POST"
+
+
+def test_rewrite_stops_reading_after_the_first_complete_line(monkeypatch):
+    seen = _fake_stream(monkeypatch, [
+        _piece("\n"),               # leading blank line: keep reading
+        _piece("sourdough "),
+        _piece("levain\nExplanation"),
+        _piece(": never read"),
+        _piece("", done=True),
+    ])
+    text = query_rewrite._call_ollama_rewrite("bread")
+    assert seen["read"] == 3
+    assert query_rewrite._clean_model_output(text) == "sourdough levain"
+
+
+def test_rewrite_raises_on_an_ollama_error_line_and_fails_open(monkeypatch):
+    import json
+    _fake_stream(monkeypatch, [json.dumps({"error": "model not found"})])
+    with pytest.raises(RuntimeError, match="model not found"):
+        query_rewrite._call_ollama_rewrite("bread")
+    monkeypatch.setenv("QUERY_REWRITE", "1")
+    query_rewrite._rewrite_cached.cache_clear()
+    assert query_rewrite.rewrite_for_retrieval("bread") == "bread"
+    query_rewrite._rewrite_cached.cache_clear()

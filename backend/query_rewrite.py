@@ -5,6 +5,7 @@ for retrieval only; generation keeps the original text. Fail-open on any error.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from functools import lru_cache
@@ -18,7 +19,6 @@ logger = logging.getLogger("second-brain-backend")
 # Keep short: rewrite is a retrieval assist, not a chat turn.
 REWRITE_TIMEOUT_SECONDS = 20.0
 REWRITE_NUM_PREDICT = 48
-REWRITE_NUM_CTX = 2048
 REWRITE_MAX_TOKENS = 20
 REWRITE_MAX_CLAUSES = 2
 
@@ -83,7 +83,23 @@ def introduces_forbidden_chat_terms(original: str, rewritten: str) -> bool:
 
 
 def _call_ollama_rewrite(query: str) -> str:
-    response = httpx.post(
+    """The model's rewrite, read only as far as its first non-empty line.
+
+    num_ctx matches the answer call (config.get_ollama_num_ctx()). Ollama
+    keeps one runner per model and context size, so the 2,048-token window
+    this call used to ask for unloaded qwen2.5 and loaded it again, and the
+    answer that followed loaded it back at 16,384: measured 2026-10-08 on the
+    desktop, ~10 s before the sources and ~10 s more before the first answer
+    token, on every new question.
+
+    _clean_model_output keeps the first non-empty line only, so the stream
+    is closed as soon as that line is complete. Closing it stops generation,
+    which frees the runner for the answer instead of queueing it behind
+    tokens nobody reads.
+    """
+    text = ""
+    with httpx.stream(
+        "POST",
         f"{config.get_ollama_url()}/api/chat",
         json={
             "model": config.get_ollama_model(),
@@ -91,17 +107,26 @@ def _call_ollama_rewrite(query: str) -> str:
                 {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
                 {"role": "user", "content": query},
             ],
-            "stream": False,
+            "stream": True,
             "options": {
-                "num_ctx": REWRITE_NUM_CTX,
+                "num_ctx": config.get_ollama_num_ctx(),
                 "num_predict": REWRITE_NUM_PREDICT,
                 "temperature": 0.0,
             },
         },
         timeout=REWRITE_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    return (response.json().get("message") or {}).get("content") or ""
+    ) as response:
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            chunk = json.loads(line)
+            if chunk.get("error"):
+                raise RuntimeError(chunk["error"])
+            text += (chunk.get("message") or {}).get("content") or ""
+            if chunk.get("done") or "\n" in text.lstrip():
+                break
+    return text
 
 
 def domain_hint_expansions(query: str) -> str:
