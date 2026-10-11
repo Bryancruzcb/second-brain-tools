@@ -1,102 +1,322 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ApiError, fetchRecent, recentToNote } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CircleAlert, CircleCheck, FileText, Loader } from "lucide-react";
+import {
+  ApiError,
+  fetchGraph,
+  fetchNote,
+  fetchRecent,
+  folderCluster,
+  recentToNote,
+  type BackendGraphEdge,
+} from "@/lib/api";
 import { relativeDay } from "@/lib/format";
+import { cleanSnippet, wordCount } from "@/lib/noteText";
+import { layoutStarChart, type ChartNote } from "@/lib/starChart";
+import { indexStatus } from "@/lib/status";
 import type { Note } from "@/types";
 import { useWorkspace } from "./context";
+import { AskDock } from "./AskDock";
 import { NoteInspector } from "./NoteInspector";
+import { ChartLegend, StarChart, type ChartState } from "./StarChart";
 
+type Recent =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; notes: Note[] };
+
+type Links = { status: "loading" | "error" } | { status: "ready"; edges: BackendGraphEdge[] };
+
+const NARROW = "(max-width: 900px)";
+
+/** Scroll an element into view on the one-column layout, where it may be off screen. */
+function revealOnNarrow(el: HTMLElement | null) {
+  if (!el || !window.matchMedia(NARROW).matches) return;
+  const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+}
+
+/**
+ * The main screen: Recent (a plain list), the star chart of those notes with
+ * the Ask dock under it, and the reading pane. The newest note is open until
+ * another is picked.
+ */
 export function NotesView() {
-  const { selectedNoteId, selectNote } = useWorkspace();
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { selectedNoteId, selectNote, ready } = useWorkspace();
+  const [recent, setRecent] = useState<Recent>({ status: "loading" });
+  const [links, setLinks] = useState<Links>({ status: "loading" });
+  const [words, setWords] = useState<Record<string, number>>({});
+  const [sourceIds, setSourceIds] = useState<ReadonlySet<string>>(new Set());
+  const [nowMs] = useState(() => Date.now());
+  const readerRef = useRef<HTMLElement>(null);
+  const skyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await fetchRecent();
-        if (cancelled) return;
-        setNotes((res.notes || []).map(recentToNote));
-        setError(null);
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof ApiError ? e.message : "Could not load recent notes.");
-        setNotes([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    fetchRecent()
+      .then((res) => {
+        if (!cancelled) setRecent({ status: "ready", notes: (res.notes || []).map(recentToNote) });
+      })
+      .catch((e) => {
+        if (!cancelled)
+          setRecent({
+            status: "error",
+            message: e instanceof ApiError ? e.message : "Could not load recent notes.",
+          });
+      });
+    fetchGraph()
+      .then((g) => {
+        if (!cancelled) setLinks({ status: "ready", edges: g.edges || [] });
+      })
+      .catch(() => {
+        if (!cancelled) setLinks({ status: "error" });
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  // Star size needs each note's full length; /api/recent only sends the first 200 characters.
+  const recentIds = recent.status === "ready" ? recent.notes.map((n) => n.id).join("\n") : "";
+  useEffect(() => {
+    if (!recentIds) return;
+    let cancelled = false;
+    for (const id of recentIds.split("\n")) {
+      fetchNote(id)
+        .then((n) => {
+          if (!cancelled) setWords((w) => ({ ...w, [id]: wordCount(n.content, n.title) }));
+        })
+        .catch(() => {
+          /* size stays neutral for this note */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [recentIds]);
+
+  const notes = useMemo(() => (recent.status === "ready" ? recent.notes : []), [recent]);
+  const chartNotes: ChartNote[] = useMemo(
+    () =>
+      notes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        editedMs: Date.parse(n.updatedAt),
+        words: words[n.id] ?? null,
+      })),
+    [notes, words],
+  );
+  const chart = useMemo(
+    () => layoutStarChart(chartNotes, links.status === "ready" ? links.edges : [], nowMs),
+    [chartNotes, links, nowMs],
+  );
+  const sizes = useMemo(() => Object.fromEntries(chart.stars.map((s) => [s.id, s.size])), [chart]);
+  const editedIso = useMemo(() => Object.fromEntries(notes.map((n) => [n.id, n.updatedAt])), [notes]);
+
+  const openId = selectedNoteId ?? notes[0]?.id ?? null;
+  const openNote = notes.find((n) => n.id === openId);
+  const chartState: ChartState =
+    recent.status === "ready" ? (notes.length ? "ready" : "empty") : recent.status;
+  const sizesKnown = notes.length > 1 && notes.every((n) => words[n.id] !== undefined);
+  const sourceOnChart = notes.some((n) => sourceIds.has(n.id));
+
+  const pick = (id: string, reveal: "reader" | "chart" = "reader") => {
+    selectNote(id, { repairIssueId: null });
+    revealOnNarrow(reveal === "reader" ? readerRef.current : skyRef.current);
+  };
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
-      <section className="flex w-[min(22rem,40%)] shrink-0 flex-col border-r border-hairline max-md:w-full max-md:border-r-0">
-        <header className="border-b border-hairline px-4 py-3">
-          <h2 className="text-[15px] font-medium tracking-[-0.02em]">Recent</h2>
-          <p className="mt-0.5 text-[12px] text-muted">
-            {loading
-              ? "Loading…"
-              : error
-                ? "Backend unavailable"
-                : `${notes.length} notes`}
-          </p>
-        </header>
-        {error ? (
-          <p className="px-4 py-6 text-[13px] text-[var(--danger)]">{error}</p>
-        ) : loading ? (
-          <p className="px-4 py-6 text-[13px] text-muted">Loading recent notes…</p>
-        ) : notes.length === 0 ? (
-          <p className="px-4 py-6 text-[13px] text-muted">
-            No recent notes. Start the backend or wait for the index.
-          </p>
+    <div className="notes-layout">
+      <RecentList
+        recent={recent}
+        openId={openId}
+        sizes={sizes}
+        nowMs={nowMs}
+        onPick={(id) => pick(id)}
+      />
+      <div className="center">
+        <Lead recent={recent} notes={notes} folders={chart.constellations.length} nowMs={nowMs} ready={ready} />
+        <div ref={skyRef} style={{ scrollMarginTop: 72 }}>
+          <StarChart
+            state={chartState}
+            chart={chart}
+            editedIso={editedIso}
+            selectedId={openId}
+            sourceIds={sourceIds}
+            onSelect={(id) => pick(id)}
+            nowMs={nowMs}
+          />
+        </div>
+        {chartState === "ready" && (
+          <ChartLegend
+            chart={chart}
+            linksKnown={links.status === "ready"}
+            sourceOnChart={sourceOnChart}
+            sizesKnown={sizesKnown}
+          />
+        )}
+        <AskDock
+          nowMs={nowMs}
+          chartIds={new Set(notes.map((n) => n.id))}
+          onSources={setSourceIds}
+          onShowSource={(id, onChart) => pick(id, onChart ? "chart" : "reader")}
+        />
+      </div>
+      <section className="reader" ref={readerRef} aria-label="Reading pane" style={{ scrollMarginTop: 56 }}>
+        {recent.status === "loading" && !selectedNoteId ? (
+          <ReaderSkeleton />
         ) : (
-          <ul className="min-h-0 flex-1 overflow-y-auto">
-            {notes.map((note) => {
-              const active = selectedNoteId === note.id;
-              return (
-                <li key={note.id}>
-                  <button
-                    type="button"
-                    className={`focus-ring w-full border-l-2 px-4 py-3 text-left ${
-                      active
-                        ? "border-[var(--accent)] bg-elevated"
-                        : "border-transparent hover:bg-elevated"
-                    }`}
-                    onClick={() =>
-                      selectNote(active ? null : note.id, { repairIssueId: null })
-                    }
-                  >
-                    <span className="mono text-[10px] text-muted">
-                      {relativeDay(note.updatedAt)}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[13.5px] font-medium">
-                      {note.title}
-                    </span>
-                    <span className="mt-0.5 line-clamp-2 text-[12px] text-muted">
-                      {note.excerpt}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <NoteInspector
+            noteId={openId}
+            updatedAt={openNote?.updatedAt}
+            isAnswerSource={openId !== null && sourceIds.has(openId)}
+          />
         )}
       </section>
-      <div className="min-w-0 flex-1 bg-panel max-md:hidden">
-        <NoteInspector />
+    </div>
+  );
+}
+
+function Lead({
+  recent,
+  notes,
+  folders,
+  nowMs,
+  ready,
+}: {
+  recent: Recent;
+  notes: Note[];
+  folders: number;
+  nowMs: number;
+  ready: ReturnType<typeof useWorkspace>["ready"];
+}) {
+  if (recent.status === "loading") {
+    return (
+      <div aria-busy="true" aria-label="Loading">
+        <span className="sk" style={{ width: "62%", height: 26 }} />
       </div>
-      {selectedNoteId && (
-        <div className="absolute inset-0 z-10 bg-panel md:hidden">
-          <NoteInspector onClose={() => selectNote(null, { repairIssueId: null })} />
+    );
+  }
+  if (recent.status === "error") {
+    return (
+      <h1 className="lead">
+        <CircleAlert className="bad" aria-hidden strokeWidth={2} />
+        <span>
+          Notes could not load.{" "}
+          <span className="soft">
+            {/[.?!]$/.test(recent.message) ? recent.message : `${recent.message}.`} Start the backend,
+            then reload.
+          </span>
+        </span>
+      </h1>
+    );
+  }
+  const status = indexStatus(ready);
+  const Icon = status.tone === "ok" ? CircleCheck : status.tone === "bad" ? CircleAlert : Loader;
+  const newest = notes[0];
+  return (
+    <h1 className="lead">
+      <span title={status.detail} style={{ display: "flex" }}>
+        <Icon className={status.tone === "ok" ? "ok" : status.tone === "bad" ? "bad" : "wait"} aria-hidden strokeWidth={2} />
+      </span>
+      <span>
+        {status.text}.{" "}
+        <span className="soft">
+          {newest
+            ? `${notes.length} recent ${notes.length === 1 ? "note" : "notes"} in ${folders} ${
+                folders === 1 ? "folder" : "folders"
+              }. Newest: ${newest.title}, edited ${relativeDay(newest.updatedAt, nowMs).toLowerCase()}.`
+            : "No notes indexed yet."}
+        </span>
+      </span>
+    </h1>
+  );
+}
+
+function RecentList({
+  recent,
+  openId,
+  sizes,
+  nowMs,
+  onPick,
+}: {
+  recent: Recent;
+  openId: string | null;
+  sizes: Record<string, number>;
+  nowMs: number;
+  onPick: (id: string) => void;
+}) {
+  const count = recent.status === "ready" ? recent.notes.length : 0;
+  return (
+    <section className="recent" id="recent" aria-labelledby="recent-h" style={{ scrollMarginTop: 56 }}>
+      <div className="pane-head">
+        <h2 id="recent-h">Recent</h2>
+        {count > 0 && <span className="mono num">{count} · last edited first</span>}
+      </div>
+      {recent.status === "loading" ? (
+        <ul className="rows" aria-busy="true" aria-label="Loading recent notes">
+          {Array.from({ length: 6 }, (_, i) => (
+            <li key={i} className="row" style={{ display: "block" }}>
+              <span className="sk" style={{ width: "55%" }} />
+              <span className="sk" style={{ width: "90%", height: 12, marginTop: 8 }} />
+            </li>
+          ))}
+        </ul>
+      ) : recent.status === "error" ? (
+        <div className="pane-msg bad">
+          <CircleAlert aria-hidden strokeWidth={2} />
+          <strong>Recent notes could not load.</strong>
+          They come back when the backend is running.
         </div>
+      ) : recent.notes.length === 0 ? (
+        <div className="pane-msg">
+          <FileText aria-hidden strokeWidth={2} />
+          <strong>No recent notes yet.</strong>
+          Start the backend or wait for the index to scan your vault.
+        </div>
+      ) : (
+        <ul className="rows">
+          {recent.notes.map((n) => (
+            <li key={n.id}>
+              <button
+                type="button"
+                className="row"
+                aria-pressed={n.id === openId}
+                title={`${n.title} (${folderCluster(n.id)})`}
+                onClick={() => onPick(n.id)}
+              >
+                <span className="dotcell" aria-hidden>
+                  <span className="dot" style={{ width: sizes[n.id] ?? 7, height: sizes[n.id] ?? 7 }} />
+                </span>
+                <span className="t">{n.title}</span>
+                <span className="d mono num">{relativeDay(n.updatedAt, nowMs)}</span>
+                <span className="s">{cleanSnippet(n.body, n.title)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
+    </section>
+  );
+}
+
+function ReaderSkeleton() {
+  return (
+    <div className="inspector" aria-busy="true" aria-label="Loading the reading pane">
+      <div className="inspector-head">
+        <p className="kicker mono">
+          <span>
+            <FileText className="icon" aria-hidden strokeWidth={2} />
+            Reading
+          </span>
+        </p>
+        <span className="sk" style={{ width: "70%", height: 30, marginTop: 14 }} />
+        <span className="sk" style={{ width: "55%", height: 12, marginTop: 12 }} />
+        <span className="sk" style={{ width: "100%", marginTop: 40 }} />
+        <span className="sk" style={{ width: "92%", marginTop: 10 }} />
+        <span className="sk" style={{ width: "60%", marginTop: 10 }} />
+      </div>
     </div>
   );
 }

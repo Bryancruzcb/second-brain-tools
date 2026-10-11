@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ApiError, fetchNote, saveNote } from "@/lib/api";
-import { relativeDay } from "@/lib/format";
+import { useEffect, useId, useState } from "react";
+import { CircleAlert, FileText, MessageSquareText, Pencil, Scan, TriangleAlert } from "lucide-react";
+import { ApiError, fetchNote, folderCluster, saveNote } from "@/lib/api";
+import { editedPhrase, relativeDay } from "@/lib/format";
+import { noteBlocks } from "@/lib/noteText";
 import type { HealthIssue } from "@/types";
 import { useWorkspace } from "./context";
 
@@ -19,15 +21,22 @@ const kindClass: Record<string, string> = {
 };
 
 type Props = {
+  /** the note to show; defaults to the workspace's selected note */
+  noteId?: string | null;
+  /** last edit time, when the caller knows it (the Recent list does) */
+  updatedAt?: string;
+  /** the open note is a source of the answer on screen */
+  isAnswerSource?: boolean;
   repairIssue?: HealthIssue | null;
   onClose?: () => void;
 };
 
-export function NoteInspector({ repairIssue = null, onClose }: Props) {
+/** The reading pane: title once, file, folder and edit time, then the note. Edit and save stay here. */
+export function NoteInspector({ noteId, updatedAt, isAnswerSource = false, repairIssue = null, onClose }: Props) {
   const { selectedNoteId, setAskContextId, setView } = useWorkspace();
+  const id = noteId === undefined ? selectedNoteId : noteId;
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [path, setPath] = useState("");
   const [body, setBody] = useState("");
   const [draft, setDraft] = useState("");
   const [readOnly, setReadOnly] = useState(false);
@@ -35,56 +44,70 @@ export function NoteInspector({ repairIssue = null, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [editFor, setEditFor] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const headingId = useId();
 
   useEffect(() => {
-    if (!selectedNoteId) return;
+    if (!id) return;
     let cancelled = false;
     (async () => {
       try {
-        const n = await fetchNote(selectedNoteId);
+        const n = await fetchNote(id);
         if (cancelled) return;
         setTitle(n.title);
-        setPath(selectedNoteId);
         setBody(n.content);
         setDraft(n.content);
         setReadOnly(Boolean(n.read_only_fallback));
         setError(null);
         setSavedAt(null);
-        setLoadedId(selectedNoteId);
+        setLoadFailed(false);
+        setLoadedId(id);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof ApiError ? e.message : "Could not load note.");
-        setTitle(selectedNoteId.split("/").pop() || selectedNoteId);
-        setPath(selectedNoteId);
+        setTitle(id.split("/").pop()?.replace(/\.md$/i, "") || id);
         setBody("");
         setDraft("");
-        setLoadedId(selectedNoteId);
+        setReadOnly(false);
+        setLoadFailed(true);
+        setLoadedId(id);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedNoteId]);
+  }, [id]);
 
-  const loading = Boolean(selectedNoteId) && loadedId !== selectedNoteId;
-  const editing = editFor === selectedNoteId;
-
-  if (!selectedNoteId) {
+  if (!id) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-[13px] text-muted">
-        Select a note to read it here.
+      <div className="inspector">
+        <div className="inspector-head">
+          <p className="kicker mono">
+            <span>
+              <FileText className="icon" aria-hidden strokeWidth={2} />
+              Reading
+            </span>
+          </p>
+          <div className="pane-msg" style={{ margin: "16px 0" }}>
+            <FileText aria-hidden strokeWidth={2} />
+            <strong>Nothing open.</strong>
+            Pick a note to read it here.
+          </div>
+        </div>
       </div>
     );
   }
 
+  const loading = loadedId !== id;
+  const editing = editFor === id;
   const dirty = editing && draft !== body;
 
   const onSave = async () => {
-    if (readOnly || !selectedNoteId) return;
+    if (readOnly) return;
     setSaving(true);
     setError(null);
     try {
-      await saveNote(selectedNoteId, draft);
+      await saveNote(id, draft);
       setBody(draft);
       setEditFor(null);
       setSavedAt(new Date().toISOString());
@@ -96,42 +119,58 @@ export function NoteInspector({ repairIssue = null, onClose }: Props) {
   };
 
   return (
-    <article className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-hairline px-5 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-[18px] font-medium tracking-[-0.02em]">
-              {title || "Untitled"}
-            </h2>
-            <p className="mono mt-1 truncate text-[11px] text-muted">{path}</p>
-          </div>
+    <article className="inspector" aria-labelledby={headingId} aria-busy={loading || undefined}>
+      <div className="inspector-head">
+        <p className="kicker mono">
+          <span>
+            <FileText className="icon" aria-hidden strokeWidth={2} />
+            Reading
+          </span>
           {onClose && (
-            <button type="button" className="btn btn-ghost btn-compact" onClick={onClose}>
+            <button type="button" className="btn btn-quiet" onClick={onClose}>
               Close
             </button>
           )}
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {savedAt ? (
-            <span className="text-[11px] text-muted">Saved {relativeDay(savedAt)}</span>
-          ) : null}
-          {loading && <span className="text-[11px] text-muted">Loading…</span>}
+        </p>
+        {loading ? (
+          <>
+            <h2 id={headingId} className="sr-only">
+              Loading note
+            </h2>
+            <span className="sk" style={{ width: "70%", height: 30, marginTop: 14 }} />
+            <span className="sk" style={{ width: "55%", height: 12, marginTop: 12 }} />
+          </>
+        ) : (
+          <>
+            <h2 id={headingId}>{title || "Untitled"}</h2>
+            <p className="meta mono">
+              <span>{id}</span>
+              <span>{folderCluster(id)}</span>
+              {updatedAt && <span className="num">{editedPhrase(updatedAt)}</span>}
+            </p>
+            {isAnswerSource && (
+              <p className="cited">
+                <Scan className="icon" aria-hidden strokeWidth={2} />
+                Source of the latest answer
+              </p>
+            )}
+          </>
+        )}
+        <div className="reader-actions">
           <button
             type="button"
-            className="btn btn-ghost btn-compact"
+            className="btn"
             onClick={() => {
-              setAskContextId(selectedNoteId);
+              setAskContextId(id);
               setView("ask");
             }}
           >
+            <MessageSquareText className="icon" aria-hidden strokeWidth={2} />
             Ask with this
           </button>
-          {!readOnly && !editing && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-compact"
-              onClick={() => setEditFor(selectedNoteId)}
-            >
+          {!readOnly && !editing && !loading && !loadFailed && (
+            <button type="button" className="btn" onClick={() => setEditFor(id)}>
+              <Pencil className="icon" aria-hidden strokeWidth={2} />
               Edit
             </button>
           )}
@@ -139,7 +178,7 @@ export function NoteInspector({ repairIssue = null, onClose }: Props) {
             <>
               <button
                 type="button"
-                className="btn btn-ghost btn-compact"
+                className="btn btn-quiet"
                 onClick={() => {
                   setDraft(body);
                   setEditFor(null);
@@ -149,7 +188,7 @@ export function NoteInspector({ repairIssue = null, onClose }: Props) {
               </button>
               <button
                 type="button"
-                className="btn btn-primary btn-compact"
+                className="btn btn-primary"
                 disabled={!dirty || saving}
                 onClick={() => void onSave()}
               >
@@ -157,43 +196,76 @@ export function NoteInspector({ repairIssue = null, onClose }: Props) {
               </button>
             </>
           )}
+          {savedAt && (
+            <span className="saved" role="status">
+              Saved {relativeDay(savedAt).toLowerCase()}
+            </span>
+          )}
         </div>
-      </header>
+      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        {readOnly && (
-          <p className="mb-3 text-[12px] text-[var(--warning)]" role="status">
-            This file is a cloud placeholder. Showing the last indexed copy — read only.
-          </p>
-        )}
-        {repairIssue && (
-          <div className="repair-callout mb-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`status-pill ${kindClass[repairIssue.kind]}`}>
-                {kindLabel[repairIssue.kind]}
-              </span>
-              <span className="text-[13px] font-medium">Repair</span>
+      <div className="inspector-body">
+        <div className="note-body">
+          {readOnly && (
+            <p className="notice warn" role="status">
+              <TriangleAlert className="icon" aria-hidden strokeWidth={2} />
+              This file is a cloud placeholder. Showing the last indexed copy, read only.
+            </p>
+          )}
+          {repairIssue && (
+            <div className="repair-callout" style={{ marginBottom: 16 }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`status-pill ${kindClass[repairIssue.kind]}`}>
+                  {kindLabel[repairIssue.kind]}
+                </span>
+                <span className="text-[14px] font-semibold">Repair</span>
+              </div>
+              <p className="mt-1.5 text-[14px] leading-snug">{repairIssue.detail}</p>
+              <p className="mt-1 text-[14px] text-accent">{repairIssue.action}</p>
             </div>
-            <p className="mt-1.5 text-[13px] leading-snug">{repairIssue.detail}</p>
-            <p className="mt-1 text-[12px] text-[var(--sky)]">{repairIssue.action}</p>
-          </div>
-        )}
-        {error && (
-          <p className="mb-3 text-[13px] text-[var(--danger)]" role="alert">
-            {error}
-          </p>
-        )}
-        {editing ? (
-          <textarea
-            className="focus-ring min-h-[24rem] w-full resize-y rounded-[7px] border border-hairline bg-elevated p-3 text-[14px] leading-relaxed"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            aria-label="Note markdown"
-          />
-        ) : (
-          <div className="prose-note">{body || (loading ? "" : "No content.")}</div>
-        )}
+          )}
+          {error && (
+            <p className="notice bad" role="alert">
+              <CircleAlert className="icon" aria-hidden strokeWidth={2} />
+              {error}
+            </p>
+          )}
+          {editing ? (
+            <textarea
+              className="note-editor focus-ring"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              aria-label="Note markdown"
+            />
+          ) : loading ? (
+            <div aria-hidden>
+              <span className="sk" style={{ width: "100%" }} />
+              <span className="sk" style={{ width: "92%", marginTop: 10 }} />
+              <span className="sk" style={{ width: "60%", marginTop: 10 }} />
+            </div>
+          ) : (
+            <NoteText md={body} title={title} />
+          )}
+        </div>
       </div>
     </article>
+  );
+}
+
+function NoteText({ md, title }: { md: string; title: string }) {
+  const blocks = noteBlocks(md, title);
+  if (!blocks.length) return <p style={{ color: "var(--muted)" }}>No content.</p>;
+  return (
+    <>
+      {blocks.map((b, i) =>
+        b.kind === "heading" ? (
+          <h3 key={i}>{b.text}</h3>
+        ) : b.kind === "code" ? (
+          <pre key={i}>{b.text}</pre>
+        ) : (
+          <p key={i}>{b.text}</p>
+        ),
+      )}
+    </>
   );
 }
