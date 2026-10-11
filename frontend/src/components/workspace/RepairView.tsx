@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CircleAlert, CircleCheck, ScanSearch } from "lucide-react";
 import {
   ApiError,
   fetchHealth,
@@ -96,11 +97,11 @@ export function RepairView() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <section className="flex w-[min(26rem,42%)] shrink-0 flex-col border-r border-hairline max-md:w-full">
-        <header className="flex items-start justify-between gap-3 border-b border-hairline px-4 py-3">
+      <section className="flex w-[min(28rem,42%)] shrink-0 flex-col border-r border-hairline bg-panel max-md:w-full max-md:border-r-0">
+        <header className="view-head">
           <div>
-            <h2 className="text-[15px] font-medium tracking-[-0.02em]">Repair</h2>
-            <p className="mt-0.5 text-[12px] text-muted">
+            <h1>Repair</h1>
+            <p className="sub" role="status">
               {loading
                 ? "Loading…"
                 : error
@@ -114,32 +115,48 @@ export function RepairView() {
           </div>
           <button
             type="button"
-            className="btn btn-secondary btn-compact"
+            className="btn"
             disabled={scanning}
             onClick={() => void onScan()}
           >
+            <ScanSearch className="icon" aria-hidden strokeWidth={2} />
             {scanning ? "Scanning…" : "Scan"}
           </button>
         </header>
         {error ? (
-          <p className="px-4 py-6 text-[13px] text-[var(--danger)]">{error}</p>
+          <div className="pane-msg bad" style={{ marginTop: 20 }}>
+            <CircleAlert aria-hidden strokeWidth={2} />
+            <strong>Vault health could not load.</strong>
+            {error}
+          </div>
         ) : loading ? (
-          <p className="px-4 py-6 text-[13px] text-muted">Loading health…</p>
+          <ul className="m-0 list-none p-0" aria-busy="true" aria-label="Loading vault health">
+            {Array.from({ length: 6 }, (_, i) => (
+              <li key={i} className="issue">
+                <span className="sk" style={{ width: 64, height: 22 }} />
+                <span className="min-w-0 flex-1">
+                  <span className="sk" style={{ width: "55%" }} />
+                  <span className="sk" style={{ width: "85%", height: 12, marginTop: 8 }} />
+                </span>
+              </li>
+            ))}
+          </ul>
         ) : issues.length === 0 ? (
-          <p className="px-4 py-6 text-[13px] text-muted">
+          <div className="pane-msg" style={{ marginTop: 20 }}>
+            <CircleCheck aria-hidden strokeWidth={2} style={{ color: "var(--success)" }} />
+            <strong>Nothing to fix.</strong>
             No broken links, orphans, or tagless notes in the latest scan.
-          </p>
+          </div>
         ) : (
-          <ul className="min-h-0 flex-1 divide-y divide-hairline overflow-y-auto">
+          <ul className="m-0 min-h-0 flex-1 list-none divide-y divide-hairline overflow-y-auto p-0">
             {issues.map((issue) => {
               const active = repairIssueId === issue.id;
               return (
                 <li key={issue.id}>
                   <button
                     type="button"
-                    className={`focus-ring flex w-full items-start gap-3 px-4 py-3 text-left ${
-                      active ? "bg-elevated" : "hover:bg-elevated"
-                    }`}
+                    className="issue focus-ring"
+                    aria-current={active ? "true" : undefined}
                     onClick={() =>
                       selectNote(issue.noteId, { repairIssueId: issue.id })
                     }
@@ -148,12 +165,8 @@ export function RepairView() {
                       {kindLabel[issue.kind]}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-medium">
-                        {issue.title}
-                      </span>
-                      <span className="mt-0.5 block text-[12px] text-muted">
-                        {issue.detail}
-                      </span>
+                      <span className="t">{issue.title}</span>
+                      <span className="s">{issue.detail}</span>
                     </span>
                   </button>
                 </li>
@@ -162,7 +175,7 @@ export function RepairView() {
           </ul>
         )}
       </section>
-      <div className="min-w-0 flex-1 bg-panel max-md:hidden">
+      <div className="min-w-0 flex-1 bg-page max-md:hidden">
         <NoteInspector repairIssue={activeIssue} />
       </div>
       {selectedNoteId && (

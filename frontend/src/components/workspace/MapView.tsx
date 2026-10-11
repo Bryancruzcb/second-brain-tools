@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { CircleAlert, Minus, Plus } from "lucide-react";
 import { ApiError, fetchGraph, layoutGraph } from "@/lib/api";
 import type { GraphLayout } from "@/lib/api";
 import type { GraphNode } from "@/types";
 import { useWorkspace } from "./context";
 import { NoteInspector } from "./NoteInspector";
+import { starField } from "@/lib/starChart";
+
+const FIELD = starField(20261011, 150);
 
 function wrapTitle(title: string, maxChars = 16): string[] {
   if (title.length <= maxChars) return [title];
@@ -23,18 +27,6 @@ function wrapTitle(title: string, maxChars = 16): string[] {
 }
 
 const VB = { w: 960, h: 560 };
-
-const CLUSTER_FILL: Record<string, string> = {
-  Home: "color-mix(in srgb, var(--accent) 12%, transparent)",
-  Memory: "color-mix(in srgb, var(--sky) 12%, transparent)",
-  Projects: "color-mix(in srgb, var(--warning) 11%, transparent)",
-  School: "color-mix(in srgb, var(--success) 12%, transparent)",
-  Career: "color-mix(in srgb, var(--sky) 9%, transparent)",
-  Imported: "color-mix(in srgb, var(--muted) 14%, transparent)",
-  "Imported Files": "color-mix(in srgb, var(--muted) 14%, transparent)",
-  Vault: "color-mix(in srgb, var(--muted) 12%, transparent)",
-  Chats: "color-mix(in srgb, var(--danger) 12%, transparent)",
-};
 
 function topInCluster(nodes: GraphNode[], cluster: string): string | null {
   let best: GraphNode | null = null;
@@ -162,25 +154,25 @@ export function MapView() {
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-end justify-between gap-3 border-b border-hairline px-4 py-3">
+        <header className="view-head">
           <div>
-            <h2 className="text-[15px] font-medium tracking-[-0.02em]">Map</h2>
-            <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>
+            <h1>Map</h1>
+            <p className="sub" role="status">{subtitle}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
-              className="focus-ring h-8 w-40 rounded-[7px] border border-hairline bg-elevated px-2 text-[12px]"
+              className="control focus-ring w-44"
               placeholder="Filter labels"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Filter graph by label"
             />
             <select
-              className="focus-ring h-8 rounded-[7px] border border-hairline bg-elevated px-2 text-[12px]"
+              className="control focus-ring"
               value={cluster}
               onChange={(e) => setCluster(e.target.value)}
-              aria-label="Filter graph by cluster"
+              aria-label="Filter graph by folder"
             >
               <option value="all">All folders</option>
               {clusters.map((c) => (
@@ -189,7 +181,7 @@ export function MapView() {
                 </option>
               ))}
             </select>
-            <label className="flex h-8 items-center gap-1.5 rounded-[7px] border border-hairline bg-elevated px-2 text-[12px] text-muted">
+            <label className="check-control text-[14px]">
               <input
                 type="checkbox"
                 checked={includeChats}
@@ -203,7 +195,7 @@ export function MapView() {
               aria-label="Zoom in"
               onClick={() => setCam((c) => ({ ...c, k: Math.min(3, c.k * 1.15) }))}
             >
-              +
+              <Plus className="icon" aria-hidden strokeWidth={2} />
             </button>
             <button
               type="button"
@@ -211,30 +203,33 @@ export function MapView() {
               aria-label="Zoom out"
               onClick={() => setCam((c) => ({ ...c, k: Math.max(0.4, c.k / 1.15) }))}
             >
-              −
+              <Minus className="icon" aria-hidden strokeWidth={2} />
             </button>
             <button
               type="button"
-              className="btn btn-ghost btn-compact"
+              className="btn btn-quiet"
               onClick={() => setCam({ x: 0, y: 0, k: 1 })}
             >
               Reset
             </button>
           </div>
         </header>
-        <div className="relative min-h-0 flex-1 bg-page">
+        <div className="map-field">
           {error ? (
-            <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-[13px] text-[var(--danger)]">
-              {error}
-            </p>
+            <div className="sky-msg is-error" role="alert">
+              <CircleAlert aria-hidden strokeWidth={2} />
+              <strong>The map could not load.</strong>
+              <p>{error}</p>
+            </div>
           ) : loading || !laid ? (
-            <p className="absolute inset-0 flex items-center justify-center text-[13px] text-muted">
+            <p className="sky-msg mono" aria-busy="true" style={{ margin: 0 }}>
               Loading map…
             </p>
           ) : laid.nodes.length === 0 ? (
-            <p className="absolute inset-0 flex items-center justify-center text-[13px] text-muted">
-              No notes in the graph yet. Run a scan on the backend.
-            </p>
+            <div className="sky-msg">
+              <strong>No stars yet.</strong>
+              <p>No notes in the graph yet. Run a scan on the backend.</p>
+            </div>
           ) : (
             <svg
               viewBox={`0 0 ${VB.w} ${VB.h}`}
@@ -248,12 +243,11 @@ export function MapView() {
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
             >
-              <defs>
-                <pattern id="map-dots" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <circle cx="1" cy="1" r="0.7" fill="var(--hairline)" />
-                </pattern>
-              </defs>
-              <rect width={VB.w} height={VB.h} fill="url(#map-dots)" />
+              <g aria-hidden>
+                {FIELD.map((p, i) => (
+                  <circle key={i} cx={p.x} cy={(p.y * VB.h) / 600} r={p.r} fill="var(--field)" />
+                ))}
+              </g>
               <g transform={`translate(${cam.x} ${cam.y}) scale(${cam.k})`}>
                 {laid.clusters.map((c) => {
                   const visible = laid.nodes.some(
@@ -267,18 +261,20 @@ export function MapView() {
                         cy={c.cy}
                         rx={c.rx}
                         ry={c.ry}
-                        fill={CLUSTER_FILL[c.label] || CLUSTER_FILL.Vault}
-                        stroke="var(--hairline)"
+                        fill="none"
+                        stroke="var(--hairline-strong)"
                         strokeWidth="1"
+                        strokeDasharray="2 5"
                       />
                       <text
                         x={c.cx - c.rx + 10}
                         y={c.cy - c.ry + 14}
                         fill="var(--muted)"
-                        fontSize="11"
-                        fontFamily="IBM Plex Mono, ui-monospace, monospace"
+                        fontSize="12"
+                        letterSpacing="0.12em"
+                        fontFamily="var(--font-martian), ui-monospace, monospace"
                       >
-                        {c.label}
+                        {c.label.toUpperCase()}
                       </text>
                     </g>
                   );
@@ -296,8 +292,8 @@ export function MapView() {
                       y1={na.y}
                       x2={nb.x}
                       y2={nb.y}
-                      stroke={lit ? "var(--sky)" : "var(--hairline)"}
-                      strokeWidth={lit ? 1.8 : 1.2}
+                      stroke={lit ? "var(--accent)" : "color-mix(in srgb, var(--star) 35%, transparent)"}
+                      strokeWidth={lit ? 1.6 : 1}
                     />
                   );
                 })}
@@ -318,6 +314,7 @@ export function MapView() {
                       className="map-node"
                       role="button"
                       tabIndex={0}
+                      aria-label={`${title}, ${node.cluster}`}
                       onMouseEnter={() => setHoverId(node.id)}
                       onMouseLeave={() => setHoverId(null)}
                       onClick={() => selectNote(node.id, { askContext: true })}
@@ -328,32 +325,23 @@ export function MapView() {
                         }
                       }}
                     >
-                      {active && (
-                        <circle
-                          cx={node.x}
-                          cy={node.y}
-                          r={node.r + 10}
-                          fill="var(--accent)"
-                          fillOpacity="0.18"
-                        />
-                      )}
+                      <circle
+                        className="map-halo"
+                        cx={node.x}
+                        cy={node.y}
+                        r={node.r + 7}
+                        fill="transparent"
+                        stroke={active ? "var(--accent)" : "transparent"}
+                        strokeWidth={active ? 2 : 0}
+                      />
                       <circle
                         cx={node.x}
                         cy={node.y}
-                        r={active ? node.r + 2 : node.r}
-                        fill={active ? "var(--accent)" : "var(--elevated)"}
-                        stroke="var(--accent)"
-                        strokeWidth={active ? 0 : 1.5}
+                        r={Math.max(3, node.r - 2)}
+                        fill="var(--star)"
+                        stroke="rgba(244, 239, 227, 0.12)"
+                        strokeWidth="3"
                       />
-                      {!active && (
-                        <circle
-                          cx={node.x}
-                          cy={node.y}
-                          r={Math.max(2, node.r - 3)}
-                          fill="var(--accent)"
-                          fillOpacity="0.35"
-                        />
-                      )}
                       {showLabel && (
                         <text
                           className="map-label"
@@ -361,8 +349,8 @@ export function MapView() {
                           y={node.y + node.r + 14}
                           textAnchor="middle"
                           fill={active ? "var(--ink)" : "var(--muted)"}
-                          fontSize="11"
-                          fontFamily="IBM Plex Mono, ui-monospace, monospace"
+                          fontSize="12"
+                          fontFamily="var(--font-martian), ui-monospace, monospace"
                         >
                           {lines.map((line, i) => (
                             <tspan key={i} x={node.x} dy={i === 0 ? 0 : 12}>
@@ -378,19 +366,15 @@ export function MapView() {
             </svg>
           )}
           {hoverNode && hoverLabel && (
-            <div
-              className="pointer-events-none absolute rounded-[7px] border border-hairline bg-elevated px-2 py-1 text-[12px] shadow-[var(--shadow)]"
-              style={{ left: 12, bottom: 12 }}
-              role="tooltip"
-            >
-              <span className="font-medium">{hoverLabel}</span>
-              <span className="mono ml-2 text-[10px] text-muted">{hoverNode.cluster}</span>
+            <div className="map-tooltip" role="tooltip">
+              <span className="font-semibold">{hoverLabel}</span>
+              <span className="mono ml-2 text-muted">{hoverNode.cluster}</span>
             </div>
           )}
         </div>
       </section>
       {selectedNoteId && (
-        <aside className="w-[min(24rem,38%)] shrink-0 border-l border-hairline bg-panel max-md:absolute max-md:inset-0 max-md:w-full max-md:border-l-0">
+        <aside className="w-[min(26rem,38%)] shrink-0 border-l border-hairline bg-panel max-md:absolute max-md:inset-0 max-md:z-10 max-md:w-full max-md:border-l-0">
           <NoteInspector onClose={() => selectNote(null)} />
         </aside>
       )}
