@@ -10,12 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { fetchReady } from "@/lib/api";
+import type { ReadyState } from "@/lib/status";
 import { VIEWS, type ViewId } from "@/lib/workspace";
-
-type ReadyState = {
-  ready: boolean;
-  components: Record<string, boolean>;
-} | null;
 
 type WorkspaceValue = {
   view: ViewId;
@@ -50,9 +46,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const poll = async () => {
       try {
         const res = await fetchReady();
-        if (!cancelled) setReady(res);
+        if (!cancelled) setReady({ ...res, reachable: true });
       } catch {
-        if (!cancelled) setReady({ ready: false, components: {} });
+        if (!cancelled) setReady({ ready: false, components: {}, reachable: false });
       }
     };
     void poll();

@@ -8,7 +8,7 @@ export const VIEW_META: Record<
   notes: {
     label: "Notes",
     shortcut: "1",
-    description: "Recent notes and the inspector",
+    description: "Recent notes, star chart and reading pane",
   },
   map: {
     label: "Map",
@@ -26,5 +26,8 @@ export const VIEW_META: Record<
     description: "Grounded questions via local Qwen",
   },
 };
+
+/** Display order of the tabs. The shortcuts keep their numbers (VIEWS order). */
+export const TAB_ORDER: readonly ViewId[] = ["notes", "ask", "map", "repair"];
 
 export const PRODUCT_NAME = "Atlas";

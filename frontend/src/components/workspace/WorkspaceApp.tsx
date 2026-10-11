@@ -1,6 +1,6 @@
 "use client";
 
-import { LeftRail } from "./LeftRail";
+import { TopBar } from "./TopBar";
 import { CommandBar } from "./CommandBar";
 import { NotesView } from "./NotesView";
 import { MapView } from "./MapView";
@@ -10,13 +10,15 @@ import { WorkspaceProvider, useWorkspace } from "./context";
 
 function Stage() {
   const { view } = useWorkspace();
+  // Notes scrolls with the page (chart, dock, reading pane); the other views
+  // fill the window and scroll inside their own panes.
   return (
-    <div className="workspace-stage relative">
+    <main className={`workspace-stage${view === "notes" ? "" : " fixed"}`} id="main">
       {view === "notes" && <NotesView />}
       {view === "map" && <MapView />}
       {view === "repair" && <RepairView />}
       {view === "ask" && <AskView />}
-    </div>
+    </main>
   );
 }
 
@@ -24,11 +26,9 @@ export function WorkspaceApp() {
   return (
     <WorkspaceProvider>
       <div className="workspace">
-        <LeftRail />
-        <div className="workspace-main">
-          <CommandBar />
-          <Stage />
-        </div>
+        <TopBar />
+        <Stage />
+        <CommandBar />
       </div>
     </WorkspaceProvider>
   );
