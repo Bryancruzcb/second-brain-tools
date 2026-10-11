@@ -154,12 +154,12 @@ export function AnswerBlock({
   const n = answer.sources.length;
 
   return (
-    <div className="answer" aria-labelledby={`${idPrefix}-q`} aria-busy={writing || undefined}>
+    <div className="answer" aria-labelledby={`${idPrefix}-question`} aria-busy={writing || undefined}>
       <p className="dock-head mono">
         <MessageSquareText className="icon" aria-hidden strokeWidth={2} />
         {meta.join(" · ")}
       </p>
-      <p className="question" id={`${idPrefix}-q`}>
+      <p className="question" id={`${idPrefix}-question`}>
         {capitalize(answer.question)}
       </p>
       <p className="answer-text" aria-live="polite">
