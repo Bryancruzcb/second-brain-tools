@@ -1412,15 +1412,39 @@ a {
 
 .check-control {
   display: inline-flex;
+  min-height: 32px;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 0 8px 0 2px;
+  border-radius: var(--radius);
   color: var(--muted);
+  cursor: pointer;
 }
 
+.check-control:hover {
+  color: var(--ink);
+}
+
+/* A 24 px hit area that still draws a 16 px box (the whole label is clickable too). */
 .check-control input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  flex: none;
+  appearance: none;
+  border-radius: var(--radius-sm);
+  background: center / 16px 16px no-repeat
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='.5' y='.5' width='15' height='15' rx='3.5' fill='%230d1117' stroke='%23a6b0be'/%3E%3C/svg%3E");
+  cursor: pointer;
+}
+
+.check-control input:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%2374c7ef'/%3E%3Cpath d='m4 8.2 2.6 2.6L12 5.4' fill='none' stroke='%2304121b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.check-control input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
 }
 
 .map-tooltip {
