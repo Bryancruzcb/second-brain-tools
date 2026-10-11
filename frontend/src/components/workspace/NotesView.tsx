@@ -5,14 +5,13 @@ import { CircleAlert, CircleCheck, FileText, Loader } from "lucide-react";
 import {
   ApiError,
   fetchGraph,
-  fetchNote,
   fetchRecent,
   folderCluster,
   recentToNote,
   type BackendGraphEdge,
 } from "@/lib/api";
 import { relativeDay } from "@/lib/format";
-import { cleanSnippet, wordCount } from "@/lib/noteText";
+import { cleanSnippet } from "@/lib/noteText";
 import { layoutStarChart, type ChartNote } from "@/lib/starChart";
 import { indexStatus } from "@/lib/status";
 import type { Note } from "@/types";
@@ -46,7 +45,6 @@ export function NotesView() {
   const { selectedNoteId, selectNote, ready } = useWorkspace();
   const [recent, setRecent] = useState<Recent>({ status: "loading" });
   const [links, setLinks] = useState<Links>({ status: "loading" });
-  const [words, setWords] = useState<Record<string, number>>({});
   const [sourceIds, setSourceIds] = useState<ReadonlySet<string>>(new Set());
   const [nowMs] = useState(() => Date.now());
   const readerRef = useRef<HTMLElement>(null);
@@ -77,25 +75,6 @@ export function NotesView() {
     };
   }, []);
 
-  // Star size needs each note's full length; /api/recent only sends the first 200 characters.
-  const recentIds = recent.status === "ready" ? recent.notes.map((n) => n.id).join("\n") : "";
-  useEffect(() => {
-    if (!recentIds) return;
-    let cancelled = false;
-    for (const id of recentIds.split("\n")) {
-      fetchNote(id)
-        .then((n) => {
-          if (!cancelled) setWords((w) => ({ ...w, [id]: wordCount(n.content, n.title) }));
-        })
-        .catch(() => {
-          /* size stays neutral for this note */
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [recentIds]);
-
   const notes = useMemo(() => (recent.status === "ready" ? recent.notes : []), [recent]);
   const chartNotes: ChartNote[] = useMemo(
     () =>
@@ -103,22 +82,19 @@ export function NotesView() {
         id: n.id,
         title: n.title,
         editedMs: Date.parse(n.updatedAt),
-        words: words[n.id] ?? null,
       })),
-    [notes, words],
+    [notes],
   );
   const chart = useMemo(
     () => layoutStarChart(chartNotes, links.status === "ready" ? links.edges : [], nowMs),
     [chartNotes, links, nowMs],
   );
-  const sizes = useMemo(() => Object.fromEntries(chart.stars.map((s) => [s.id, s.size])), [chart]);
   const editedIso = useMemo(() => Object.fromEntries(notes.map((n) => [n.id, n.updatedAt])), [notes]);
 
   const openId = selectedNoteId ?? notes[0]?.id ?? null;
   const openNote = notes.find((n) => n.id === openId);
   const chartState: ChartState =
     recent.status === "ready" ? (notes.length ? "ready" : "empty") : recent.status;
-  const sizesKnown = notes.length > 1 && notes.every((n) => words[n.id] !== undefined);
   const sourceOnChart = notes.some((n) => sourceIds.has(n.id));
 
   const pick = (id: string, reveal: "reader" | "chart" = "reader") => {
@@ -131,7 +107,6 @@ export function NotesView() {
       <RecentList
         recent={recent}
         openId={openId}
-        sizes={sizes}
         nowMs={nowMs}
         onPick={(id) => pick(id)}
       />
@@ -153,7 +128,6 @@ export function NotesView() {
             chart={chart}
             linksKnown={links.status === "ready"}
             sourceOnChart={sourceOnChart}
-            sizesKnown={sizesKnown}
           />
         )}
         <AskDock
@@ -237,13 +211,11 @@ function Lead({
 function RecentList({
   recent,
   openId,
-  sizes,
   nowMs,
   onPick,
 }: {
   recent: Recent;
   openId: string | null;
-  sizes: Record<string, number>;
   nowMs: number;
   onPick: (id: string) => void;
 }) {
@@ -287,7 +259,7 @@ function RecentList({
                 onClick={() => onPick(n.id)}
               >
                 <span className="dotcell" aria-hidden>
-                  <span className="dot" style={{ width: sizes[n.id] ?? 7, height: sizes[n.id] ?? 7 }} />
+                  <span className="dot" style={{ width: 7, height: 7 }} />
                 </span>
                 <span className="t">{n.title}</span>
                 <span className="d mono num">{relativeDay(n.updatedAt, nowMs)}</span>

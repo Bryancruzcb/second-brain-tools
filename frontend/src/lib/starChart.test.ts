@@ -3,7 +3,6 @@ import {
   DAY_MS,
   R_MAX,
   R_MIN,
-  dotSize,
   layoutStarChart,
   radiusFor,
   ringAges,
@@ -17,12 +16,12 @@ import {
 // and "now" fixed at 2026-10-11 11:40 PDT.
 const NOW = Date.parse("2026-10-11T11:40:00-07:00");
 const FIXTURE: ChartNote[] = [
-  { id: "Sourdough Starter.md", title: "Sourdough Starter", editedMs: 1791733200_000, words: 22 },
-  { id: "Levain.md", title: "Levain", editedMs: 1791648300_000, words: 13 },
-  { id: "Rust Borrow Checker.md", title: "Rust Borrow Checker", editedMs: 1791513000_000, words: 18 },
-  { id: "Track Intervals.md", title: "Track Intervals", editedMs: 1791296100_000, words: 18 },
-  { id: "Coffee Brewing.md", title: "Coffee Brewing", editedMs: 1790910600_000, words: 22 },
-  { id: "Marathon Training.md", title: "Marathon Training", editedMs: 1790430600_000, words: 18 },
+  { id: "Sourdough Starter.md", title: "Sourdough Starter", editedMs: 1791733200_000 },
+  { id: "Levain.md", title: "Levain", editedMs: 1791648300_000 },
+  { id: "Rust Borrow Checker.md", title: "Rust Borrow Checker", editedMs: 1791513000_000 },
+  { id: "Track Intervals.md", title: "Track Intervals", editedMs: 1791296100_000 },
+  { id: "Coffee Brewing.md", title: "Coffee Brewing", editedMs: 1790910600_000 },
+  { id: "Marathon Training.md", title: "Marathon Training", editedMs: 1790430600_000 },
 ];
 
 function distance(s: { x: number; y: number }): number {
@@ -93,7 +92,6 @@ describe("layoutStarChart", () => {
         id: `${folders[Math.floor(rand() * folders.length)]}Note ${i}.md`,
         title: `Note ${i}`,
         editedMs: NOW - rand() * scaleDays * DAY_MS,
-        words: Math.floor(rand() * 900),
       })).sort((a, b) => b.editedMs - a.editedMs);
       expectStarsBetweenTheirRings(notes, NOW);
     }
@@ -101,9 +99,9 @@ describe("layoutStarChart", () => {
 
   test("a note edited exactly on a ring age sits on that ring, not inside it", () => {
     const notes: ChartNote[] = [
-      { id: "a.md", title: "A", editedMs: NOW - 0.5 * DAY_MS, words: 1 },
-      { id: "b.md", title: "B", editedMs: NOW - 7 * DAY_MS, words: 1 },
-      { id: "c.md", title: "C", editedMs: NOW - 15 * DAY_MS, words: 1 },
+      { id: "a.md", title: "A", editedMs: NOW - 0.5 * DAY_MS },
+      { id: "b.md", title: "B", editedMs: NOW - 7 * DAY_MS },
+      { id: "c.md", title: "C", editedMs: NOW - 15 * DAY_MS },
     ];
     const chart = expectStarsBetweenTheirRings(notes, NOW);
     const week = chart.rings.find((r) => r.label === "1 week")!;
@@ -131,10 +129,10 @@ describe("layoutStarChart", () => {
 
   test("each folder gets its own wedge of the circle", () => {
     const notes: ChartNote[] = [
-      { id: "03 School/Graphs.md", title: "Graphs", editedMs: NOW - 1000, words: 10 },
-      { id: "02 Projects/Atlas.md", title: "Atlas", editedMs: NOW - 2 * DAY_MS, words: 10 },
-      { id: "03 School/Heaps.md", title: "Heaps", editedMs: NOW - 3 * DAY_MS, words: 10 },
-      { id: "02 Projects/Gridiron.md", title: "Gridiron", editedMs: NOW - 4 * DAY_MS, words: 10 },
+      { id: "03 School/Graphs.md", title: "Graphs", editedMs: NOW - 1000 },
+      { id: "02 Projects/Atlas.md", title: "Atlas", editedMs: NOW - 2 * DAY_MS },
+      { id: "03 School/Heaps.md", title: "Heaps", editedMs: NOW - 3 * DAY_MS },
+      { id: "02 Projects/Gridiron.md", title: "Gridiron", editedMs: NOW - 4 * DAY_MS },
     ];
     const chart = layoutStarChart(notes, [], NOW);
     expect(chart.constellations.map((c) => c.folder)).toEqual(["School", "Projects"]);
@@ -163,16 +161,11 @@ describe("layoutStarChart", () => {
     expect(layoutStarChart(FIXTURE, [], NOW).lines).toEqual([]);
   });
 
-  test("star size follows word count, and is neutral when the length is unknown", () => {
-    expect(dotSize(13, 13, 22)).toBe(5);
-    expect(dotSize(22, 13, 22)).toBe(10);
-    expect(dotSize(18, 18, 18)).toBe(7);
-    expect(dotSize(null, 0, 100)).toBe(7);
+  test("needs only id, title and edit time: no note text, so no note reads", () => {
     const chart = layoutStarChart(FIXTURE, [], NOW);
-    expect(chart.stars.find((s) => s.id === "Levain.md")!.size).toBe(5);
-    expect(chart.stars.find((s) => s.id === "Coffee Brewing.md")!.size).toBe(10);
-    const unknown = layoutStarChart(FIXTURE.map((n) => ({ ...n, words: null })), [], NOW);
-    expect(new Set(unknown.stars.map((s) => s.size))).toEqual(new Set([7]));
+    expect(Object.keys(chart.stars[0]).sort()).toEqual(
+      ["ageDays", "folder", "id", "label", "r", "side", "title", "x", "y"],
+    );
   });
 
   test("handles no notes", () => {

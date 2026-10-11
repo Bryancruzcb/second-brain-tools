@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cleanSnippet, noteBlocks, wordCount } from "./noteText";
+import { cleanSnippet, noteBlocks } from "./noteText";
 import { askedAgo, clockTime, editedPhrase, relativeDay } from "./format";
 import { answerFromHistory, uniqueSources } from "./ask";
 
@@ -16,14 +16,6 @@ describe("cleanSnippet", () => {
   test("keeps text when there is no title heading", () => {
     expect(cleanSnippet("Just a line\nand another", "Other")).toBe("Just a line and another");
     expect(cleanSnippet("", "Empty")).toBe("");
-  });
-});
-
-describe("wordCount", () => {
-  test("counts body words without the title", () => {
-    expect(wordCount(COFFEE, "Coffee Brewing")).toBe(22);
-    expect(wordCount("# Levain\n\nThe levain builds overnight at 78 percent hydration\nDiscard goes into pancake batter", "Levain")).toBe(13);
-    expect(wordCount("# Only Title", "Only Title")).toBe(0);
   });
 });
 

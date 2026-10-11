@@ -1,6 +1,6 @@
 /**
- * Calculations over a note's Markdown text: the snippet for a list row, the
- * word count behind a star's size, and the blocks the reading pane renders.
+ * Calculations over a note's Markdown text: the snippet for a list row and
+ * the blocks the reading pane renders.
  * All pure: text in, data out.
  */
 
@@ -27,12 +27,6 @@ export function cleanSnippet(md: string, title: string): string {
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-/** Words in the note body, not counting the title heading. */
-export function wordCount(md: string, title: string): number {
-  const text = cleanSnippet(md, title);
-  return text ? text.split(" ").length : 0;
 }
 
 export type NoteBlock =

@@ -5,6 +5,8 @@ import { relativeDay } from "@/lib/format";
 import { starField, type StarChart as Chart } from "@/lib/starChart";
 
 const FIELD = starField(20261011, 150);
+/** Every star is one size: the chart encodes edit time, folder and links, not length. */
+const STAR_PX = 7;
 
 export type ChartState = "loading" | "ready" | "empty" | "error";
 
@@ -102,7 +104,6 @@ export function StarChart({
               s.title,
               `in ${s.folder}`,
               edited ? `edited ${relativeDay(edited, nowMs).toLowerCase()}` : null,
-              s.words !== null ? `${s.words} ${s.words === 1 ? "word" : "words"}` : null,
               isSource ? "source of the latest answer" : null,
             ].filter(Boolean);
             return (
@@ -122,7 +123,7 @@ export function StarChart({
                   onClick={() => onSelect(s.id)}
                 >
                   <span className="dotbox">
-                    <span className="dot" style={{ width: s.size, height: s.size }} />
+                    <span className="dot" style={{ width: STAR_PX, height: STAR_PX }} />
                   </span>
                   <span className="star-name mono" aria-hidden>
                     {s.label}
@@ -155,12 +156,10 @@ export function ChartLegend({
   chart,
   linksKnown,
   sourceOnChart,
-  sizesKnown,
 }: {
   chart: Chart;
   linksKnown: boolean;
   sourceOnChart: boolean;
-  sizesKnown: boolean;
 }) {
   return (
     <ul className="legend mono" aria-label="How to read the chart">
@@ -170,14 +169,6 @@ export function ChartLegend({
         </span>
         One star = one note. Closer to the center = edited more recently
       </li>
-      {sizesKnown && (
-        <li>
-          <span className="key">
-            <span className="dot" style={{ width: 11, height: 11 }} />
-          </span>
-          Bigger star = longer note
-        </li>
-      )}
       {chart.constellations.length > 1 && <li>Constellation = folder</li>}
       {sourceOnChart && (
         <li>

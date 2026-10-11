@@ -8,7 +8,8 @@
  *
  * - Distance from the center = time since the last edit, on a square-root
  *   scale. The age rings use the same scale (`radiusFor`).
- * - Star size = note length in words (5 to 10 px), when the length is known.
+ * - Every star is the same size. Size would need each note's full text, and
+ *   reading every recent note (OneDrive may download it) is not worth that.
  * - Constellation = folder, by the app's own `folderCluster()`. With more than
  *   one folder, each folder gets its own wedge of the circle.
  * - Lines = links between two plotted notes in the graph data. No link, no line.
@@ -49,8 +50,6 @@ export type ChartNote = Readonly<{
   title: string;
   /** last edit, epoch milliseconds */
   editedMs: number;
-  /** body length in words, or null while unknown */
-  words: number | null;
 }>;
 
 export type ChartLink = Readonly<{ source: string; target: string; is_ghost?: boolean }>;
@@ -64,14 +63,11 @@ export type Star = Readonly<{
   label: string;
   folder: string;
   ageDays: number;
-  words: number | null;
   x: number;
   y: number;
   /** distance from the center, in percent of the box side */
   r: number;
   side: LabelSide;
-  /** dot diameter in px */
-  size: number;
 }>;
 
 export type AgeRing = Readonly<{
@@ -128,12 +124,6 @@ export function ringAges(maxDays: number): { days: number; label: string }[] {
 export function pointAt(r: number, deg: number): { x: number; y: number } {
   const rad = (deg * Math.PI) / 180;
   return { x: 50 + 100 * r * Math.cos(rad), y: 50 + 100 * r * Math.sin(rad) };
-}
-
-/** 5 to 10 px by word count; 7 px when the length is unknown or all notes are the same length. */
-export function dotSize(words: number | null, min: number, max: number): number {
-  if (words === null || max <= min) return 7;
-  return 5 + Math.round(((words - min) / (max - min)) * 5);
 }
 
 export function shortLabel(title: string): string {
@@ -249,8 +239,6 @@ export function layoutStarChart(
   folderOf.forEach((f) => counts.set(f, (counts.get(f) || 0) + 1));
   const wedge = wedges(folders, counts, notes.length);
 
-  const known = notes.map((n) => n.words).filter((w): w is number => w !== null);
-  const [minW, maxW] = known.length ? [Math.min(...known), Math.max(...known)] : [0, 0];
 
   const seen = new Map<string, number>();
   const points = notes.map((n, i) => {
@@ -290,12 +278,10 @@ export function layoutStarChart(
     label: points[i].label,
     folder: folderOf[i],
     ageDays: ages[i],
-    words: n.words,
     x: points[i].x,
     y: points[i].y,
     r: points[i].r * 100,
     side: sides[i],
-    size: dotSize(n.words, minW, maxW),
   }));
 
   const taken = [...boxes, ...constellationBoxes, ...points.map((p) => dotBox(p, 2))];

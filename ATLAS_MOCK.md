@@ -25,7 +25,7 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 ## Notes
 
 - The look is the Observatory system in `DESIGN.md` (dark only); content is real vault titles/counts.
-- The Notes star chart plots the notes `/api/recent` returns: distance from the center is time since the last edit, star size is the note's length in words (from `/api/note/{ref}`), constellations are folders, and lines are links from `/api/graph`.
+- The Notes star chart plots the notes `/api/recent` returns: distance from the center is time since the last edit, constellations are folders, and lines are links from `/api/graph`. Every star is the same size, so the chart reads no note text; the reading pane fetches only the note you open.
 - Map shows ~24 notes across vault folders (Home, School, Projects, …), not KMeans blobs. Chat archives stay off until you toggle them; subtitle shows the hidden count.
 - Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - Inspector can edit and save notes unless the file is a OneDrive placeholder (`read_only_fallback`).
