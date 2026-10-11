@@ -1,6 +1,6 @@
 # Atlas / Night Atlas frontend
 
-Night Atlas (`frontend/`) is the DESIGN.md workspace: left rail, command search, and one active view. Panels load from the live FastAPI backend.
+Night Atlas (`frontend/`) follows the Observatory style in `DESIGN.md`: four tabs at the top (Notes, Ask, Map, Repair), a Ctrl K search palette, and one active view. The Notes view is a star chart of recent notes with a reading pane and the Ask dock. Panels load from the live FastAPI backend.
 
 The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-extract`), not this app.
 
@@ -14,7 +14,8 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 
 | UI            | API                                      |
 |---------------|------------------------------------------|
-| Recent reel   | `GET /api/recent`, `GET /api/note/{ref}` |
+| Notes (Recent, star chart, reading pane) | `GET /api/recent`, `GET /api/note/{ref}`, `GET /api/graph` |
+| Ask dock (latest answer) | `GET /api/ask/history?limit=1`, `DELETE /api/ask/history/{id}` |
 | Map           | `GET /api/graph` (client-side layout)    |
 | Repair/Health | `GET /api/health`                        |
 | Ask           | `POST /api/query/stream`, `POST /api/query` |
@@ -23,7 +24,8 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 
 ## Notes
 
-- UI look stays the Night Atlas marketing shell; content is real vault titles/counts.
+- The look is the Observatory system in `DESIGN.md` (dark only); content is real vault titles/counts.
+- The Notes star chart plots the notes `/api/recent` returns: distance from the center is time since the last edit, star size is the note's length in words (from `/api/note/{ref}`), constellations are folders, and lines are links from `/api/graph`.
 - Map shows ~24 notes across vault folders (Home, School, Projects, …), not KMeans blobs. Chat archives stay off until you toggle them; subtitle shows the hidden count.
 - Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - Inspector can edit and save notes unless the file is a OneDrive placeholder (`read_only_fallback`).

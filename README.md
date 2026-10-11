@@ -18,7 +18,7 @@ Both of these came from running it against my own vault and watching it stall.
 
 ![Demo of the vault UI](docs/demo.gif)
 
-*Night Atlas: Notes, Map, Repair, and Ask — open a recent note, inspect the neighborhood map, triage Repair issues, and ask Qwen for a grounded answer with sources.*
+*Night Atlas: Notes, Map, Repair, and Ask — recent notes as a star chart with the reading pane and the latest answer, the neighborhood map, Repair issues, and a grounded answer with numbered sources. Shown with the public fixture notes.*
 
 ## What it includes
 
@@ -26,7 +26,7 @@ Both of these came from running it against my own vault and watching it stall.
 - **Map** — vault neighborhood from `GET /api/graph`; label/cluster filters, pan/zoom, tooltip, stats; clicking a node opens the inspector and can set Ask context.
 - **Repair** — broken links, orphans, and tagless notes from `GET /api/health`; `POST /api/health/scan` from the view. When `vault-core` is missing (common on Windows), `backend/health_hygiene.py` derives the same lists from Chroma so the panel is not empty.
 - **Ask** — streams from `POST /api/query/stream` (NDJSON: the sources as soon as retrieval finishes, then the answer as Qwen writes it); `POST /api/query` returns the same answer whole and keeps its shape for Ask Anywhere. Both share a per-process retrieval and answer cache that is dropped whenever the index changes (`ASK_CACHE_TTL_SECONDS`, default 900; 0 turns it off). Optional context chip from Map/Notes; clear errors when Ollama is down.
-- **Shell** — persistent left rail, command search (`⌘K` / `GET /api/search`), one active view. Shortcuts `⌘1`–`⌘4`.
+- **Shell** — tabs at the top, a search palette (`Ctrl K` / `⌘K`, `GET /api/search`), one active view. Shortcuts `Ctrl 1`–`Ctrl 4` (or `⌘`). The look is the Observatory system in [`DESIGN.md`](DESIGN.md).
 - **API client** — `frontend/src/lib/api.ts` calls same-origin `/api/...`, and `frontend/next.config.ts` proxies it to the backend at `ATLAS_BACKEND_URL` (server-side, default `http://127.0.0.1:8000`), so the page works from another device (e.g. over Tailscale) while the backend stays on loopback. `NEXT_PUBLIC_API_URL`, if set, makes the browser call that backend directly instead. See [`ATLAS_MOCK.md`](ATLAS_MOCK.md) for the endpoint table.
 - **MCP server** (`backend/mcp_server.py`) on the official Python SDK over stdio, so Claude Desktop, Claude Code, Codex, Cursor, or VS Code can call the vault as tools: `search_vault` returns ranked passages from `GET /api/search`, and `query_vault` returns Ask's grounded answer and sources from `POST /api/query`. It is a thin HTTP client, so the index and both torch models stay in one process, and it checks `GET /api/ready` first: that endpoint reports whether the embedding model, Chroma collection, lexical index, and reranker have actually loaded, where `/api/health` answers 200 before they have. (`GET /api/ready?strict=1` answers 503 instead of 200 while anything is still cold or the index is empty, for a Kubernetes readiness probe, which reads the status line and not the body.) This is the one path where note text leaves the machine, because the caller is a hosted model.
 - **Obsidian command** (`obsidian/`) — a small plugin that sends a question, or the selected text, to `POST /api/query` and shows the answer and its sources in a modal inside Obsidian, with "Insert into note" as a callout. Backend URL and scope are plugin settings. See [`obsidian/README.md`](obsidian/README.md).
@@ -146,7 +146,7 @@ Recorded 2026-09-07 over 40 cases against an index of 4,963 chunks from 637 file
 2. **`backend` — FastAPI / Python**  
    Serves graph and note APIs, stores embeddings in ChromaDB, and queries local Qwen through Ollama. Ships a `Dockerfile` that CI builds on every push, import-tests `main.py` inside the image, and asserts the torch wheel is CPU-only. When `vault-core` is missing, `health_hygiene.py` fills Repair lists from Chroma.
 3. **`frontend` — Next.js / React / Tailwind**  
-   Night Atlas workspace (left rail, command search, Notes / Map / Repair / Ask) wired to FastAPI — not a marketing landing page, not React Three Fiber / WebGL.
+   Night Atlas workspace (top tabs, Ctrl K search, Notes / Ask / Map / Repair) wired to FastAPI — not a marketing landing page, not React Three Fiber / WebGL.
 4. **`clipper` — Chrome extension**  
    Saves selected web content into the vault inbox.
 5. **`scripts` — archive pipeline**  
