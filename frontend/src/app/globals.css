@@ -1258,15 +1258,6 @@ a {
   overflow-wrap: anywhere;
 }
 
-.cited {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 12px 0 0;
-  color: var(--accent);
-  font-size: 14px;
-}
-
 .reader-actions {
   display: flex;
   flex-wrap: wrap;

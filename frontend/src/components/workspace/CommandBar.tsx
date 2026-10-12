@@ -130,7 +130,6 @@ function Palette({ onClose }: { onClose: () => void }) {
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={onKeyDown}
             />
-            <span className="kbd">Esc</span>
           </div>
         </div>
         <ul id="atlas-search-results" role="listbox" aria-label="Results" className="palette-list">
@@ -145,7 +144,6 @@ function Palette({ onClose }: { onClose: () => void }) {
               >
                 <ArrowRight className="icon" aria-hidden strokeWidth={2} />
                 <span>Go to {VIEW_META[id].label}</span>
-                <span className="go mono">{VIEW_META[id].description}</span>
               </button>
             </li>
           ))}

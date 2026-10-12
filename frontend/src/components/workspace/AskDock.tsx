@@ -210,8 +210,7 @@ export function AskDock({
 
       {find.status === "idle" ? (
         <div className="cmds">
-          <p className="cmds-label mono">Try asking</p>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          <ul aria-label="Suggested questions" style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {composePrompts.map((p) => (
               <li key={p}>
                 <button

@@ -111,7 +111,7 @@ export function NotesView() {
         onPick={(id) => pick(id)}
       />
       <div className="center">
-        <Lead recent={recent} notes={notes} folders={chart.constellations.length} nowMs={nowMs} ready={ready} />
+        <Lead recent={recent} notes={notes} ready={ready} />
         <div ref={skyRef} style={{ scrollMarginTop: 72 }}>
           <StarChart
             state={chartState}
@@ -144,7 +144,6 @@ export function NotesView() {
           <NoteInspector
             noteId={openId}
             updatedAt={openNote?.updatedAt}
-            isAnswerSource={openId !== null && sourceIds.has(openId)}
           />
         )}
       </section>
@@ -155,20 +154,16 @@ export function NotesView() {
 function Lead({
   recent,
   notes,
-  folders,
-  nowMs,
   ready,
 }: {
   recent: Recent;
   notes: Note[];
-  folders: number;
-  nowMs: number;
   ready: ReturnType<typeof useWorkspace>["ready"];
 }) {
   if (recent.status === "loading") {
     return (
       <div aria-busy="true" aria-label="Loading">
-        <span className="sk" style={{ width: "62%", height: 26 }} />
+        <span className="sk" style={{ width: "24%", height: 26 }} />
       </div>
     );
   }
@@ -188,21 +183,14 @@ function Lead({
   }
   const status = indexStatus(ready);
   const Icon = status.tone === "ok" ? CircleCheck : status.tone === "bad" ? CircleAlert : Loader;
-  const newest = notes[0];
   return (
     <h1 className="lead">
       <span title={status.detail} style={{ display: "flex" }}>
         <Icon className={status.tone === "ok" ? "ok" : status.tone === "bad" ? "bad" : "wait"} aria-hidden strokeWidth={2} />
       </span>
       <span>
-        {status.text}.{" "}
-        <span className="soft">
-          {newest
-            ? `${notes.length} recent ${notes.length === 1 ? "note" : "notes"} in ${folders} ${
-                folders === 1 ? "folder" : "folders"
-              }. Newest: ${newest.title}, edited ${relativeDay(newest.updatedAt, nowMs).toLowerCase()}.`
-            : "No notes indexed yet."}
-        </span>
+        {status.text}.
+        {notes.length === 0 && <span className="soft"> No notes indexed yet.</span>}
       </span>
     </h1>
   );
@@ -219,12 +207,10 @@ function RecentList({
   nowMs: number;
   onPick: (id: string) => void;
 }) {
-  const count = recent.status === "ready" ? recent.notes.length : 0;
   return (
     <section className="recent" id="recent" aria-labelledby="recent-h" style={{ scrollMarginTop: 56 }}>
       <div className="pane-head">
         <h2 id="recent-h">Recent</h2>
-        {count > 0 && <span className="mono num">{count} · last edited first</span>}
       </div>
       {recent.status === "loading" ? (
         <ul className="rows" aria-busy="true" aria-label="Loading recent notes">
@@ -277,13 +263,7 @@ function ReaderSkeleton() {
   return (
     <div className="inspector" aria-busy="true" aria-label="Loading the reading pane">
       <div className="inspector-head">
-        <p className="kicker mono">
-          <span>
-            <FileText className="icon" aria-hidden strokeWidth={2} />
-            Reading
-          </span>
-        </p>
-        <span className="sk" style={{ width: "70%", height: 30, marginTop: 14 }} />
+        <span className="sk" style={{ width: "70%", height: 30, marginTop: 4 }} />
         <span className="sk" style={{ width: "55%", height: 12, marginTop: 12 }} />
         <span className="sk" style={{ width: "100%", marginTop: 40 }} />
         <span className="sk" style={{ width: "92%", marginTop: 10 }} />

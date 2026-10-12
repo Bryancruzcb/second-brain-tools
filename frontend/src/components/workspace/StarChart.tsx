@@ -167,7 +167,7 @@ export function ChartLegend({
         <span className="key">
           <span className="dot" style={{ width: 6, height: 6 }} />
         </span>
-        One star = one note. Closer to the center = edited more recently
+        Closer to the center = edited more recently
       </li>
       {chart.constellations.length > 1 && <li>Constellation = folder</li>}
       {sourceOnChart && (
@@ -178,17 +178,14 @@ export function ChartLegend({
           Source of the latest answer
         </li>
       )}
-      {linksKnown &&
-        (chart.lines.length > 0 ? (
-          <li>
-            <span className="key">
-              <span className="line" />
-            </span>
-            Line = one note links to the other
-          </li>
-        ) : chart.stars.length > 1 ? (
-          <li>No lines: these notes do not link to each other</li>
-        ) : null)}
+      {linksKnown && chart.lines.length > 0 && (
+        <li>
+          <span className="key">
+            <span className="line" />
+          </span>
+          Line = one note links to the other
+        </li>
+      )}
     </ul>
   );
 }

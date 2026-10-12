@@ -33,7 +33,6 @@ export function TopBar() {
                   onClick={() => setView(id)}
                 >
                   {meta.label}
-                  <kbd>Ctrl {meta.shortcut}</kbd>
                 </button>
               </li>
             );

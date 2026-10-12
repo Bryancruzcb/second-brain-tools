@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { CircleAlert, FileText, MessageSquareText, Pencil, Scan, TriangleAlert } from "lucide-react";
+import { CircleAlert, FileText, MessageSquareText, Pencil, TriangleAlert } from "lucide-react";
 import { ApiError, fetchNote, folderCluster, saveNote } from "@/lib/api";
 import { editedPhrase, relativeDay } from "@/lib/format";
 import { noteBlocks } from "@/lib/noteText";
@@ -25,14 +25,12 @@ type Props = {
   noteId?: string | null;
   /** last edit time, when the caller knows it (the Recent list does) */
   updatedAt?: string;
-  /** the open note is a source of the answer on screen */
-  isAnswerSource?: boolean;
   repairIssue?: HealthIssue | null;
   onClose?: () => void;
 };
 
 /** The reading pane: title once, file, folder and edit time, then the note. Edit and save stay here. */
-export function NoteInspector({ noteId, updatedAt, isAnswerSource = false, repairIssue = null, onClose }: Props) {
+export function NoteInspector({ noteId, updatedAt, repairIssue = null, onClose }: Props) {
   const { selectedNoteId, setAskContextId, setView } = useWorkspace();
   const id = noteId === undefined ? selectedNoteId : noteId;
   const [loadedId, setLoadedId] = useState<string | null>(null);
@@ -82,12 +80,6 @@ export function NoteInspector({ noteId, updatedAt, isAnswerSource = false, repai
     return (
       <div className="inspector">
         <div className="inspector-head">
-          <p className="kicker mono">
-            <span>
-              <FileText className="icon" aria-hidden strokeWidth={2} />
-              Reading
-            </span>
-          </p>
           <div className="pane-msg" style={{ margin: "16px 0" }}>
             <FileText aria-hidden strokeWidth={2} />
             <strong>Nothing open.</strong>
@@ -121,17 +113,13 @@ export function NoteInspector({ noteId, updatedAt, isAnswerSource = false, repai
   return (
     <article className="inspector" aria-labelledby={headingId} aria-busy={loading || undefined}>
       <div className="inspector-head">
-        <p className="kicker mono">
-          <span>
-            <FileText className="icon" aria-hidden strokeWidth={2} />
-            Reading
-          </span>
-          {onClose && (
-            <button type="button" className="btn btn-quiet" onClick={onClose}>
+        {onClose && (
+          <p className="kicker">
+            <button type="button" className="btn btn-quiet" onClick={onClose} style={{ marginLeft: "auto" }}>
               Close
             </button>
-          )}
-        </p>
+          </p>
+        )}
         {loading ? (
           <>
             <h2 id={headingId} className="sr-only">
@@ -148,12 +136,6 @@ export function NoteInspector({ noteId, updatedAt, isAnswerSource = false, repai
               <span>{folderCluster(id)}</span>
               {updatedAt && <span className="num">{editedPhrase(updatedAt)}</span>}
             </p>
-            {isAnswerSource && (
-              <p className="cited">
-                <Scan className="icon" aria-hidden strokeWidth={2} />
-                Source of the latest answer
-              </p>
-            )}
           </>
         )}
         <div className="reader-actions">
@@ -218,7 +200,6 @@ export function NoteInspector({ noteId, updatedAt, isAnswerSource = false, repai
                 <span className={`status-pill ${kindClass[repairIssue.kind]}`}>
                   {kindLabel[repairIssue.kind]}
                 </span>
-                <span className="text-[14px] font-semibold">Repair</span>
               </div>
               <p className="mt-1.5 text-[14px] leading-snug">{repairIssue.detail}</p>
               <p className="mt-1 text-[14px] text-accent">{repairIssue.action}</p>

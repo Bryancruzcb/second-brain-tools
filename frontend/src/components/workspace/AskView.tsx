@@ -3,7 +3,6 @@
 import { useCallback, useRef, useState } from "react";
 import { CircleAlert, FileText, MessageSquareText } from "lucide-react";
 import { composePrompts } from "@/lib/api";
-import { SCOPES } from "@/lib/ask";
 import { useWorkspace } from "./context";
 import { AnswerBlock, AskComposer } from "./AskParts";
 import { AskHistory, type AskHistoryEntry } from "./AskHistory";
@@ -46,14 +45,11 @@ export function AskView() {
     [ask, askNow],
   );
 
-  const hint = SCOPES.find((s) => s.id === scope)?.hint;
-
   return (
     <div className="min-h-0 w-full flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-5 py-6">
         <header>
           <h1 className="m-0 text-[20px] font-semibold tracking-[-0.015em]">Ask</h1>
-          <p className="mono mt-1 mb-0 text-muted">Search in: {hint}</p>
         </header>
 
         <section className="dock" aria-label="Ask the vault">
@@ -116,8 +112,7 @@ export function AskView() {
 
         <div className="dock">
           <div className="cmds" style={{ borderTop: 0 }}>
-            <p className="cmds-label mono">Try asking</p>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            <ul aria-label="Suggested questions" style={{ listStyle: "none", margin: 0, padding: 0 }}>
               {composePrompts.map((p) => (
                 <li key={p}>
                   <button
