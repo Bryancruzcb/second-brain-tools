@@ -3,10 +3,10 @@
 This is the UI style file for the Atlas frontend (`frontend/`). It replaces the earlier design system, "The Night Atlas" (chartreuse on ink, Instrument Sans, a left rail), which is still in git history before the `ui/makeover-observatory` branch. The product keeps its Night Atlas name; only the look changed.
 
 ## The look in one sentence
-Your notes as a night sky: iA Writer's black starfield with one strong idea (a star chart of recent notes), and Linear's near-black precision, with Ask docked at the bottom like a command menu.
+Your notes as a night sky: iA Writer's black starfield with one strong idea (a 3D map of the whole vault, every note and AI chat a dot), and Linear's near-black precision, with Ask docked at the bottom like a command menu.
 
 ## References
-- iA Writer, dark section (`iawriter-dark` in Bryan's taste picks): a black sky, mono type, one strong idea carrying the screen. Take the star chart and the mono labels.
+- iA Writer, dark section (`iawriter-dark` in Bryan's taste picks): a black sky, mono type, one strong idea carrying the screen. Take the black sky and the mono labels.
 - Linear (`linear-hero`): near-black surfaces, small precise gray type, a docked command panel where the answer sits above the input. Take the Ask dock and the quiet gray hierarchy.
 - The approved mockup: `ui-makeover-2026-10/second-brain/c/index.html` (direction C, "Observatory"), outside this repo.
 
@@ -16,7 +16,7 @@ Dark only, by Bryan's choice: `color-scheme: dark`, tokens defined once on `:roo
 | Token | Light | Dark | Used for |
 |---|---|---|---|
 | background (`--page`) | none | `#06080B` | page background, top bar |
-| night (`--night`) | none | `#080B10` | the star chart and the Map field |
+| night (`--night`) | none | `#080B10` | the 3D vault map (Notes and Map) |
 | surface (`--panel`) | none | `#0D1117` | Recent list, reading pane, dock, palette |
 | raised (`--raised`) | none | `#131922` | selected rows, composer, hover |
 | text (`--ink`) | none | `#E8ECF1` | body text, titles |
@@ -52,22 +52,22 @@ Dark only, by Bryan's choice: `color-scheme: dark`, tokens defined once on `:roo
 - The app keeps its own small component set: CSS classes in `globals.css` plus Tailwind utilities, and React components in `frontend/src/components/workspace/`. It does not use shadcn/ui; adding it would be a new dependency for a handful of parts.
 - Buttons: primary = filled accent (`.btn-primary`, one per area: Ask, Save), secondary = outline (`.btn`), quiet = text only (`.btn-quiet`). Destructive actions use words ("Remove", "Clear history") and a confirm where they delete many things.
 - Top bar: brand, four tabs (Notes, Ask, Map, Repair; each tab's Ctrl shortcut is in its tooltip), the index status outside Notes, and the Ctrl K search button.
-- Star chart (`StarChart.tsx`, layout in `lib/starChart.ts`): each recent note is a star. Distance from the center = time since the last edit, on the same square-root scale as the dashed age rings. All stars are one size: sizing by length would mean reading every recent note, and on a OneDrive vault a read can force a download. Constellation = folder (`folderCluster()`), one wedge per folder. Lines only where the graph data has a link. The angle inside a constellation means nothing. A bracket marks the latest answer's source. The legend only states what is true of what is drawn, and only what you need to read it (no line about missing links).
+- 3D vault map (`VaultGlobe.tsx`, scene in `globeEngine.ts`, data in `lib/vaultGlobe.ts`), the same map on Notes and on Map: every note and AI chat in `/api/graph` is a dot (gold = AI chat, blue = note, light and labeled = folder), and dots gather around their folder. Lines are real wikilinks only; the semantic "ghost" links are not drawn. A chat's project copies (`<project>/AI Chat Links/`, same file name) fold into the chat, and its lines to those projects show while it is picked. It reads no note text, only `/api/graph`. It turns slowly (about one turn in five minutes) until someone clicks, drags, or scrolls on it; the Spin button starts it again. Picking a dot opens it in the reading pane and turns the camera toward it from the same distance (it never zooms in), with a ring and its name. A bracket marks each source of the latest answer. Folder names keep one on-screen size and hide when they would overlap a bigger folder's name. The first view, and Reset view, fit 95% of the dots. Built on 3d-force-graph and three.js, loaded only in the browser on first use; without WebGL it says so and points to Recent and Ctrl K. The legend under it says what each mark means and how to move around.
 - Ask dock and Ask view: the answer above, numbered citations ([1]) that point to a source list with the note title, file name and quoted text, then suggested questions or Find results, then the input with the scope choice and the privacy line.
 - Reading pane: title once, file name, folder and edit time in mono, then the note with headings rendered. Edit and Save stay here.
 - Text: content stays, text about the content goes. No eyebrow labels over headings, no line under a heading that restates it, no hints for obvious controls. Keep status words, error/empty/loading messages, labels, and the "Nothing leaves this computer" line.
 - Status words: Broken / Orphan / Tagless pills always carry the word; color is extra.
-- Cards: no cards inside cards. The chart, the dock and the reading pane are flat panels side by side.
+- Cards: no cards inside cards. The map, the dock and the reading pane are flat panels side by side.
 
 ## Motion
 - CSS only, no motion library.
-- One playful moment: the bracket locks onto the answer's source star when it appears (260 ms, ease-out).
+- The 3D map turns slowly until touched; camera moves take 1.2 s and zoom steps 0.3 s. The glow on it is kept low (bloom strength 0.4): Bryan asked for a 3D "brain" look, not a bright one.
 - Hover color changes at 150 ms. Skeletons pulse while loading.
-- `prefers-reduced-motion` turns all of it off (`globals.css`).
+- `prefers-reduced-motion` turns all of it off (`globals.css`), and the map then starts still and moves the camera without animation.
 
 ## Icons and art
 - Small UI icons: Lucide (`lucide-react`, already a dependency). No emoji.
-- No decorative art: the stars are data. The faint background dots are seeded and fixed, and carry no meaning.
+- No decorative art beyond the map's faint starfield and floor rings, which carry no meaning; the dots are data.
 - Empty states: a Lucide icon, one bold line, one plain sentence.
 
 ## Rules (every screen, always)

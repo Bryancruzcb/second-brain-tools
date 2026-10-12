@@ -23,22 +23,22 @@ type Find =
   | { status: "error"; query: string; message: string };
 
 /**
- * Ask as a command bar under the chart (Linear's command menu): the latest
+ * Ask as a command bar under the map (Linear's command menu): the latest
  * answer with numbered sources above, suggested questions or Find results in
  * the middle, the input at the bottom. The full history stays on the Ask tab.
  */
 export function AskDock({
   nowMs,
-  chartIds,
+  mapIds,
   onSources,
   onShowSource,
 }: {
   nowMs: number;
-  /** notes drawn on the chart */
-  chartIds: ReadonlySet<string>;
-  /** the sources of the answer on screen, for the chart's bracket and the reading pane */
+  /** notes drawn on the map */
+  mapIds: ReadonlySet<string>;
+  /** the sources of the answer on screen, for the map's brackets and the reading pane */
   onSources: (ids: ReadonlySet<string>) => void;
-  onShowSource: (id: string, onChart: boolean) => void;
+  onShowSource: (id: string, onMap: boolean) => void;
 }) {
   const ask = useAsk();
   const { answer, setAnswer, run, loading, error, query, setQuery, scope } = ask;
@@ -140,15 +140,15 @@ export function AskDock({
           writing={writing}
           nowMs={Math.max(nowMs, (answer.askedAt ?? 0) * 1000)}
           sourceAction={(s) => {
-            const onChart = chartIds.has(s.source);
+            const onMap = mapIds.has(s.source);
             return (
-              <button type="button" className="btn" onClick={() => onShowSource(s.source, onChart)}>
-                {onChart ? (
+              <button type="button" className="btn" onClick={() => onShowSource(s.source, onMap)}>
+                {onMap ? (
                   <LocateFixed className="icon" aria-hidden strokeWidth={2} />
                 ) : (
                   <FileText className="icon" aria-hidden strokeWidth={2} />
                 )}
-                {onChart ? "Show on chart" : "Open note"}
+                {onMap ? "Show on map" : "Open note"}
               </button>
             );
           }}

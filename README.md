@@ -22,8 +22,8 @@ Both of these came from running it against my own vault and watching it stall.
 
 ## What it includes
 
-- **Notes** — recent list from `GET /api/recent`; inspector reads `GET /api/note/{ref}` and can save via `POST /api/note/{ref}`.
-- **Map** — vault neighborhood from `GET /api/graph`; label/cluster filters, pan/zoom, tooltip, stats; clicking a node opens the inspector and can set Ask context.
+- **Notes** — recent list from `GET /api/recent`, a 3D map of the whole vault from `GET /api/graph` (every note and AI chat is a dot; click one to open it), and the inspector, which reads `GET /api/note/{ref}` and can save via `POST /api/note/{ref}`.
+- **Map** — the same 3D vault map full size, from `GET /api/graph`; name highlight, folder filter, Chats toggle, spin/zoom/reset, tooltip, counts; clicking a dot opens the inspector and can set Ask context.
 - **Repair** — broken links, orphans, and tagless notes from `GET /api/health`; `POST /api/health/scan` from the view. When `vault-core` is missing (common on Windows), `backend/health_hygiene.py` derives the same lists from Chroma so the panel is not empty.
 - **Ask** — streams from `POST /api/query/stream` (NDJSON: the sources as soon as retrieval finishes, then the answer as Qwen writes it); `POST /api/query` returns the same answer whole and keeps its shape for Ask Anywhere. Both share a per-process retrieval and answer cache that is dropped whenever the index changes (`ASK_CACHE_TTL_SECONDS`, default 900; 0 turns it off). Optional context chip from Map/Notes; clear errors when Ollama is down.
 - **Shell** — tabs at the top, a search palette (`Ctrl K` / `⌘K`, `GET /api/search`), one active view. Shortcuts `Ctrl 1`–`Ctrl 4` (or `⌘`). The look is the Observatory system in [`DESIGN.md`](DESIGN.md).
@@ -257,7 +257,7 @@ Copy `obsidian/manifest.json` and `obsidian/main.js` into `<vault>/.obsidian/plu
 
 1. Start the backend (`uvicorn` on `:8000`) and the frontend (`bun run dev` on `:3000`).
 2. Browse **Notes** for the live recent reel; expand a card to read it inline.
-3. Open **Map** to inspect neighborhood connections; click a node to read it and optionally feed Ask context.
+3. Open **Map** to explore the whole vault in 3D; click a dot to read it and optionally feed Ask context.
 4. Use **Repair** for vault hygiene (broken links, orphans, tagless); refresh the scan when the lists look stale.
 5. Use **Ask** for grounded Q&A over the vault (needs Ollama).
 6. After `auto_archive` updates the vector index from outside a running backend, restart the backend or re-index so the in-memory BM25 leg matches Chroma.

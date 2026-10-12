@@ -1,6 +1,6 @@
 # Atlas / Night Atlas frontend
 
-Night Atlas (`frontend/`) follows the Observatory style in `DESIGN.md`: four tabs at the top (Notes, Ask, Map, Repair), a Ctrl K search palette, and one active view. The Notes view is a star chart of recent notes with a reading pane and the Ask dock. Panels load from the live FastAPI backend.
+Night Atlas (`frontend/`) follows the Observatory style in `DESIGN.md`: four tabs at the top (Notes, Ask, Map, Repair), a Ctrl K search palette, and one active view. The Notes view is the Recent list, a 3D map of the whole vault with the Ask dock under it, and the reading pane. Panels load from the live FastAPI backend.
 
 The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-extract`), not this app.
 
@@ -14,9 +14,9 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 
 | UI            | API                                      |
 |---------------|------------------------------------------|
-| Notes (Recent, star chart, reading pane) | `GET /api/recent`, `GET /api/note/{ref}`, `GET /api/graph` |
+| Notes (Recent, 3D vault map, reading pane) | `GET /api/recent`, `GET /api/note/{ref}`, `GET /api/graph` |
 | Ask dock (latest answer) | `GET /api/ask/history?limit=1`, `DELETE /api/ask/history/{id}` |
-| Map           | `GET /api/graph` (client-side layout)    |
+| Map           | `GET /api/graph` (3D layout in the browser) |
 | Repair/Health | `GET /api/health`                        |
 | Ask           | `POST /api/query/stream`, `POST /api/query` |
 | Command search | `GET /api/search`                       |
@@ -25,7 +25,7 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 ## Notes
 
 - The look is the Observatory system in `DESIGN.md` (dark only); content is real vault titles/counts.
-- The Notes star chart plots the notes `/api/recent` returns: distance from the center is time since the last edit, constellations are folders, and lines are links from `/api/graph`. Every star is the same size, so the chart reads no note text; the reading pane fetches only the note you open.
-- Map shows ~24 notes across vault folders (Home, School, Projects, …), not KMeans blobs. Chat archives stay off until you toggle them; subtitle shows the hidden count.
+- The 3D vault map (Notes and Map) draws every note and AI chat from `/api/graph` as a dot around its folder, with wikilinks as lines (ghost links are skipped). A chat's project copies fold into the chat. It reads no note text; the reading pane fetches only the note you open.
+- Map is the same 3D map full size, with a name highlight, a one-folder filter and a Chats toggle (on by default); the subtitle counts chats, notes and links, and how many are showing when a filter is on.
 - Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - Inspector can edit and save notes unless the file is a OneDrive placeholder (`read_only_fallback`).

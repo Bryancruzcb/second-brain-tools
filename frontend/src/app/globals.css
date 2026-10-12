@@ -421,14 +421,10 @@ a {
   .sk {
     animation: sk-pulse 1.2s ease-in-out infinite alternate;
   }
-  .reticle.lock {
-    animation: reticle-lock 0.26s ease-out both;
-  }
   .row,
   .btn,
   .tab,
-  .cmd,
-  .star-name {
+  .cmd {
     transition: background-color 0.15s ease-out, color 0.15s ease-out;
   }
 }
@@ -438,17 +434,6 @@ a {
     opacity: 0.55;
   }
   to {
-    opacity: 1;
-  }
-}
-
-@keyframes reticle-lock {
-  from {
-    transform: scale(1.45);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
     opacity: 1;
   }
 }
@@ -615,7 +600,7 @@ a {
   color: var(--danger);
 }
 
-/* ---------- the star chart ---------- */
+/* ---------- the 3D vault map (VaultGlobe.tsx) ---------- */
 
 .sky {
   position: relative;
@@ -624,17 +609,6 @@ a {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   background: var(--night);
-}
-
-.field {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.field circle {
-  fill: var(--field);
 }
 
 .sky-head {
@@ -679,180 +653,11 @@ a {
   white-space: nowrap;
 }
 
-/* One coordinate system: stars, star labels, ring labels (left/top in %) and
-   the rings svg (viewBox 0..100, preserveAspectRatio none) share this square box. */
-.plot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  height: calc(100% - 40px);
-  aspect-ratio: 1;
-  transform: translate(-50%, -46%);
-}
-
-.rings {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.rings circle {
-  fill: none;
-  stroke: var(--hairline-strong);
-  stroke-width: 1;
-  stroke-dasharray: 2 5;
-  vector-effect: non-scaling-stroke;
-}
-
-.rings .cross {
-  stroke: var(--hairline-strong);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.rings .link {
-  stroke: color-mix(in srgb, var(--star) 45%, transparent);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.ring-label,
-.now-label,
-.constellation-label {
-  position: absolute;
-  padding: 0 4px;
-  background: var(--night);
-  color: var(--dim);
-  white-space: nowrap;
-}
-
-.ring-label {
-  transform: translate(6px, -50%);
-}
-
-.now-label {
-  top: 50%;
-  left: 50%;
-  transform: translate(10px, 4px);
-}
-
-.constellation-label {
-  transform: translate(-50%, -50%);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.anchor {
-  position: absolute;
-  width: 0;
-  height: 0;
-}
-
-.star {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 0 6px 0 0;
-  border: 0;
-  background: transparent;
-  white-space: nowrap;
-}
-
-.star[data-side="right"] {
-  top: 0;
-  left: -12px;
-  transform: translateY(-50%);
-}
-
-.star[data-side="left"] {
-  top: 0;
-  right: -12px;
-  flex-direction: row-reverse;
-  padding: 0 0 0 6px;
-  transform: translateY(-50%);
-}
-
-.star[data-side="below"] {
-  top: -12px;
-  left: 0;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0;
-  transform: translateX(-50%);
-}
-
-.star[data-side="above"] {
-  bottom: -12px;
-  left: 0;
-  flex-direction: column-reverse;
-  gap: 2px;
-  padding: 0;
-  transform: translateX(-50%);
-}
-
-.dotbox {
-  display: grid;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 50%;
-}
-
 .dot {
   display: block;
   border-radius: 50%;
   background: var(--star);
   box-shadow: 0 0 0 3px rgba(244, 239, 227, 0.1);
-}
-
-.star-name {
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--night);
-  color: var(--muted);
-}
-
-.star:hover .star-name {
-  color: var(--ink);
-}
-
-.star[aria-pressed="true"] .dotbox {
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.star[aria-pressed="true"] .star-name {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.star:focus-visible {
-  outline: none;
-}
-
-.star:focus-visible .star-name {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.reticle {
-  position: absolute;
-  top: -20px;
-  left: -20px;
-  width: 40px;
-  height: 40px;
-  color: var(--accent);
-  pointer-events: none;
-}
-
-.reticle svg {
-  width: 40px;
-  height: 40px;
 }
 
 .sky-msg {
@@ -891,6 +696,78 @@ a {
   color: var(--danger);
 }
 
+/* The map draws into .globe-canvas; the head, the tools and messages sit on top. */
+.globe {
+  position: relative;
+  overflow: hidden;
+  background: var(--night);
+}
+
+.globe-fill {
+  position: absolute;
+  inset: 0;
+}
+
+.globe-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.globe-canvas canvas {
+  display: block;
+}
+
+.globe-tools {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.globe-tools .btn {
+  background: var(--night);
+  pointer-events: auto;
+}
+
+.globe-tools .btn:hover {
+  background: var(--raised);
+}
+
+/* The hover card the 3D library places next to the pointer. */
+.globe .float-tooltip-kap {
+  padding: 6px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+
+.globe-tip {
+  display: flex;
+  max-width: 320px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.globe-tip strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.globe-tip span {
+  color: var(--muted);
+  font-family: var(--font-martian), "Martian Mono", ui-monospace, monospace;
+  font-stretch: 75%;
+  font-size: 12px;
+}
+
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -919,6 +796,10 @@ a {
   width: 16px;
   height: 1px;
   background: color-mix(in srgb, var(--star) 45%, transparent);
+}
+
+.legend .hint {
+  color: var(--dim);
 }
 
 /* ---------- Ask: the command dock and the Ask view share these ---------- */
@@ -1373,19 +1254,9 @@ a {
   background: var(--night);
 }
 
-.map-node {
-  cursor: pointer;
-  outline: none;
-}
-
-.map-node:focus-visible .map-halo {
-  stroke: var(--accent);
-  stroke-width: 2;
-}
-
-.map-label {
-  pointer-events: none;
-  user-select: none;
+.map-legend {
+  padding: 10px 16px;
+  border-top: 1px solid var(--hairline);
 }
 
 .control {
@@ -1436,18 +1307,6 @@ a {
 .check-control input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 0;
-}
-
-.map-tooltip {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  padding: 6px 10px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius);
-  background: var(--panel);
-  font-size: 14px;
-  pointer-events: none;
 }
 
 /* ---------- lists in Repair and Ask ---------- */
@@ -1559,16 +1418,7 @@ a {
     padding: 0 16px 24px;
   }
   .sky {
-    height: auto;
-  }
-  .plot {
-    position: relative;
-    top: auto;
-    left: auto;
-    width: 100%;
-    height: auto;
-    margin-top: 44px;
-    transform: none;
+    height: 420px;
   }
   .to-list {
     display: inline-flex;

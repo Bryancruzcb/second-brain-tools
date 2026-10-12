@@ -8,12 +8,12 @@ export const VIEW_META: Record<
   notes: {
     label: "Notes",
     shortcut: "1",
-    description: "Recent notes, star chart and reading pane",
+    description: "Recent notes, 3D vault map and reading pane",
   },
   map: {
     label: "Map",
     shortcut: "2",
-    description: "Vault neighborhood graph",
+    description: "3D map of the whole vault",
   },
   repair: {
     label: "Repair",

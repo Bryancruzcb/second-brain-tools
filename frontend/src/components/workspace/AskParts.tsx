@@ -142,7 +142,7 @@ export function AnswerBlock({
   idPrefix: string;
   writing: boolean;
   nowMs: number;
-  /** a button per source, e.g. "Show on chart" */
+  /** a button per source, e.g. "Show on map" */
   sourceAction?: (source: AskAnswer["sources"][number]) => ReactNode;
   actions?: ReactNode;
 }) {

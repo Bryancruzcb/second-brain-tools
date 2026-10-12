@@ -20,11 +20,3 @@ export type HealthIssue = {
   detail: string;
   action: string;
 };
-
-export type GraphNode = {
-  id: string;
-  x: number;
-  y: number;
-  r: number;
-  cluster: string;
-};

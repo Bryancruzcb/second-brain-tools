@@ -1,31 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, CircleCheck, FileText, Loader } from "lucide-react";
-import {
-  ApiError,
-  fetchGraph,
-  fetchRecent,
-  folderCluster,
-  recentToNote,
-  type BackendGraphEdge,
-} from "@/lib/api";
+import { CircleAlert, CircleCheck, FileText, List, Loader } from "lucide-react";
+import { ApiError, fetchGraph, fetchRecent, folderCluster, recentToNote } from "@/lib/api";
 import { relativeDay } from "@/lib/format";
 import { cleanSnippet } from "@/lib/noteText";
-import { layoutStarChart, type ChartNote } from "@/lib/starChart";
 import { indexStatus } from "@/lib/status";
+import { buildGlobe, type Globe } from "@/lib/vaultGlobe";
 import type { Note } from "@/types";
 import { useWorkspace } from "./context";
 import { AskDock } from "./AskDock";
 import { NoteInspector } from "./NoteInspector";
-import { ChartLegend, StarChart, type ChartState } from "./StarChart";
+import { GlobeLegend, VaultGlobe } from "./VaultGlobe";
 
 type Recent =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; notes: Note[] };
 
-type Links = { status: "loading" | "error" } | { status: "ready"; edges: BackendGraphEdge[] };
+type Vault = { status: "loading" | "error" } | { status: "ready"; globe: Globe };
 
 const NARROW = "(max-width: 900px)";
 
@@ -37,14 +30,14 @@ function revealOnNarrow(el: HTMLElement | null) {
 }
 
 /**
- * The main screen: Recent (a plain list), the star chart of those notes with
+ * The main screen: Recent (a plain list), the 3D map of the whole vault with
  * the Ask dock under it, and the reading pane. The newest note is open until
  * another is picked.
  */
 export function NotesView() {
   const { selectedNoteId, selectNote, ready } = useWorkspace();
   const [recent, setRecent] = useState<Recent>({ status: "loading" });
-  const [links, setLinks] = useState<Links>({ status: "loading" });
+  const [vault, setVault] = useState<Vault>({ status: "loading" });
   const [sourceIds, setSourceIds] = useState<ReadonlySet<string>>(new Set());
   const [nowMs] = useState(() => Date.now());
   const readerRef = useRef<HTMLElement>(null);
@@ -65,10 +58,10 @@ export function NotesView() {
       });
     fetchGraph()
       .then((g) => {
-        if (!cancelled) setLinks({ status: "ready", edges: g.edges || [] });
+        if (!cancelled) setVault({ status: "ready", globe: buildGlobe(g.nodes || [], g.edges || []) });
       })
       .catch(() => {
-        if (!cancelled) setLinks({ status: "error" });
+        if (!cancelled) setVault({ status: "error" });
       });
     return () => {
       cancelled = true;
@@ -76,28 +69,18 @@ export function NotesView() {
   }, []);
 
   const notes = useMemo(() => (recent.status === "ready" ? recent.notes : []), [recent]);
-  const chartNotes: ChartNote[] = useMemo(
-    () =>
-      notes.map((n) => ({
-        id: n.id,
-        title: n.title,
-        editedMs: Date.parse(n.updatedAt),
-      })),
-    [notes],
+  const globe = vault.status === "ready" ? vault.globe : null;
+  /** Every note the map can show, including a chat's project copies (shown as the chat). */
+  const mapIds = useMemo(
+    () => new Set<string>(globe ? [...globe.nodes.map((n) => n.id), ...globe.aliases.keys()] : []),
+    [globe],
   );
-  const chart = useMemo(
-    () => layoutStarChart(chartNotes, links.status === "ready" ? links.edges : [], nowMs),
-    [chartNotes, links, nowMs],
-  );
-  const editedIso = useMemo(() => Object.fromEntries(notes.map((n) => [n.id, n.updatedAt])), [notes]);
 
   const openId = selectedNoteId ?? notes[0]?.id ?? null;
   const openNote = notes.find((n) => n.id === openId);
-  const chartState: ChartState =
-    recent.status === "ready" ? (notes.length ? "ready" : "empty") : recent.status;
-  const sourceOnChart = notes.some((n) => sourceIds.has(n.id));
+  const sourceOnMap = [...sourceIds].some((id) => mapIds.has(id));
 
-  const pick = (id: string, reveal: "reader" | "chart" = "reader") => {
+  const pick = (id: string, reveal: "reader" | "map" = "reader") => {
     selectNote(id, { repairIssueId: null });
     revealOnNarrow(reveal === "reader" ? readerRef.current : skyRef.current);
   };
@@ -113,28 +96,37 @@ export function NotesView() {
       <div className="center">
         <Lead recent={recent} notes={notes} ready={ready} />
         <div ref={skyRef} style={{ scrollMarginTop: 72 }}>
-          <StarChart
-            state={chartState}
-            chart={chart}
-            editedIso={editedIso}
+          <VaultGlobe
+            className="sky"
+            label="3D map of your vault"
+            globe={globe}
+            state={vault.status}
             selectedId={openId}
+            turnToId={selectedNoteId}
             sourceIds={sourceIds}
-            onSelect={(id) => pick(id)}
-            nowMs={nowMs}
+            onPick={(id) => pick(id)}
+            head={
+              globe && (
+                <>
+                  <p className="constellation-count mono">
+                    <b className="num">{globe.counts.chats}</b> AI chats · <b className="num">{globe.counts.notes}</b> notes ·{" "}
+                    <b className="num">{globe.counts.folders}</b> folders
+                  </p>
+                  <a className="to-list" href="#recent">
+                    <List className="icon" aria-hidden strokeWidth={2} />
+                    List view
+                  </a>
+                </>
+              )
+            }
           />
         </div>
-        {chartState === "ready" && (
-          <ChartLegend
-            chart={chart}
-            linksKnown={links.status === "ready"}
-            sourceOnChart={sourceOnChart}
-          />
-        )}
+        {globe && <GlobeLegend showSource={sourceOnMap} />}
         <AskDock
           nowMs={nowMs}
-          chartIds={new Set(notes.map((n) => n.id))}
+          mapIds={mapIds}
           onSources={setSourceIds}
-          onShowSource={(id, onChart) => pick(id, onChart ? "chart" : "reader")}
+          onShowSource={(id, onMap) => pick(id, onMap ? "map" : "reader")}
         />
       </div>
       <section className="reader" ref={readerRef} aria-label="Reading pane" style={{ scrollMarginTop: 56 }}>
