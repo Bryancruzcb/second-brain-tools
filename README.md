@@ -18,7 +18,7 @@ Both of these came from running it against my own vault and watching it stall.
 
 ![Demo of the vault UI](docs/demo.gif)
 
-*Night Atlas: Notes, Map, Repair, and Ask — recent notes as a star chart with the reading pane and the latest answer, the neighborhood map, Repair issues, and a grounded answer with numbered sources. Shown with the public fixture notes.*
+*Atlas: the 3D map of the vault (each dot is a note or AI chat; the closer to the middle, the newer; each folder is a slice of the circle), Map only, then hovering and opening a chat. Shown with made-up sample data, not a real vault.*
 
 ## What it includes
 
