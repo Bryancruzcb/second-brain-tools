@@ -441,8 +441,10 @@ a {
 /* ---------- Notes view: Recent, chart + dock, reading pane ---------- */
 
 .notes-layout {
+  --recent-w: 280px;
+  --reader-w: 400px;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 400px;
+  grid-template-columns: var(--recent-w) minmax(0, 1fr) var(--reader-w);
   grid-template-areas: "recent center reader";
   min-height: calc(100dvh - var(--topbar-h));
 }
@@ -467,6 +469,80 @@ a {
   min-width: 0;
   border-left: 1px solid var(--hairline);
   background: var(--panel);
+}
+
+/* Folding Recent and the reading pane (wide screens): each leaves a 48 px rail that opens it again. */
+.pane-fold {
+  flex: none;
+  align-self: center;
+}
+
+/* A flex column, so the icon and name sit at the top (a plain button centers them). */
+.pane-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pane-rail:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.pane-rail:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Stays in view while the page scrolls past a tall rail. */
+.pane-rail-inner {
+  position: sticky;
+  top: calc(var(--topbar-h) + 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+}
+
+.pane-rail-label {
+  font-size: 14px;
+  font-weight: 600;
+  writing-mode: vertical-rl;
+}
+
+.map-only {
+  background: var(--night);
+}
+
+.map-only:hover {
+  background: var(--raised);
+}
+
+@media (min-width: 901px) {
+  .notes-layout.recent-closed {
+    --recent-w: 48px;
+  }
+  .notes-layout.reader-closed {
+    --reader-w: 48px;
+  }
+  .is-closed > :not(.pane-rail) {
+    display: none;
+  }
+  .is-closed > .pane-rail {
+    display: flex;
+  }
+  /* Map only: the map also takes most of the window's height. */
+  .notes-layout.recent-closed.reader-closed .sky {
+    height: max(520px, calc(100dvh - var(--topbar-h) - 170px));
+  }
 }
 
 .lead {
@@ -1384,7 +1460,8 @@ a {
 
 @media (max-width: 1180px) {
   .notes-layout {
-    grid-template-columns: 240px minmax(0, 1fr) 340px;
+    --recent-w: 240px;
+    --reader-w: 340px;
   }
   .tab kbd {
     display: none;
@@ -1422,6 +1499,11 @@ a {
   }
   .to-list {
     display: inline-flex;
+  }
+  /* One column: nothing to fold, so the fold controls go away. */
+  .map-only,
+  .pane-fold {
+    display: none;
   }
   .pane-head {
     padding: 20px 16px 8px;

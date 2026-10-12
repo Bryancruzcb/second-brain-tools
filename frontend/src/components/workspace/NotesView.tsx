@@ -1,16 +1,30 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, CircleCheck, FileText, List, Loader } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  FileText,
+  List,
+  Loader,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 import { ApiError, fetchGraph, fetchRecent, folderCluster, recentToNote } from "@/lib/api";
 import { relativeDay } from "@/lib/format";
 import { cleanSnippet } from "@/lib/noteText";
+import { isMapOnly, toggleMapOnly } from "@/lib/panes";
 import { indexStatus } from "@/lib/status";
 import { buildGlobe, type Globe } from "@/lib/vaultGlobe";
 import type { Note } from "@/types";
 import { useWorkspace } from "./context";
 import { AskDock } from "./AskDock";
 import { NoteInspector } from "./NoteInspector";
+import { usePanes } from "./usePanes";
 import { GlobeLegend, VaultGlobe } from "./VaultGlobe";
 
 type Recent =
@@ -32,7 +46,8 @@ function revealOnNarrow(el: HTMLElement | null) {
 /**
  * The main screen: Recent (a plain list), the 3D map of the whole vault with
  * the Ask dock under it, and the reading pane. The newest note is open until
- * another is picked.
+ * another is picked. Recent and the reading pane fold to slim rails; with both
+ * folded ("Map only") the map gets the width and most of the height.
  */
 export function NotesView() {
   const { selectedNoteId, selectNote, ready } = useWorkspace();
@@ -40,6 +55,7 @@ export function NotesView() {
   const [vault, setVault] = useState<Vault>({ status: "loading" });
   const [sourceIds, setSourceIds] = useState<ReadonlySet<string>>(new Set());
   const [nowMs] = useState(() => Date.now());
+  const [panes, setPanes] = usePanes();
   const readerRef = useRef<HTMLElement>(null);
   const skyRef = useRef<HTMLDivElement>(null);
 
@@ -82,16 +98,28 @@ export function NotesView() {
 
   const pick = (id: string, reveal: "reader" | "map" = "reader") => {
     selectNote(id, { repairIssueId: null });
+    // Picking a note opens it, so a folded reading pane comes back; "Show on map" leaves it folded.
+    if (reveal === "reader" && !panes.reader) setPanes({ ...panes, reader: true });
     revealOnNarrow(reveal === "reader" ? readerRef.current : skyRef.current);
   };
+  const mapOnly = isMapOnly(panes);
+  const layoutClass = [
+    "notes-layout",
+    panes.recent ? null : "recent-closed",
+    panes.reader ? null : "reader-closed",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className="notes-layout">
+    <div className={layoutClass}>
       <RecentList
         recent={recent}
         openId={openId}
         nowMs={nowMs}
         onPick={(id) => pick(id)}
+        open={panes.recent}
+        onToggle={() => setPanes({ ...panes, recent: !panes.recent })}
       />
       <div className="center">
         <Lead recent={recent} notes={notes} ready={ready} />
@@ -116,6 +144,14 @@ export function NotesView() {
                     <List className="icon" aria-hidden strokeWidth={2} />
                     List view
                   </a>
+                  <button type="button" className="btn map-only" onClick={() => setPanes(toggleMapOnly(panes))}>
+                    {mapOnly ? (
+                      <Minimize2 className="icon" aria-hidden strokeWidth={2} />
+                    ) : (
+                      <Maximize2 className="icon" aria-hidden strokeWidth={2} />
+                    )}
+                    {mapOnly ? "Show panels" : "Map only"}
+                  </button>
                 </>
               )
             }
@@ -129,13 +165,31 @@ export function NotesView() {
           onShowSource={(id, onMap) => pick(id, onMap ? "map" : "reader")}
         />
       </div>
-      <section className="reader" ref={readerRef} aria-label="Reading pane" style={{ scrollMarginTop: 56 }}>
+      <section
+        className={`reader${panes.reader ? "" : " is-closed"}`}
+        ref={readerRef}
+        aria-label="Reading pane"
+        style={{ scrollMarginTop: 56 }}
+      >
+        <PaneRail side="right" label="Reading" onOpen={() => setPanes({ ...panes, reader: true })} />
         {recent.status === "loading" && !selectedNoteId ? (
           <ReaderSkeleton />
         ) : (
           <NoteInspector
             noteId={openId}
             updatedAt={openNote?.updatedAt}
+            headAction={
+              <button
+                type="button"
+                className="btn btn-quiet btn-icon pane-fold"
+                style={{ marginLeft: "auto" }}
+                onClick={() => setPanes({ ...panes, reader: false })}
+                aria-label="Hide the reading pane"
+                title="Hide the reading pane"
+              >
+                <PanelRightClose className="icon" aria-hidden strokeWidth={2} />
+              </button>
+            }
           />
         )}
       </section>
@@ -188,21 +242,54 @@ function Lead({
   );
 }
 
+/** What a folded pane leaves behind: a slim full-height button that opens it again. */
+function PaneRail({ side, label, onOpen }: { side: "left" | "right"; label: string; onOpen: () => void }) {
+  const Icon = side === "left" ? PanelLeftOpen : PanelRightOpen;
+  const name = side === "left" ? `Show the ${label} list` : "Show the reading pane";
+  return (
+    <button type="button" className="pane-rail" onClick={onOpen} aria-label={name} title={name}>
+      <span className="pane-rail-inner">
+        <Icon className="icon" aria-hidden strokeWidth={2} />
+        <span className="pane-rail-label">{label}</span>
+      </span>
+    </button>
+  );
+}
+
 function RecentList({
   recent,
   openId,
   nowMs,
   onPick,
+  open,
+  onToggle,
 }: {
   recent: Recent;
   openId: string | null;
   nowMs: number;
   onPick: (id: string) => void;
+  open: boolean;
+  onToggle: () => void;
 }) {
   return (
-    <section className="recent" id="recent" aria-labelledby="recent-h" style={{ scrollMarginTop: 56 }}>
+    <section
+      className={`recent${open ? "" : " is-closed"}`}
+      id="recent"
+      aria-labelledby="recent-h"
+      style={{ scrollMarginTop: 56 }}
+    >
+      <PaneRail side="left" label="Recent" onOpen={onToggle} />
       <div className="pane-head">
         <h2 id="recent-h">Recent</h2>
+        <button
+          type="button"
+          className="btn btn-quiet btn-icon pane-fold"
+          onClick={onToggle}
+          aria-label="Hide the Recent list"
+          title="Hide the Recent list"
+        >
+          <PanelLeftClose className="icon" aria-hidden strokeWidth={2} />
+        </button>
       </div>
       {recent.status === "loading" ? (
         <ul className="rows" aria-busy="true" aria-label="Loading recent notes">

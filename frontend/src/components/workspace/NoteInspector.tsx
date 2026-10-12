@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { CircleAlert, FileText, MessageSquareText, Pencil, TriangleAlert } from "lucide-react";
 import { ApiError, fetchNote, folderCluster, saveNote } from "@/lib/api";
 import { editedPhrase, relativeDay } from "@/lib/format";
@@ -27,10 +27,12 @@ type Props = {
   updatedAt?: string;
   repairIssue?: HealthIssue | null;
   onClose?: () => void;
+  /** a control for the pane's top row, e.g. the Notes view's fold button */
+  headAction?: ReactNode;
 };
 
 /** The reading pane: title once, file, folder and edit time, then the note. Edit and save stay here. */
-export function NoteInspector({ noteId, updatedAt, repairIssue = null, onClose }: Props) {
+export function NoteInspector({ noteId, updatedAt, repairIssue = null, onClose, headAction }: Props) {
   const { selectedNoteId, setAskContextId, setView } = useWorkspace();
   const id = noteId === undefined ? selectedNoteId : noteId;
   const [loadedId, setLoadedId] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export function NoteInspector({ noteId, updatedAt, repairIssue = null, onClose }
     return (
       <div className="inspector">
         <div className="inspector-head">
+          {headAction && <p className="kicker">{headAction}</p>}
           <div className="pane-msg" style={{ margin: "16px 0" }}>
             <FileText aria-hidden strokeWidth={2} />
             <strong>Nothing open.</strong>
@@ -113,11 +116,14 @@ export function NoteInspector({ noteId, updatedAt, repairIssue = null, onClose }
   return (
     <article className="inspector" aria-labelledby={headingId} aria-busy={loading || undefined}>
       <div className="inspector-head">
-        {onClose && (
+        {(onClose || headAction) && (
           <p className="kicker">
-            <button type="button" className="btn btn-quiet" onClick={onClose} style={{ marginLeft: "auto" }}>
-              Close
-            </button>
+            {headAction}
+            {onClose && (
+              <button type="button" className="btn btn-quiet" onClick={onClose} style={{ marginLeft: "auto" }}>
+                Close
+              </button>
+            )}
           </p>
         )}
         {loading ? (
