@@ -1,18 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AGE_RINGS,
   CORE_ID,
+  NO_DATE_RADIUS,
   SHOW_ALL,
+  TIME_INNER,
+  TIME_OUTER,
+  ageDays,
+  ageRadius,
+  arcMiddle,
+  folderArcs,
+  hubRadius,
   buildGlobe,
   cleanTitle,
   clusterNames,
   dateFromName,
   describe as describePoint,
   folderId,
-  hubLabel,
+  folderName,
   isShown,
   matchesQuery,
   pointFor,
   readableDate,
+  ringRadius,
+  timeScale,
   type GraphInputEdge,
   type GraphInputNode,
 } from "./vaultGlobe";
@@ -131,19 +142,22 @@ describe("labels and words", () => {
     expect(dateFromName("2026-07-14 notes/x.md")).toBeNull();
   });
 
-  test("hub labels name the top folders, each AI's folder, and the vault", () => {
-    expect(hubLabel(byId.get(CORE_ID)!)).toBe("YOUR VAULT");
-    expect(hubLabel(byId.get(folderId("02 Projects"))!)).toBe("PROJECTS");
-    expect(hubLabel(byId.get(folderId("05 AI Chats/Claude"))!)).toBe("CLAUDE");
-    expect(hubLabel(byId.get(folderId("05 AI Chats/Claude/Coding"))!)).toBeNull();
-    expect(hubLabel(byId.get(folderId("02 Projects/Study OS"))!)).toBeNull();
-    expect(hubLabel(byId.get(CHAT)!)).toBeNull();
+  test("every folder has a name: top folders in capitals, deeper ones as written", () => {
+    expect(folderName(byId.get(CORE_ID)!)).toBe("YOUR VAULT");
+    expect(folderName(byId.get(folderId("02 Projects"))!)).toBe("PROJECTS");
+    expect(folderName(byId.get(folderId("05 AI Chats"))!)).toBe("AI CHATS");
+    expect(folderName(byId.get(folderId("05 AI Chats/Claude"))!)).toBe("Claude");
+    expect(folderName(byId.get(folderId("05 AI Chats/Claude/Coding"))!)).toBe("Coding");
+    expect(folderName(byId.get(folderId("02 Projects/Study OS"))!)).toBe("Study OS");
+    expect(folderName(byId.get(CHAT)!)).toBeNull();
+    for (const n of globe.nodes) if (n.kind === "folder") expect(folderName(n)).toBeTruthy();
   });
 
   test("describe says what a point is in plain words", () => {
     expect(describePoint(byId.get(CHAT)!)).toBe("Claude chat · Jul 14, 2026");
     expect(describePoint(byId.get("02 Projects/Study OS/Study OS.md")!)).toBe("Note in Projects");
     expect(describePoint(byId.get("YOO.md")!)).toBe("Note");
+    expect(describePoint(byId.get(LONE_COPY)!)).toBe("Note in Projects · Jan 1, 2026");
     expect(describePoint(byId.get(folderId("02 Projects"))!)).toBe("Folder · 2 items");
     expect(readableDate("2026-01-05")).toBe("Jan 5, 2026");
   });
@@ -171,5 +185,90 @@ describe("filters", () => {
 
   test("clusterNames lists the folders that hold notes or chats", () => {
     expect(clusterNames(globe)).toEqual(["Chats", "Home", "Projects", "School", "Vault"]);
+  });
+});
+
+describe("time rings", () => {
+  const NOW = new Date(2026, 9, 11, 18, 0).getTime(); // Oct 11, 2026, 6 pm local
+
+  test("ageDays counts whole days back from now, never below zero", () => {
+    expect(ageDays("2026-10-11", NOW)).toBe(0);
+    expect(ageDays("2026-10-10", NOW)).toBe(1);
+    expect(ageDays("2026-10-04", NOW)).toBe(7);
+    expect(ageDays("2026-12-01", NOW)).toBe(0);
+  });
+
+  test("ageRadius grows with age from the inner edge to the last ring, and stops there", () => {
+    expect(ageRadius(0, 182)).toBe(TIME_INNER);
+    expect(ageRadius(182, 182)).toBe(TIME_OUTER);
+    expect(ageRadius(400, 182)).toBe(TIME_OUTER);
+    for (let d = 0; d < 182; d++) expect(ageRadius(d + 1, 182)).toBeGreaterThan(ageRadius(d, 182));
+    expect(NO_DATE_RADIUS).toBeGreaterThan(TIME_OUTER);
+  });
+
+  test("timeScale draws the rings up to the first one that holds the oldest date", () => {
+    const scale = timeScale(["2026-10-01", "2026-05-02"], NOW); // oldest is 162 days old
+    expect(scale.maxDays).toBe(182);
+    expect(scale.rings.map((r) => r.label)).toEqual(["1 week", "1 month", "3 months", "6 months"]);
+    expect(scale.rings[scale.rings.length - 1].radius).toBe(TIME_OUTER);
+    expect(timeScale([], NOW).rings.map((r) => r.label)).toEqual(["1 week"]);
+    expect(timeScale(["2019-01-01"], NOW).maxDays).toBe(AGE_RINGS[AGE_RINGS.length - 1].days);
+  });
+
+  test("a dated dot sits on the radius for its age; an undated one on the no-date ring; folders nowhere", () => {
+    const scale = timeScale(["2026-01-01"], NOW);
+    expect(ringRadius(byId.get(CHAT)!, scale, NOW)).toBe(ageRadius(ageDays("2026-07-14", NOW), scale.maxDays));
+    expect(ringRadius(byId.get("YOO.md")!, scale, NOW)).toBe(NO_DATE_RADIUS);
+    expect(ringRadius(byId.get(folderId("02 Projects"))!, scale, NOW)).toBeNull();
+    expect(ringRadius(byId.get(CORE_ID)!, scale, NOW)).toBeNull();
+  });
+});
+
+describe("folder slices", () => {
+  const arcs = folderArcs(globe);
+  const len = (a: { from: number; to: number }) => a.to - a.from;
+  const inside = (inner: { from: number; to: number }, outer: { from: number; to: number }) =>
+    inner.from >= outer.from - 1e-9 && inner.to <= outer.to + 1e-9;
+
+  test("the vault gets the whole circle and every folder a slice inside its parent's", () => {
+    expect(arcs.folders.get("")).toEqual({ from: 0, to: Math.PI * 2 });
+    for (const n of globe.nodes) {
+      if (n.kind !== "folder") continue;
+      const own = arcs.folders.get(n.path)!;
+      const parent = n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "";
+      expect(len(own)).toBeGreaterThan(0);
+      expect(inside(own, arcs.folders.get(parent)!)).toBe(true);
+    }
+  });
+
+  test("sibling slices never overlap", () => {
+    const top = globe.nodes.filter((n) => n.kind === "folder" && n.depth === 1).map((n) => arcs.folders.get(n.path)!);
+    top.sort((a, b) => a.from - b.from);
+    for (let i = 1; i < top.length; i++) expect(top[i].from).toBeGreaterThanOrEqual(top[i - 1].to);
+  });
+
+  test("every chat and note stays inside its own folder's slice, root files included", () => {
+    for (const n of globe.nodes) {
+      if (n.kind !== "chat" && n.kind !== "note") continue;
+      const folder = n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "";
+      const dot = arcs.dots.get(n.id);
+      expect(dot).toBeDefined();
+      expect(inside(dot!, arcs.folders.get(folder)!)).toBe(true);
+    }
+  });
+
+  test("a folder holding more gets a bigger slice, and a tiny one still gets room", () => {
+    const projects = arcs.folders.get("02 Projects")!; // holds 2 notes
+    const home = arcs.folders.get("00 Home")!; // 1 note
+    expect(len(projects)).toBeGreaterThan(len(home));
+    expect(len(home)).toBeGreaterThan(0.02);
+    expect(arcMiddle({ from: 1, to: 3 })).toBe(2);
+  });
+
+  test("folder names sit outside every ring, top folders outermost", () => {
+    expect(hubRadius(1)).toBeGreaterThan(hubRadius(2));
+    expect(hubRadius(2)).toBeGreaterThan(hubRadius(3));
+    expect(hubRadius(4)).toBe(hubRadius(3));
+    expect(hubRadius(3)).toBeGreaterThan(NO_DATE_RADIUS);
   });
 });

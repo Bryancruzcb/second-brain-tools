@@ -25,7 +25,7 @@ The Vercel `atlas-prototype` project is a separate marketing mock (`_atlas-mock-
 ## Notes
 
 - The look is the Observatory system in `DESIGN.md` (dark only); content is real vault titles/counts.
-- The 3D vault map (Notes and Map) draws every note and AI chat from `/api/graph` as a dot around its folder, with wikilinks as lines (ghost links are skipped). A chat's project copies fold into the chat. It reads no note text; the reading pane fetches only the note you open.
+- The 3D vault map (Notes and Map) draws every note and AI chat from `/api/graph` as a dot: its distance from the middle is its age (from the date in the file name), and its slice of the circle is its folder. Wikilinks show as lines for the picked dot (ghost links are skipped). A chat's project copies fold into the chat. It reads no note text; the reading pane fetches only the note you open.
 - Map is the same 3D map full size, with a name highlight, a one-folder filter and a Chats toggle (on by default); the subtitle counts chats, notes and links, and how many are showing when a filter is on.
 - Health issue lists come from the backend scan (`broken_links`, `orphaned_notes`, `tagless_notes`). When `vault-core` is missing, `backend/health_hygiene.py` derives those lists from Chroma so Repair is populated; empty lists then mean a clean scan, not a missing binary.
 - Inspector can edit and save notes unless the file is a OneDrive placeholder (`read_only_fallback`).

@@ -211,13 +211,19 @@ export function GlobeLegend({ showSource }: { showSource: boolean }) {
         <span className="key">
           <span className="dot" style={{ width: 12, height: 12 }} />
         </span>
-        Folder (its dots gather around it)
+        Folder: each slice of the circle is one (scroll toward its name for smaller folders)
+      </li>
+      <li>
+        <span className="key">
+          <span className="ring" />
+        </span>
+        Rings = age: the closer to the middle, the newer (dashed ring: no date)
       </li>
       <li>
         <span className="key">
           <span className="line" />
         </span>
-        Line = one note links to the other
+        Lines show what the picked dot links to
       </li>
       {showSource && (
         <li>

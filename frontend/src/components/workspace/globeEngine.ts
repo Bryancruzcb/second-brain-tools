@@ -6,12 +6,20 @@ import type { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js
 import type { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import {
   GLOBE_COLORS,
+  NO_DATE_RADIUS,
+  TIME_INNER,
+  arcMiddle,
+  folderArcs,
+  hubRadius,
   SHOW_ALL,
   describe,
-  hubLabel,
+  folderName,
   isShown,
   matchesQuery,
   radiusOf,
+  ringRadius,
+  timeScale,
+  type Arc,
   type Globe,
   type GlobeFilter,
   type GlobeLinkKind,
@@ -22,6 +30,12 @@ import {
  * The WebGL side of the 3D vault map. It owns the renderer, the force layout,
  * and everything drawn in the scene, from createGlobeEngine() to dispose().
  * VaultGlobe.tsx holds the React state and tells the engine what changed.
+ *
+ * The map is a flattened disc around the vault's center, read like a clock face:
+ * the distance from the middle is age (each dated chat or note sits on the time
+ * ring for its age, newest in the middle; dots without a date sit on the dashed
+ * "No date" ring), and the slice is the folder (each folder owns a slice of the
+ * circle sized by what it holds, with its name on the rim).
  */
 
 export type GlobeLibs = Readonly<{
@@ -54,38 +68,72 @@ export type GlobeEngine = Readonly<{
   dispose: () => void;
 }>;
 
-/** three-forcegraph keeps each dot's drawn object on the node as __threeObj. */
-type Point = GlobeNode & { x?: number; y?: number; z?: number; __threeObj?: Three.Object3D };
+/** three-forcegraph keeps each dot's drawn object on the node as __threeObj; d3 adds position and velocity. */
+type Point = GlobeNode & {
+  x?: number;
+  y?: number;
+  z?: number;
+  vx?: number;
+  vy?: number;
+  vz?: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
+  __threeObj?: Three.Object3D;
+};
 type Edge = { source: string | Point; target: string | Point; kind: GlobeLinkKind };
 type Vec = { x: number; y: number; z: number };
+type ScreenLabel = { sprite: Three.Sprite; w: number; h: number };
+type FolderLabel = ScreenLabel & { node: Point; depth: number; rank: number; opacity: number; alpha: number };
 
 /** OrbitControls autoRotateSpeed: one full turn about every five minutes. */
 const SPIN_SPEED = 0.2;
-/** Where the camera starts, and the direction it looks from when it fits the vault in view. */
-const HOME_VIEW: Vec = Object.freeze({ x: 0, y: 520, z: 2300 });
+/** Where the camera starts, and the direction it looks from when it fits the vault: about 40 degrees above the disc. */
+const HOME_VIEW: Vec = Object.freeze({ x: 0, y: 1500, z: 1800 });
 const ORIGIN: Vec = Object.freeze({ x: 0, y: 0, z: 0 });
 const TURN_MS = 1200;
 const ZOOM_MS = 300;
 /** The layout settles for this long before the first fit, unless someone moves the map first. */
 const FIRST_FIT_DELAY_MS = 1500;
-/** The first fit and Reset view frame this share of the points, with this much room around them. */
-const FIT_SHARE = 0.95;
-const FIT_MARGIN = 1.15;
+/** The first fit and Reset view keep every dot and folder name inside this share of the view's half-width and half-height. */
+const FIT_EDGE = 0.8;
 const MIN_DISTANCE = 80;
 const MAX_DISTANCE = 6000;
+/** How hard a dot is pulled onto its time ring, back into its folder's slice, and toward the disc's plane. */
+const TIME_PULL = 0.6;
+const SLICE_PULL = 0.6;
+const FLAT_PULL = 0.12;
+/**
+ * A folder's name shows once the camera is this close to the folder, as a share of the
+ * distance that fits the whole vault (index = folder depth). Top-level names always show.
+ */
+const NAME_ZOOM = [Infinity, Infinity, 0.55, 0.4, 0.28];
+/**
+ * Where a top folder's name may sit relative to its dot (sprite center y): above it first, then
+ * below, then further out. Top folder names always show, so a crowded one moves instead of hiding.
+ */
+const TOP_NAME_SPOTS = [-0.4, 1.4, -1.8, 2.8];
+/** Opacity change per frame while a folder name fades in or out. */
+const FADE_STEP = 0.1;
 const BLOOM = Object.freeze({ strength: 0.4, radius: 0.35, threshold: 0.35 });
 const BACKGROUND = "#080B10"; // --night
 const ACCENT = "#74C7EF"; // --accent
 const INK = "#E8ECF1"; // --ink
 const MUTED = "#A6B0BE"; // --muted
+const DIM = "#8A95A5"; // --dim
 /** Links to a note with more links than this are drawn fainter, so hubs do not turn into a blur. */
 const HUB_DEGREE = 40;
 const MAX_SOURCE_MARKERS = 12;
-const STAR_COUNT = 2200;
+/** Background stars: a dim, dense layer and a brighter, sparse one, far outside the map. */
+const STAR_LAYERS = [
+  { count: 1600, px: 2.5, opacity: 0.35 },
+  { count: 260, px: 4.5, opacity: 0.55 },
+] as const;
+const STAR_RADIUS = Object.freeze({ min: 6500, max: 9000 });
 /** How close (in CSS pixels) the pointer must be to a dot to hover or click it. */
 const HIT_PX = 8;
 /** On-screen sizes in CSS pixels: these stay the same however far back the camera is. */
-const PX = Object.freeze({ hubText: 12, coreText: 13, nameText: 13, reticle: 34, sourceMarker: 28 });
+const PX = Object.freeze({ folderText: 12, coreText: 13, nameText: 13, ringText: 12, reticle: 34, sourceMarker: 28 });
 
 function rgba(hex: string, alpha: number): string {
   const v = parseInt(hex.slice(1), 16);
@@ -119,9 +167,15 @@ export function createGlobeEngine(
 
   let view: GlobeView = { selected: null, sources: new Set(), filter: SHOW_ALL, query: "" };
   let byId = new Map<string, Point>();
+  /** Where each dot belongs from the middle (its time ring), or undefined for folders and the core. */
+  let ringTarget = new Map<string, number>();
+  /** The slice of the circle each dot must stay inside (its folder's). */
+  let dotArcs: ReadonlyMap<string, Arc> = new Map();
   /** Set once someone drags, scrolls, or picks; the map then stops moving the camera on its own. */
   let userMoved = false;
   let firstFit = 0;
+  /** The camera distance that fits the vault; folder names appear as the camera comes inside shares of it. */
+  let fitDistance = Math.hypot(HOME_VIEW.x, HOME_VIEW.y, HOME_VIEW.z);
   /** World-space pickup radius, kept at HIT_PX on screen as the camera moves. */
   let hitRadius = 10;
   let spheresMuted = false;
@@ -135,7 +189,7 @@ export function createGlobeEngine(
   // ---------- sprites that keep one on-screen size ----------
   const dpr = Math.max(2, window.devicePixelRatio || 1);
   /** Every live fixed-size sprite, resized when the map changes size. */
-  let sized: { sprite: Three.Sprite; w: number; h: number }[] = [];
+  let sized: ScreenLabel[] = [];
 
   /** World size per CSS pixel for a sprite without size attenuation (same at any distance). */
   function pixelScale(): number {
@@ -143,7 +197,7 @@ export function createGlobeEngine(
     return (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, mount.clientHeight);
   }
 
-  function sizeSprite(entry: { sprite: Three.Sprite; w: number; h: number }) {
+  function sizeSprite(entry: ScreenLabel) {
     const k = pixelScale();
     entry.sprite.scale.set(entry.w * k, entry.h * k, 1);
   }
@@ -164,7 +218,7 @@ export function createGlobeEngine(
   }
 
   const fontFamily = getComputedStyle(document.documentElement).getPropertyValue("--font-martian").trim();
-  /** Untracked sprites (the picked point's name) are disposed by their owner, not at teardown. */
+  /** Untracked sprites (the picked point's name, time ring names) are disposed by their owner, not at teardown. */
   function textSprite(text: string, color: string, px: number, opacity: number, tracked = true): Three.Sprite {
     const font = `500 ${px}px ${fontFamily ? `${fontFamily}, ` : ""}ui-monospace, monospace`;
     const canvas = document.createElement("canvas");
@@ -185,6 +239,13 @@ export function createGlobeEngine(
     ctx.fillStyle = color;
     ctx.fillText(text, 6, h / 2);
     return screenSprite(canvas, w, h, opacity, tracked);
+  }
+
+  function dropSprite(sprite: Three.Sprite) {
+    sized = sized.filter((e) => e.sprite !== sprite);
+    sprite.removeFromParent();
+    sprite.material.map?.dispose();
+    sprite.material.dispose();
   }
 
   function markerSprite(px: number, draw: (ctx: CanvasRenderingContext2D) => void): Three.Sprite {
@@ -221,6 +282,7 @@ export function createGlobeEngine(
     .nodeLabel((n) => tooltip(n))
     .nodeColor((n) => {
       if (n.id === view.selected) return "#FFFFFF";
+      if (n.kind === "folder" && n.depth >= 2) return DIM;
       const base = GLOBE_COLORS[n.kind];
       return dimmed(n) ? rgba(base, 0.08) : base;
     })
@@ -229,11 +291,11 @@ export function createGlobeEngine(
       const s = end(l.source);
       const t = end(l.target);
       if (!s || !t || !isShown(s, view.filter) || !isShown(t, view.filter)) return false;
-      // A point's line to its own folder only shapes the layout; drawing all of them is clutter.
-      if (l.kind === "tree" && (s.kind === "chat" || s.kind === "note")) return false;
-      // A chat's lines to its projects show only while the chat is picked.
-      if (l.kind === "topic") return touchesSelected(l);
-      return true;
+      // Folders show as slices with names on the rim, so folder-structure lines are not drawn.
+      if (l.kind === "tree") return false;
+      // Dots sit by age and folder, not by links, so a link can cross the whole disc: lines
+      // show only for the picked dot (what it links to, and for a chat, its projects).
+      return touchesSelected(l);
     })
     .linkColor((l) => {
       if (touchesSelected(l)) return rgba(ACCENT, 0.9);
@@ -246,26 +308,81 @@ export function createGlobeEngine(
     })
     .linkOpacity(1)
     .linkWidth((l) => (touchesSelected(l) ? 0.8 : 0))
-    .linkDirectionalParticles((l) => (touchesSelected(l) ? 2 : 0))
-    .linkDirectionalParticleWidth(1.6)
-    .linkDirectionalParticleSpeed(0.006)
-    .linkDirectionalParticleColor(() => ACCENT)
-    .warmupTicks(80)
+    .warmupTicks(120)
     .cooldownTime(20000)
     .onNodeClick((n) => {
       if (n.kind === "chat" || n.kind === "note") events.onPick(n.id);
       else turnTo(n.id);
     });
 
-  graph.d3Force("charge")?.strength((n: Point) => (n.kind === "core" ? -900 : n.kind === "folder" ? -220 : -55));
-  graph.d3Force("link")?.distance((l: Edge) => {
-    if (l.kind === "tree") {
-      const s = end(l.source);
-      const t = end(l.target);
-      return t?.kind === "core" ? 230 : s?.kind === "folder" ? 95 : 42;
+  // ---------- forces: a dot's ring is its age, its slice is its folder ----------
+  // Folders and the center are pinned; only the dots push each other apart, so they do not overlap.
+  graph.d3Force("charge")?.strength((n: Point) => (n.kind === "chat" || n.kind === "note" ? -40 : 0));
+  // Links between notes only nudge; they must not drag a dot off its ring or out of its slice.
+  graph.d3Force("link")?.distance(75).strength((l: Edge) => (l.kind === "link" ? 0.02 : 0));
+  // The middle of the time rings is the vault's center, so nothing may shift the layout off it.
+  graph.d3Force("center", null);
+
+  let forceNodes: Point[] = [];
+  const timeForce = Object.assign(
+    (alpha: number) => {
+      for (const n of forceNodes) {
+        const target = ringTarget.get(n.id);
+        if (n.x === undefined || n.z === undefined) continue;
+        if (target !== undefined) {
+          const d = Math.hypot(n.x, n.z) || 1e-6;
+          const k = ((target - d) / d) * TIME_PULL * alpha;
+          n.vx = (n.vx ?? 0) + n.x * k;
+          n.vz = (n.vz ?? 0) + n.z * k;
+        }
+        const arc = dotArcs.get(n.id);
+        if (arc) {
+          // Turn the dot back into its slice along the circle when it has drifted out of it,
+          // the short way round (a dot just below 0 degrees is near a slice that starts at 0).
+          const a = Math.atan2(n.z, n.x);
+          const tau = Math.PI * 2;
+          const past = (((a - arc.from) % tau) + tau) % tau;
+          const span = arc.to - arc.from;
+          const off = past <= span ? 0 : past - span < tau - past ? span - past : tau - past;
+          if (off !== 0) {
+            const d = Math.hypot(n.x, n.z);
+            const push = off * d * SLICE_PULL * alpha;
+            n.vx = (n.vx ?? 0) - Math.sin(a) * push;
+            n.vz = (n.vz ?? 0) + Math.cos(a) * push;
+          }
+        }
+        if (n.y !== undefined) n.vy = (n.vy ?? 0) - n.y * FLAT_PULL * alpha;
+      }
+    },
+    {
+      initialize: (nodes: Point[]) => {
+        forceNodes = nodes;
+      },
+    },
+  );
+  graph.d3Force("time", timeForce);
+
+  /**
+   * After every layout step, put each dot exactly on its time ring and inside its slice, so the
+   * rings and slices never lie; the forces above only decide where along that arc it settles.
+   */
+  function holdToRingsAndSlices() {
+    const tau = Math.PI * 2;
+    for (const n of forceNodes) {
+      const r = ringTarget.get(n.id);
+      if (r === undefined || n.x === undefined || n.z === undefined) continue;
+      let a = Math.atan2(n.z, n.x);
+      const arc = dotArcs.get(n.id);
+      if (arc) {
+        const past = (((a - arc.from) % tau) + tau) % tau;
+        const span = arc.to - arc.from;
+        if (past > span) a = past - span < tau - past ? arc.to : arc.from;
+      }
+      n.x = Math.cos(a) * r;
+      n.z = Math.sin(a) * r;
     }
-    return l.kind === "topic" ? 130 : 75;
-  });
+  }
+  graph.onEngineTick(holdToRingsAndSlices);
 
   const controls = graph.controls() as OrbitControls;
   controls.autoRotate = false;
@@ -274,6 +391,7 @@ export function createGlobeEngine(
   controls.dampingFactor = 0.08;
   controls.minDistance = MIN_DISTANCE;
   controls.maxDistance = MAX_DISTANCE;
+  controls.zoomToCursor = true;
   graph.cameraPosition(HOME_VIEW, ORIGIN);
 
   // The composer works in linear color; the output pass converts to the screen's sRGB once, at the end.
@@ -288,46 +406,139 @@ export function createGlobeEngine(
   // clear color alone is applied before that and comes out too light (sRGB encoded twice).
   scene.background = new THREE.Color(BACKGROUND);
 
-  const starPositions = new Float32Array(STAR_COUNT * 3);
-  for (let i = 0; i < STAR_COUNT; i++) {
-    const r = 1500 + Math.random() * 1800;
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    starPositions.set([r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta)], i * 3);
+  // Round, soft background stars that stay put (they are scenery, so they do not move).
+  const dotCanvas = document.createElement("canvas");
+  dotCanvas.width = dotCanvas.height = 64;
+  const dotCtx = dotCanvas.getContext("2d");
+  if (dotCtx) {
+    const glow = dotCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    glow.addColorStop(0, "rgba(255,255,255,1)");
+    glow.addColorStop(0.35, "rgba(255,255,255,0.55)");
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    dotCtx.fillStyle = glow;
+    dotCtx.fillRect(0, 0, 64, 64);
   }
-  const starGeometry = keep(new THREE.BufferGeometry());
-  starGeometry.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-  const stars = new THREE.Points(
-    starGeometry,
-    keep(new THREE.PointsMaterial({ color: 0x7fd0ff, size: 2.2, transparent: true, opacity: 0.25, depthWrite: false })),
-  );
-  scene.add(stars);
-
-  const rings = new THREE.Group();
-  rings.position.y = -480;
-  for (const [radius, opacity] of [[320, 0.07], [520, 0.05], [740, 0.03], [980, 0.018]] as const) {
-    const ring = new THREE.Mesh(
-      keep(new THREE.RingGeometry(radius, radius + 1.2, 160)),
-      keep(new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })),
+  const dotTexture = keep(new THREE.CanvasTexture(dotCanvas));
+  const pixelRatio = graph.renderer().getPixelRatio();
+  for (const layer of STAR_LAYERS) {
+    const positions = new Float32Array(layer.count * 3);
+    for (let i = 0; i < layer.count; i++) {
+      const r = STAR_RADIUS.min + Math.random() * (STAR_RADIUS.max - STAR_RADIUS.min);
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      positions.set([r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta)], i * 3);
+    }
+    const geometry = keep(new THREE.BufferGeometry());
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const material = keep(
+      new THREE.PointsMaterial({
+        map: dotTexture,
+        color: 0x9fd6ff,
+        size: layer.px * pixelRatio,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: layer.opacity,
+        depthWrite: false,
+        alphaTest: 0.02,
+      }),
     );
-    ring.rotation.x = -Math.PI / 2;
-    rings.add(ring);
+    scene.add(new THREE.Points(geometry, material));
   }
-  const ticks: number[] = [];
-  for (let i = 0; i < 72; i++) {
-    const a = (i / 72) * Math.PI * 2;
-    const len = i % 6 === 0 ? 34 : 14;
-    ticks.push(Math.cos(a) * 520, 0, Math.sin(a) * 520, Math.cos(a) * (520 + len), 0, Math.sin(a) * (520 + len));
-  }
-  const tickGeometry = keep(new THREE.BufferGeometry());
-  tickGeometry.setAttribute("position", new THREE.Float32BufferAttribute(ticks, 3));
-  rings.add(new THREE.LineSegments(tickGeometry, keep(new THREE.LineBasicMaterial({ color: ACCENT, transparent: true, opacity: 0.12 }))));
-  scene.add(rings);
 
-  const coreShell = new THREE.Mesh(
-    keep(new THREE.IcosahedronGeometry(24, 1)),
-    keep(new THREE.MeshBasicMaterial({ color: ACCENT, wireframe: true, transparent: true, opacity: 0.25 })),
-  );
+  // The time rings: one circle per age, in the disc's plane, with its name on the side facing the camera.
+  const rings = new THREE.Group();
+  scene.add(rings);
+  let ringLabels: { sprite: Three.Sprite; radius: number }[] = [];
+
+  function circle(radius: number, color: string, opacity: number, dashed: boolean): Three.LineLoop {
+    const points: number[] = [];
+    for (let i = 0; i < 192; i++) {
+      const a = (i / 192) * Math.PI * 2;
+      points.push(Math.cos(a) * radius, 0, Math.sin(a) * radius);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    const material = dashed
+      ? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: 14, gapSize: 12, depthWrite: false })
+      : new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+    const loop = new THREE.LineLoop(geometry, material);
+    if (dashed) loop.computeLineDistances();
+    return loop;
+  }
+
+  function buildRings(globe: Globe, nowMs: number) {
+    for (const child of [...rings.children]) {
+      const line = child as Three.Line;
+      line.geometry.dispose();
+      (line.material as Three.Material).dispose();
+      line.removeFromParent();
+    }
+    ringLabels.forEach((l) => dropSprite(l.sprite));
+    ringLabels = [];
+    const dates = globe.nodes.flatMap((n) => (n.date ? [n.date] : []));
+    const scale = timeScale(dates, nowMs);
+    for (const ring of scale.rings) {
+      rings.add(circle(ring.radius, ACCENT, 0.22, false));
+      const sprite = textSprite(ring.label, ACCENT, PX.ringText, 0.85, false);
+      sprite.center.set(0.5, -0.2);
+      scene.add(sprite);
+      ringLabels.push({ sprite, radius: ring.radius });
+    }
+    if (globe.nodes.some((n) => (n.kind === "chat" || n.kind === "note") && !n.date)) {
+      rings.add(circle(NO_DATE_RADIUS, MUTED, 0.2, true));
+      const sprite = textSprite("No date", MUTED, PX.ringText, 0.8, false);
+      sprite.center.set(0.5, -0.2);
+      scene.add(sprite);
+      ringLabels.push({ sprite, radius: NO_DATE_RADIUS });
+    }
+    ringTarget = new Map();
+    for (const n of globe.nodes) {
+      const r = ringRadius(n, scale, nowMs);
+      if (r !== null) ringTarget.set(n.id, r);
+    }
+  }
+
+  /** Faint lines where one top folder's slice ends and the next begins. */
+  function buildDividers(folders: ReadonlyMap<string, Arc>, topFolders: readonly string[]) {
+    const points: number[] = [];
+    const outer = NO_DATE_RADIUS + 40;
+    for (const path of topFolders) {
+      const arc = folders.get(path);
+      if (!arc) continue;
+      const a = arc.from;
+      points.push(Math.cos(a) * TIME_INNER, 0, Math.sin(a) * TIME_INNER, Math.cos(a) * outer, 0, Math.sin(a) * outer);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    const material = new THREE.LineBasicMaterial({ color: MUTED, transparent: true, opacity: 0.12, depthWrite: false });
+    rings.add(new THREE.LineSegments(geometry, material));
+  }
+
+  // ---------- folder names: every folder has one; deeper folders show as the camera comes closer ----------
+  const folderLabels: FolderLabel[] = [];
+
+  graph.nodeThreeObjectExtend(true).nodeThreeObject((n) => {
+    const group = new THREE.Group();
+    group.add(hitArea(n));
+    const name = folderName(n);
+    if (name) {
+      const core = n.kind === "core";
+      const top = n.depth <= 1;
+      const opacity = core ? 0.9 : top ? 0.85 : 0.8;
+      const sprite = textSprite(name, core ? INK : top ? MUTED : DIM, core ? PX.coreText : PX.folderText, opacity);
+      // Anchor under the text, so the name sits just above its dot at any distance.
+      sprite.center.set(0.5, -0.4);
+      sprite.visible = false;
+      group.add(sprite);
+      const entry = sized.find((e) => e.sprite === sprite);
+      if (entry) {
+        folderLabels.push({ ...entry, node: n, depth: n.depth, rank: n.children, opacity, alpha: 0 });
+        // Shallow folders first, then bigger ones: they keep their names when names would overlap.
+        folderLabels.sort((a, b) => a.depth - b.depth || b.rank - a.rank);
+      }
+    }
+    return group;
+  });
 
   // From far back a dot is 2 or 3 pixels wide. Each dot gets an invisible pickup area that reports
   // its distance from the pointer's ray, so the dot nearest the pointer wins, and hidden dots never do.
@@ -360,26 +571,6 @@ export function createGlobeEngine(
     }
     return all;
   }
-
-  graph.nodeThreeObjectExtend(true).nodeThreeObject((n) => {
-    const group = new THREE.Group();
-    group.add(hitArea(n));
-    if (n.kind === "core") group.add(coreShell);
-    const label = hubLabel(n);
-    if (label) {
-      const core = n.kind === "core";
-      const sprite = textSprite(label, core ? INK : MUTED, core ? PX.coreText : PX.hubText, core ? 0.9 : 0.8);
-      // Anchor under the text, so the name sits just above its dot at any distance.
-      sprite.center.set(0.5, -0.4);
-      group.add(sprite);
-      const entry = sized.find((e) => e.sprite === sprite);
-      if (entry) {
-        hubLabels.push({ sprite, w: entry.w, h: entry.h, rank: core ? Infinity : n.children });
-        hubLabels.sort((a, b) => b.rank - a.rank);
-      }
-    }
-    return group;
-  });
 
   // ---------- markers: the picked point, its name, and the answer's sources ----------
   const reticle = markerSprite(PX.reticle, (ctx) => {
@@ -414,19 +605,12 @@ export function createGlobeEngine(
     return marker;
   });
 
-  /** Folder names, biggest folder first: when names would overlap on screen, the smaller folder's name hides. */
-  const hubLabels: { sprite: Three.Sprite; w: number; h: number; rank: number }[] = [];
-
   let nameSprite: Three.Sprite | null = null;
   let nameFor: string | null = null;
   function showName(n: Point | undefined) {
     if (nameFor === (n?.id ?? null)) return;
     if (nameSprite) {
-      const old = nameSprite;
-      sized = sized.filter((e) => e.sprite !== old);
-      scene.remove(nameSprite);
-      nameSprite.material.map?.dispose();
-      nameSprite.material.dispose();
+      dropSprite(nameSprite);
       nameSprite = null;
     }
     nameFor = n?.id ?? null;
@@ -450,10 +634,15 @@ export function createGlobeEngine(
   }
 
   const projected = new THREE.Vector3();
+  const worldSpot = new THREE.Vector3();
   type Rect = { l: number; r: number; t: number; b: number };
-  /** Screen rectangle of a fixed-size sprite anchored by its center, or null when off screen. */
-  function screenRect(sprite: Three.Sprite, w: number, h: number): Rect | null {
-    sprite.getWorldPosition(projected).project(graph.camera());
+  /**
+   * Screen rectangle of a fixed-size sprite anchored by its center, or null when off screen.
+   * `at` is the sprite's world position when the caller knows it (a folder name sits on its dot).
+   */
+  function screenRect(sprite: Three.Sprite, w: number, h: number, at?: Point): Rect | null {
+    if (at) projected.set(at.x ?? 0, at.y ?? 0, at.z ?? 0).project(graph.camera());
+    else sprite.getWorldPosition(projected).project(graph.camera());
     if (projected.z > 1 || Math.abs(projected.x) > 1.2 || Math.abs(projected.y) > 1.2) return null;
     const x = ((projected.x + 1) / 2) * mount.clientWidth;
     const y = ((1 - projected.y) / 2) * mount.clientHeight;
@@ -462,47 +651,87 @@ export function createGlobeEngine(
     return { l: left - 4, r: left + w + 4, t: bottom - h - 2, b: bottom + 2 };
   }
   const overlaps = (a: Rect, b: Rect) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const entryFor = (sprite: Three.Sprite) => sized.find((e) => e.sprite === sprite);
 
-  function hideOverlappingNames(picked: Point | undefined) {
+  /** Put each time ring's name on the side of its ring that faces the camera. */
+  function placeRingLabels() {
+    const cam = graph.camera().position;
+    const angle = Math.atan2(cam.x, cam.z);
+    for (const label of ringLabels) {
+      label.sprite.position.set(Math.sin(angle) * label.radius, 0, Math.cos(angle) * label.radius);
+    }
+  }
+
+  /**
+   * Decide which folder names show: top folders always (moving above or below their dot to stay
+   * clear); a deeper folder once the camera is close enough to it and only where it does not cover
+   * another name (shallower and bigger folders win).
+   */
+  function updateFolderNames(picked: Point | undefined) {
     const taken: Rect[] = [];
-    if (reticle.visible) {
-      const rect = screenRect(reticle, PX.reticle, PX.reticle);
+    const reserve = (sprite: Three.Sprite | null, w?: number, h?: number) => {
+      if (!sprite || !sprite.visible) return;
+      const size = w !== undefined && h !== undefined ? { w, h } : entryFor(sprite);
+      const rect = size && screenRect(sprite, size.w, size.h);
       if (rect) taken.push(rect);
+    };
+    reserve(reticle, PX.reticle, PX.reticle);
+    if (picked) reserve(nameSprite);
+    for (const ring of ringLabels) {
+      const size = entryFor(ring.sprite);
+      const rect = size ? screenRect(ring.sprite, size.w, size.h) : null;
+      ring.sprite.visible = rect !== null && !taken.some((t) => overlaps(t, rect));
+      if (ring.sprite.visible && rect) taken.push(rect);
     }
-    if (nameSprite && picked && nameSprite.visible) {
-      const entry = sized.find((e) => e.sprite === nameSprite);
-      const rect = entry && screenRect(nameSprite, entry.w, entry.h);
-      if (rect) taken.push(rect);
-    }
-    for (const label of hubLabels) {
+
+    const cam = graph.camera().position;
+    for (const label of folderLabels) {
       // A folder hidden by the Map's filters keeps its dot's visible flag off; skip its name too.
       let shown = true;
       for (let o = label.sprite.parent; o; o = o.parent) shown &&= o.visible;
-      const rect = shown ? screenRect(label.sprite, label.w, label.h) : null;
-      const free = rect !== null && !taken.some((t) => overlaps(t, rect));
-      label.sprite.visible = free;
-      if (free && rect) taken.push(rect);
+      let wanted = shown;
+      if (wanted && label.depth >= 2) {
+        const limit = NAME_ZOOM[Math.min(label.depth, NAME_ZOOM.length - 1)] * fitDistance;
+        worldSpot.set(label.node.x ?? 0, label.node.y ?? 0, label.node.z ?? 0);
+        wanted = worldSpot.distanceTo(cam) < limit;
+      }
+      let rect: Rect | null = null;
+      let show = false;
+      if (wanted && label.depth === 1) {
+        for (const spot of TOP_NAME_SPOTS) {
+          label.sprite.center.y = spot;
+          rect = screenRect(label.sprite, label.w, label.h, label.node);
+          if (rect && !taken.some((t) => overlaps(t, rect as Rect))) break;
+        }
+        if (!rect || taken.some((t) => overlaps(t, rect as Rect))) {
+          label.sprite.center.y = TOP_NAME_SPOTS[0];
+          rect = screenRect(label.sprite, label.w, label.h, label.node);
+        }
+        show = rect !== null;
+      } else if (wanted) {
+        rect = screenRect(label.sprite, label.w, label.h, label.node);
+        show = rect !== null && !taken.some((t) => overlaps(t, rect as Rect));
+      }
+      if (show && rect) taken.push(rect);
+      const goal = show ? 1 : 0;
+      label.alpha = options.reducedMotion
+        ? goal
+        : label.alpha + Math.max(-FADE_STEP, Math.min(FADE_STEP, goal - label.alpha));
+      label.sprite.material.opacity = label.alpha * label.opacity;
+      label.sprite.visible = label.alpha > 0.01;
     }
   }
 
   let frameId = 0;
-  const frame = (t: number) => {
+  const frame = () => {
     frameId = requestAnimationFrame(frame);
-    if (!options.reducedMotion) {
-      rings.rotation.y += 0.0009;
-      stars.rotation.y -= 0.00012;
-      coreShell.rotation.y += 0.004;
-      coreShell.rotation.x += 0.0017;
-      reticle.material.rotation = (t / 4000) % (Math.PI * 2);
-    }
     if (!spheresMuted) spheresMuted = muteSpheres();
     hitRadius = HIT_PX * pixelScale() * graph.camera().position.distanceTo(controls.target);
     const picked = view.selected ? byId.get(view.selected) : undefined;
     place(reticle, picked);
-    if (nameSprite) {
-      place(nameSprite, picked);
-    }
-    hideOverlappingNames(picked);
+    if (nameSprite) place(nameSprite, picked);
+    placeRingLabels();
+    updateFolderNames(picked);
     let i = 0;
     for (const id of view.sources) {
       if (i >= sourceMarkers.length) break;
@@ -527,33 +756,37 @@ export function createGlobeEngine(
   resize.observe(mount);
 
   /**
-   * Put the vault in view, looking from the home direction. The radius covers 95% of the
-   * shown points (plus a margin), so one far-off cluster does not shrink everything else.
+   * Put the whole vault in view, looking at its center from the home direction: the closest
+   * distance at which every shown dot and folder name stays inside FIT_EDGE of the view.
    */
+  const fitProbe = new THREE.Vector3();
   function fitAll(ms: number) {
     const points = [...byId.values()].filter(
       (n) => isShown(n, view.filter) && Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z),
     );
     if (!points.length) return;
-    const center = {
-      x: points.reduce((sum, n) => sum + (n.x ?? 0), 0) / points.length,
-      y: points.reduce((sum, n) => sum + (n.y ?? 0), 0) / points.length,
-      z: points.reduce((sum, n) => sum + (n.z ?? 0), 0) / points.length,
-    };
-    const distances = points
-      .map((n) => Math.hypot((n.x ?? 0) - center.x, (n.y ?? 0) - center.y, (n.z ?? 0) - center.z))
-      .sort((a, b) => a - b);
-    const radius = Math.max(60, distances[Math.floor(FIT_SHARE * (distances.length - 1))] * FIT_MARGIN);
-    const camera = graph.camera() as Three.PerspectiveCamera;
-    const halfV = THREE.MathUtils.degToRad(camera.fov / 2);
-    const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
-    const distance = Math.min(MAX_DISTANCE, radius / Math.sin(Math.min(halfV, halfH)));
     const dir = new THREE.Vector3(HOME_VIEW.x, HOME_VIEW.y, HOME_VIEW.z).normalize();
-    graph.cameraPosition(
-      { x: center.x + dir.x * distance, y: center.y + dir.y * distance, z: center.z + dir.z * distance },
-      center,
-      ms,
-    );
+    const probe = (graph.camera() as Three.PerspectiveCamera).clone();
+    const fits = (distance: number) => {
+      probe.position.set(dir.x * distance, dir.y * distance, dir.z * distance);
+      probe.lookAt(ORIGIN.x, ORIGIN.y, ORIGIN.z);
+      probe.updateMatrixWorld();
+      return points.every((n) => {
+        fitProbe.set(n.x ?? 0, n.y ?? 0, n.z ?? 0).project(probe);
+        return fitProbe.z < 1 && Math.abs(fitProbe.x) <= FIT_EDGE && Math.abs(fitProbe.y) <= FIT_EDGE;
+      });
+    };
+    // Binary search between "too close" and "far enough" for the nearest distance that fits.
+    let near = MIN_DISTANCE;
+    let far = MAX_DISTANCE;
+    if (fits(near)) far = near;
+    for (let i = 0; i < 24 && far - near > 1; i++) {
+      const mid = (near + far) / 2;
+      if (fits(mid)) far = mid;
+      else near = mid;
+    }
+    fitDistance = far;
+    graph.cameraPosition({ x: dir.x * far, y: dir.y * far, z: dir.z * far }, ORIGIN, ms);
   }
 
   const stopSpin = () => {
@@ -571,8 +804,7 @@ export function createGlobeEngine(
       .nodeVisibility(graph.nodeVisibility())
       .linkVisibility(graph.linkVisibility())
       .linkColor(graph.linkColor())
-      .linkWidth(graph.linkWidth())
-      .linkDirectionalParticles(graph.linkDirectionalParticles());
+      .linkWidth(graph.linkWidth());
   }
 
   /** Center a point in view while keeping the camera's current distance, so picking never zooms in. */
@@ -593,11 +825,31 @@ export function createGlobeEngine(
 
   return {
     setData(globe) {
-      const nodes: Point[] = globe.nodes.map((n) => ({ ...n }));
+      const nowMs = Date.now();
+      const arcs = folderArcs(globe);
+      dotArcs = arcs.dots;
+      buildRings(globe, nowMs);
+      const topFolders = globe.nodes.filter((n) => n.kind === "folder" && n.depth === 1).map((n) => n.path);
+      buildDividers(arcs.folders, arcs.dots.size ? [...topFolders, ""] : topFolders);
+      const nodes: Point[] = globe.nodes.map((n): Point => {
+        // The vault's center is the middle of the time rings; each folder's name is pinned on the rim of its slice.
+        if (n.kind === "core") return { ...n, x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: 0 };
+        if (n.kind === "folder") {
+          const a = arcMiddle(arcs.folders.get(n.path) ?? { from: 0, to: 0 });
+          const r = hubRadius(n.depth);
+          return { ...n, x: Math.cos(a) * r, y: 0, z: Math.sin(a) * r, fx: Math.cos(a) * r, fy: 0, fz: Math.sin(a) * r };
+        }
+        // Dots start on their ring, somewhere inside their slice, so the layout settles fast and true.
+        const arc = arcs.dots.get(n.id) ?? { from: 0, to: Math.PI * 2 };
+        const a = arc.from + Math.random() * (arc.to - arc.from);
+        const r = ringTarget.get(n.id) ?? NO_DATE_RADIUS;
+        return { ...n, x: Math.cos(a) * r, y: (Math.random() - 0.5) * 40, z: Math.sin(a) * r };
+      });
       byId = new Map(nodes.map((n) => [n.id, n]));
-      const labelSprites = new Set(hubLabels.map((l) => l.sprite));
-      sized = sized.filter((e) => !labelSprites.has(e.sprite));
-      hubLabels.length = 0;
+      folderLabels.forEach((l) => {
+        sized = sized.filter((e) => e.sprite !== l.sprite);
+      });
+      folderLabels.length = 0;
       spheresMuted = false;
       graph.graphData({ nodes, links: globe.links.map((l) => ({ ...l })) });
       nameFor = null;
@@ -635,6 +887,12 @@ export function createGlobeEngine(
       mount.removeEventListener("pointerdown", stopSpin);
       mount.removeEventListener("wheel", stopSpin);
       showName(undefined);
+      ringLabels.forEach((l) => dropSprite(l.sprite));
+      for (const child of [...rings.children]) {
+        const line = child as Three.Line;
+        line.geometry.dispose();
+        (line.material as Three.Material).dispose();
+      }
       const renderer = graph.renderer();
       graph._destructor();
       controls.dispose();

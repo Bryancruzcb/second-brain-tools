@@ -227,17 +227,158 @@ export const GLOBE_COLORS: Readonly<Record<GlobeKind, string>> = {
 /** World-space radius: folders grow with what they hold, notes with their links. */
 export function radiusOf(n: GlobeNode): number {
   if (n.kind === "core") return 12;
-  if (n.kind === "folder") return 3.5 + Math.min(5, Math.sqrt(n.children) * 0.5);
+  if (n.kind === "folder") return n.depth >= 2 ? 2.2 : 3.5 + Math.min(5, Math.sqrt(n.children) * 0.5);
   return (n.kind === "chat" ? 3 : 3.6) + Math.min(6, Math.sqrt(n.degree) * 0.6);
 }
 
-/** Folders that get a floating name: the top-level folders and each AI's chat folder. */
-export function hubLabel(n: GlobeNode): string | null {
+/**
+ * Every folder's floating name. Top-level folders read in capitals ("AI CHATS"),
+ * deeper folders in their own case ("Claude", "Coding"); the map shows the deeper
+ * ones only as the camera comes closer.
+ */
+export function folderName(n: GlobeNode): string | null {
   if (n.kind === "core") return "YOUR VAULT";
   if (n.kind !== "folder") return null;
-  const isAiFolder = n.depth === 2 && n.path.startsWith(`${CHAT_ROOT}/`);
-  if (n.depth !== 1 && !isAiFolder) return null;
-  return n.title.replace(/^\d+\s+/, "").toUpperCase();
+  const name = n.title.replace(/^\d+\s+/, "").trim() || n.title;
+  return n.depth === 1 ? name.toUpperCase() : name;
+}
+
+/* ---------- time: the rings under the map ---------- */
+
+export const DAY_MS = 86_400_000;
+
+/** The labeled age rings; a map shows the ones up to its oldest dated dot. */
+export const AGE_RINGS: readonly Readonly<{ days: number; label: string }>[] = [
+  { days: 7, label: "1 week" },
+  { days: 30, label: "1 month" },
+  { days: 91, label: "3 months" },
+  { days: 182, label: "6 months" },
+  { days: 365, label: "1 year" },
+  { days: 730, label: "2 years" },
+];
+
+/** Distance from the middle for age 0, and for the outermost ring in use. */
+export const TIME_INNER = 90;
+export const TIME_OUTER = 700;
+/** Notes and chats with no date in their file name sit on this ring, outside the age rings. */
+export const NO_DATE_RADIUS = 840;
+
+/** Whole days from a YYYY-MM-DD date to now (0 for today or a future date). */
+export function ageDays(date: string, nowMs: number): number {
+  const [y, m, d] = date.split("-").map(Number);
+  const then = new Date(y, m - 1, d).getTime();
+  return Math.max(0, Math.floor((nowMs - then) / DAY_MS));
+}
+
+export type TimeScale = Readonly<{
+  /** Age at the outermost ring in use. */
+  maxDays: number;
+  rings: readonly Readonly<{ days: number; label: string; radius: number }>[];
+}>;
+
+/** Square root, like the old star chart: recent weeks get room, old months share the outside. */
+export function ageRadius(days: number, maxDays: number): number {
+  return TIME_INNER + (TIME_OUTER - TIME_INNER) * Math.sqrt(Math.min(days, maxDays) / maxDays);
+}
+
+/** The rings to draw: every age ring up to the first one that holds the oldest dated dot. */
+export function timeScale(dates: readonly string[], nowMs: number): TimeScale {
+  const oldest = dates.reduce((max, d) => Math.max(max, ageDays(d, nowMs)), 0);
+  const last = AGE_RINGS.find((r) => r.days >= oldest) ?? AGE_RINGS[AGE_RINGS.length - 1];
+  const rings = AGE_RINGS.filter((r) => r.days <= last.days);
+  return {
+    maxDays: last.days,
+    rings: rings.map((r) => ({ ...r, radius: ageRadius(r.days, last.days) })),
+  };
+}
+
+/* ---------- folders: slices of the circle ---------- */
+
+export type Arc = Readonly<{ from: number; to: number }>;
+export const arcMiddle = (a: Arc): number => (a.from + a.to) / 2;
+
+/** Every item in a split gets at least this share of its parent's arc, so small folders stay readable. */
+const MIN_SHARE = 0.03;
+/** Space kept clear at each end of an item's arc, as a share of the item's arc (at most 0.6 degrees). */
+const ARC_PAD = 0.08;
+const MAX_PAD = 0.01;
+
+type Weighted = Readonly<{ key: string; weight: number }>;
+
+/** Split an arc among items by weight, each at least MIN_SHARE of it, in the given order. */
+function splitArc(arc: Arc, items: readonly Weighted[]): Map<string, Arc> {
+  const out = new Map<string, Arc>();
+  if (!items.length) return out;
+  const total = items.reduce((sum, i) => sum + i.weight, 0) || 1;
+  const floor = Math.min(MIN_SHARE, 1 / items.length);
+  const shares = items.map((i) => Math.max(i.weight / total, floor));
+  const scale = shares.reduce((a, b) => a + b, 0);
+  const length = arc.to - arc.from;
+  let at = arc.from;
+  items.forEach((item, i) => {
+    const size = (shares[i] / scale) * length;
+    const pad = Math.min(MAX_PAD, size * ARC_PAD);
+    out.set(item.key, { from: at + pad, to: at + size - pad });
+    at += size;
+  });
+  return out;
+}
+
+/** The key for "the dots that sit directly in this folder" when its arc is split (no folder path starts with "/"). */
+const OWN = "/own";
+
+/**
+ * Give every folder a slice of the circle, sized by how many chats and notes it holds; inside it,
+ * each subfolder gets a slice the same way, and the folder's own dots share what is left. Returns
+ * the slice of every folder (by path; "" is the vault root) and the slice each dot must stay inside.
+ */
+export function folderArcs(globe: Globe): Readonly<{ folders: ReadonlyMap<string, Arc>; dots: ReadonlyMap<string, Arc> }> {
+  const dotsIn = new Map<string, string[]>();
+  const subtree = new Map<string, number>();
+  const childFolders = new Map<string, string[]>();
+  for (const n of globe.nodes) {
+    if (n.kind === "folder") {
+      const parent = parentPath(n.path);
+      childFolders.set(parent, [...(childFolders.get(parent) ?? []), n.path]);
+    } else if (n.kind === "chat" || n.kind === "note") {
+      const folder = parentPath(n.path);
+      dotsIn.set(folder, [...(dotsIn.get(folder) ?? []), n.id]);
+      for (let f: string | null = folder; f !== null; f = f ? parentPath(f) : null) {
+        subtree.set(f, (subtree.get(f) ?? 0) + 1);
+      }
+    }
+  }
+  const folders = new Map<string, Arc>();
+  const dots = new Map<string, Arc>();
+  const visit = (folder: string, arc: Arc) => {
+    folders.set(folder, arc);
+    const own = dotsIn.get(folder) ?? [];
+    const children = [...(childFolders.get(folder) ?? [])].sort((a, b) => a.localeCompare(b));
+    const items: Weighted[] = [
+      ...children.map((c) => ({ key: c, weight: subtree.get(c) ?? 0 })),
+      ...(own.length ? [{ key: OWN, weight: own.length }] : []),
+    ];
+    const split = splitArc(arc, items);
+    const ownArc = split.get(OWN);
+    if (ownArc) own.forEach((id) => dots.set(id, ownArc));
+    children.forEach((c) => {
+      const childArc = split.get(c);
+      if (childArc) visit(c, childArc);
+    });
+  };
+  visit("", { from: 0, to: Math.PI * 2 });
+  return { folders, dots };
+}
+
+/** How far from the middle a folder's name sits: outside every ring, top folders outermost. */
+export function hubRadius(depth: number): number {
+  return NO_DATE_RADIUS + 90 + Math.max(0, 3 - depth) * 55;
+}
+
+/** Where a dot sits from the middle: by age when it has a date, on the no-date ring when not, nowhere for folders. */
+export function ringRadius(n: GlobeNode, scale: TimeScale, nowMs: number): number | null {
+  if (n.kind !== "chat" && n.kind !== "note") return null;
+  return n.date ? ageRadius(ageDays(n.date, nowMs), scale.maxDays) : NO_DATE_RADIUS;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -256,7 +397,8 @@ export function describe(n: GlobeNode): string {
     const who = n.ai ? `${n.ai} chat` : "AI chat";
     return n.date ? `${who} · ${readableDate(n.date)}` : who;
   }
-  return n.cluster === "Vault" ? "Note" : `Note in ${n.cluster}`;
+  const where = n.cluster === "Vault" ? "Note" : `Note in ${n.cluster}`;
+  return n.date ? `${where} · ${readableDate(n.date)}` : where;
 }
 
 export type GlobeFilter = Readonly<{ cluster: string; includeChats: boolean }>;

@@ -874,6 +874,13 @@ a {
   background: color-mix(in srgb, var(--star) 45%, transparent);
 }
 
+.legend .key .ring {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+}
+
 .legend .hint {
   color: var(--dim);
 }
