@@ -1,22 +1,36 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Search } from "lucide-react";
+import { ArrowRight, FileText, Search } from "lucide-react";
 import { ApiError, searchNotes, type SearchHit } from "@/lib/api";
-import { VIEW_META, type ViewId } from "@/lib/workspace";
+import { cleanSnippet } from "@/lib/noteText";
+import { TAB_ORDER, VIEW_META } from "@/lib/workspace";
 import { useWorkspace } from "./context";
 
+/**
+ * The Ctrl K search palette: note search (GET /api/search, all scopes) plus
+ * "Go to" jumps between views. Opens from the top bar or Ctrl K on any view.
+ */
 export function CommandBar() {
-  const { setView, selectNote, commandOpen, setCommandOpen } = useWorkspace();
+  const { commandOpen, setCommandOpen } = useWorkspace();
+  if (!commandOpen) return null;
+  return <Palette onClose={() => setCommandOpen(false)} />;
+}
+
+function Palette({ onClose }: { onClose: () => void }) {
+  const { setView, selectNote } = useWorkspace();
   const inputRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState(0);
+  const [activeRaw, setActive] = useState(0);
 
+  // Focus the input on open; give focus back to whatever had it on close.
   useEffect(() => {
-    if (commandOpen) inputRef.current?.focus();
-  }, [commandOpen]);
+    const previous = document.activeElement as HTMLElement | null;
+    inputRef.current?.focus();
+    return () => previous?.focus?.();
+  }, []);
 
   const trimmed = q.trim();
   const searching = trimmed.length >= 2;
@@ -47,22 +61,26 @@ export function CommandBar() {
 
   const shownHits = searching ? hits : [];
   const shownError = searching ? error : null;
-
-  const viewJumps = (Object.keys(VIEW_META) as ViewId[]).filter((id) =>
-    VIEW_META[id].label.toLowerCase().includes(q.trim().toLowerCase() || ""),
+  const viewJumps = TAB_ORDER.filter((id) =>
+    VIEW_META[id].label.toLowerCase().includes(trimmed.toLowerCase()),
   );
+  const total = viewJumps.length + shownHits.length;
+  const active = Math.min(activeRaw, Math.max(0, total - 1));
+
+  const goTo = (id: (typeof viewJumps)[number]) => {
+    setView(id);
+    onClose();
+  };
 
   const openHit = (hit: SearchHit) => {
     selectNote(hit.id, { view: "notes" });
-    setCommandOpen(false);
-    setQ("");
+    onClose();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    const total = viewJumps.length + shownHits.length;
     if (e.key === "Escape") {
-      setCommandOpen(false);
-      (e.target as HTMLInputElement).blur();
+      e.preventDefault();
+      onClose();
       return;
     }
     if (e.key === "ArrowDown") {
@@ -76,9 +94,7 @@ export function CommandBar() {
     if (e.key === "Enter") {
       e.preventDefault();
       if (active < viewJumps.length) {
-        setView(viewJumps[active]);
-        setCommandOpen(false);
-        setQ("");
+        goTo(viewJumps[active]);
         return;
       }
       const hit = shownHits[active - viewJumps.length];
@@ -86,94 +102,83 @@ export function CommandBar() {
     }
   };
 
-  const open = commandOpen || q.length > 0;
-
   return (
-    <div className="relative border-b border-hairline bg-page px-4 py-2.5">
-      <label className="sr-only" htmlFor="atlas-search">
-        Search notes and commands
-      </label>
-      <div className="compose-bar max-w-3xl">
-        <Search className="h-4 w-4 shrink-0 text-muted" strokeWidth={1.75} />
-        <input
-          id="atlas-search"
-          ref={inputRef}
-          type="search"
-          role="combobox"
-          aria-expanded={open}
-          aria-controls="atlas-search-results"
-          autoComplete="off"
-          placeholder="Search notes or jump to a view"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setCommandOpen(true);
-          }}
-          onFocus={() => setCommandOpen(true)}
-          onBlur={() => {
-            window.setTimeout(() => setCommandOpen(false), 120);
-          }}
-          onKeyDown={onKeyDown}
-        />
-        <span className="mono hidden shrink-0 text-[10px] text-muted sm:inline">
-          ⌘K
-        </span>
-      </div>
-      {open && (
-        <ul
-          id="atlas-search-results"
-          role="listbox"
-          className="absolute z-20 mt-1 w-[min(48rem,calc(100%-2rem))] overflow-hidden rounded-[11px] border border-hairline bg-panel shadow-[var(--shadow)]"
-        >
+    <div
+      className="palette-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Search notes and views">
+        <div className="composer">
+          <div className="bar">
+            <Search className="icon" aria-hidden strokeWidth={2} />
+            <label className="sr-only" htmlFor="atlas-search">
+              Search notes and views
+            </label>
+            <input
+              id="atlas-search"
+              ref={inputRef}
+              type="search"
+              role="combobox"
+              aria-expanded="true"
+              aria-controls="atlas-search-results"
+              aria-activedescendant={total ? `atlas-opt-${active}` : undefined}
+              autoComplete="off"
+              placeholder="Search notes or jump to a view"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+        </div>
+        <ul id="atlas-search-results" role="listbox" aria-label="Results" className="palette-list">
           {viewJumps.map((id, i) => (
-            <li key={id} role="option" aria-selected={active === i}>
+            <li key={id} id={`atlas-opt-${i}`} role="option" aria-selected={active === i}>
               <button
                 type="button"
-                className={`flex w-full items-center justify-between px-3 py-2 text-left text-[13px] ${
-                  active === i ? "bg-elevated" : ""
-                }`}
+                tabIndex={-1}
+                className="cmd"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setView(id);
-                  setCommandOpen(false);
-                  setQ("");
-                }}
+                onClick={() => goTo(id)}
               >
+                <ArrowRight className="icon" aria-hidden strokeWidth={2} />
                 <span>Go to {VIEW_META[id].label}</span>
-                <span className="mono text-[10px] text-muted">
-                  {VIEW_META[id].description}
-                </span>
               </button>
             </li>
           ))}
-          {shownError && (
-            <li className="px-3 py-2 text-[12px] text-[var(--danger)]">{shownError}</li>
-          )}
           {shownHits.map((hit, i) => {
             const idx = viewJumps.length + i;
             return (
-              <li key={hit.id} role="option" aria-selected={active === idx}>
+              <li key={hit.id} id={`atlas-opt-${idx}`} role="option" aria-selected={active === idx}>
                 <button
                   type="button"
-                  className={`flex w-full flex-col px-3 py-2 text-left ${
-                    active === idx ? "bg-elevated" : ""
-                  }`}
+                  tabIndex={-1}
+                  className="cmd"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => openHit(hit)}
                 >
-                  <span className="text-[13px] font-medium">{hit.title}</span>
-                  <span className="mono truncate text-[11px] text-muted">
-                    {hit.snippet || hit.id}
+                  <FileText className="icon" aria-hidden strokeWidth={2} />
+                  <span className="hit">
+                    <span className="t">{hit.title}</span>
+                    <span className="s mono">{cleanSnippet(hit.snippet || "", hit.title) || hit.id}</span>
                   </span>
                 </button>
               </li>
             );
           })}
-          {searching && !shownError && shownHits.length === 0 && (
-            <li className="px-3 py-2 text-[12px] text-muted">No matching notes.</li>
-          )}
         </ul>
-      )}
+        {shownError && (
+          <p className="palette-msg bad" role="alert">
+            {shownError}
+          </p>
+        )}
+        {searching && !shownError && shownHits.length === 0 && (
+          <p className="palette-msg" role="status">
+            No matching notes.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

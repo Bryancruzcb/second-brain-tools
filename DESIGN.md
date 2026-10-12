@@ -1,52 +1,78 @@
----
-name: The Night Atlas
-version: 1.0.0
-colors:
-  ink-950: "#0D1117"
-  ink-900: "#161B22"
-  ink-850: "#1C222B"
-  paper-50: "#F4F1E8"
-  paper-300: "#AEB6C2"
-  signal: "#C9F568"
-  sky: "#61A8FF"
-  success: "#68D9B0"
-  warning: "#E8B94F"
-  danger: "#F06F62"
-typography:
-  sans: Instrument Sans
-  mono: IBM Plex Mono
-radii:
-  small: 7px
-  medium: 11px
-  large: 16px
----
+# DESIGN.md: Atlas (Observatory)
 
-# Overview
+This is the UI style file for the Atlas frontend (`frontend/`). It replaces the earlier design system, "The Night Atlas" (chartreuse on ink, Instrument Sans, a left rail), which is still in git history before the `ui/makeover-observatory` branch. The product keeps its Night Atlas name; only the look changed.
 
-The Night Atlas is a quiet, precise desktop instrument for navigating a personal knowledge system. The vault remains the protagonist; the interface supplies orientation, state, and a small number of purposeful actions. Atmosphere comes from near-black ink, ivory text, disciplined rules, cartographic labels, and the living graph—not decorative gradients or excessive glow.
+## The look in one sentence
+Your notes as a night sky: iA Writer's black starfield with one strong idea (a 3D map of the whole vault, every note and AI chat a dot), and Linear's near-black precision, with Ask docked at the bottom like a command menu.
 
-# Colors
+## References
+- iA Writer, dark section (`iawriter-dark` in Bryan's taste picks): a black sky, mono type, one strong idea carrying the screen. Take the black sky and the mono labels.
+- Linear (`linear-hero`): near-black surfaces, small precise gray type, a docked command panel where the answer sits above the input. Take the Ask dock and the quiet gray hierarchy.
+- The approved mockup: `ui-makeover-2026-10/second-brain/c/index.html` (direction C, "Observatory"), outside this repo.
 
-Use `ink-950` for the app field, `ink-900` for primary panels, and `ink-850` only for elevated or interactive surfaces. `paper-50` carries primary text and `paper-300` carries supporting text. Chartreuse `signal` is rare and reserved for primary actions, active navigation, and focus. `sky` indicates AI or semantic activity. Success, warning, and danger colors always appear with text or an icon so state never depends on color alone.
+## Colors
+Dark only, by Bryan's choice: `color-scheme: dark`, tokens defined once on `:root` in `frontend/src/app/globals.css`. There is no light theme and no theme toggle.
 
-# Typography
+| Token | Light | Dark | Used for |
+|---|---|---|---|
+| background (`--page`) | none | `#06080B` | page background, top bar |
+| night (`--night`) | none | `#080B10` | the 3D vault map (Notes and Map) |
+| surface (`--panel`) | none | `#0D1117` | Recent list, reading pane, dock, palette |
+| raised (`--raised`) | none | `#131922` | selected rows, composer, hover |
+| text (`--ink`) | none | `#E8ECF1` | body text, titles |
+| text-muted (`--muted`) | none | `#A6B0BE` | secondary text, star labels |
+| text-dim (`--dim`) | none | `#8A95A5` | dates, ring labels, file names |
+| border (`--hairline`) | none | `#1E2632` | dividers |
+| border-strong (`--hairline-strong`) | none | `#2D3747` | input and button borders, age rings |
+| star (`--star`) | none | `#F4EFE3` | stars (notes), links between them |
+| field (`--field`) | none | `#3B4554` | decorative background dots (no meaning) |
+| primary (`--accent`) | none | `#74C7EF` | Ask button, selection, focus ring, the source bracket |
+| success (`--success`) | none | `#82D6A3` | index ready, nothing to fix |
+| warning (`--warning`) | none | `#E6C07B` | orphan notes, read-only cloud placeholder |
+| danger (`--danger`) | none | `#F29B8B` | errors, broken links |
+| info (`--info`) | none | `#74C7EF` | tips, neutral notices (same as primary) |
 
-Instrument Sans is the working face for navigation, controls, titles, and prose. IBM Plex Mono is used for short system labels, counts, shortcuts, timestamps, and graph metadata. Headings are compact and sentence-case; avoid oversized marketing typography. Body text favors comfortable line height and restrained measure, especially in rendered Markdown.
+`--accent-ink` (`#04121B`) is the text color on a filled accent button. Every text color above passes WCAG AA (4.5:1) on every surface from `--page` to `--raised`; the dimmest pair, `--dim` on `--raised`, is about 5.8:1. `--hairline-strong` is a border color, not a text background, except under `--ink` (the pressed scope button, 10:1).
 
-# Elevation
+## Type
+- Interface, headings and note text: **Bricolage Grotesque** (variable, optical sizes), weights 500/600/700.
+- Labels, dates, file names, star names, shortcuts: **Martian Mono** at 75% width, 12px, letter-spacing 0.02em.
+- Both load through `next/font/google` in `frontend/src/app/layout.tsx`, so they are self-hosted at build time (no request to Google from the browser).
+- Body: 16px, line height 1.5 (1.6 to 1.7 for answers and note text).
+- Scale: 12 / 14 / 16 / 20 / 28. Nothing under 12px.
+- Numbers that line up (counts, dates in lists): tabular figures (`.num`).
 
-Hierarchy is built with borders, tonal steps, and spacing before shadows. Primary panels use a one-pixel cool-gray border. Floating search results, dialogs, tooltips, and the note panel may use a concentrated shadow. Blur and translucent glass are not default surfaces. Rounded corners are modest: 7px for controls, 11px for panels, and 16px only for major containers.
+## Spacing and shape
+- Spacing steps: 4 / 8 / 12 / 16 / 24 / 32 / 48.
+- Radius: 6px for small controls and chips, 8px for buttons and rows, 14px for the chart, the dock and the palette.
+- Shadows: none, except the Ctrl K palette (`--shadow`), which floats over the page.
+- Borders do the layering: one hairline between panes, a stronger line around inputs and the dock.
 
-# Components
+## Components
+- The app keeps its own small component set: CSS classes in `globals.css` plus Tailwind utilities, and React components in `frontend/src/components/workspace/`. It does not use shadcn/ui; adding it would be a new dependency for a handful of parts.
+- Buttons: primary = filled accent (`.btn-primary`, one per area: Ask, Save), secondary = outline (`.btn`), quiet = text only (`.btn-quiet`). Destructive actions use words ("Remove", "Clear history") and a confirm where they delete many things.
+- Top bar: brand, four tabs (Notes, Ask, Map, Repair; each tab's Ctrl shortcut is in its tooltip), the index status outside Notes, and the Ctrl K search button.
+- 3D vault map (`VaultGlobe.tsx`, scene in `globeEngine.ts`, data in `lib/vaultGlobe.ts`), the same map on Notes and on Map. It reads like a clock face on a slightly flattened disc: the distance from the middle is age, and the slice is the folder. Every dated chat or note sits exactly on the time ring for its age (the date in its file name; newest in the middle; rings labeled 1 week, 1 month, 3 months, 6 months, and further ones only when the vault is older), and dots without a date sit on the dashed "No date" ring outside them. Every folder owns a slice of the circle sized by how many chats and notes it holds (subfolders split their parent's slice the same way), faint lines divide the top folders' slices, and each folder's name sits on the rim of its slice. Top folder names always show (in capitals, moving above or below their dot rather than hiding); deeper folders' names fade in as the camera comes close to them (scrolling zooms toward the pointer). Gold dot = AI chat, blue = note, light = folder (small and dim below the top level). A chat's project copies (`<project>/AI Chat Links/`, same file name) fold into the chat. Lines show only for the picked dot: its wikilinks, and for a chat its projects (the semantic "ghost" links are never drawn). It reads no note text, only `/api/graph`. It turns slowly (about one turn in five minutes) until someone clicks, drags, or scrolls on it; the Spin button starts it again. Picking a dot opens it in the reading pane and turns the camera toward it from the same distance (it never zooms in), with a ring and its name. A bracket marks each source of the latest answer. The first view and Reset view use the nearest distance at which every dot and name fits. Built on 3d-force-graph and three.js, loaded only in the browser on first use; without WebGL it says so and points to Recent and Ctrl K. The legend under it says what each mark means and how to move around.
+- Ask dock and Ask view: the answer above, numbered citations ([1]) that point to a source list with the note title, file name and quoted text, then suggested questions or Find results, then the input with the scope choice and the privacy line.
+- Reading pane: title once, file name, folder and edit time in mono, then the note with headings rendered. Edit and Save stay here.
+- Folding panes (Notes, wide screens): Recent and the reading pane each fold to a 48 px rail with the pane's name, which opens it again. The fold buttons sit in each pane's header; Map only on the map folds both, and the map then also takes most of the window's height. Picking a note opens a folded reading pane again (Show on map leaves it folded). The choice is kept in this browser (`localStorage`, key `atlas.notes.panes`). On one-column screens nothing folds.
+- Text: content stays, text about the content goes. No eyebrow labels over headings, no line under a heading that restates it, no hints for obvious controls. Keep status words, error/empty/loading messages, labels, and the "Nothing leaves this computer" line.
+- Status words: Broken / Orphan / Tagless pills always carry the word; color is extra.
+- Cards: no cards inside cards. The map, the dock and the reading pane are flat panels side by side.
 
-The app shell uses a persistent left rail, command search top bar, and one active workspace view. Buttons have primary, secondary, ghost, text, compact, and icon forms with consistent focus-visible rings. Workspace panels share headings, supporting copy, and clear empty states. The graph owns its search, filters, camera controls, tooltip, and stats. Note and chat panels preserve context as users move between discovery, reading, editing, and asking.
+## Motion
+- CSS only, no motion library.
+- The 3D map turns slowly until touched; camera moves take 1.2 s and zoom steps 0.3 s; folder names fade in and out. Nothing else moves: no animation that carries no meaning (Bryan's rule). The glow on it is kept low (bloom strength 0.4): Bryan asked for a 3D "brain" look, not a bright one.
+- Hover color changes at 150 ms. Skeletons pulse while loading.
+- `prefers-reduced-motion` turns all of it off (`globals.css`), and the map then starts still and moves the camera without animation.
 
-# Do’s and Don’ts
+## Icons and art
+- Small UI icons: Lucide (`lucide-react`, already a dependency). No emoji.
+- No decorative art beyond the map's faint, still starfield of round dots. The dots, rings and slices are data (what, how old, which folder).
+- Empty states: a Lucide icon, one bold line, one plain sentence.
 
-- Do keep common actions visible and advanced graph controls contextual.
-- Do write plain status copy for scanning, indexing, loading, saving, and failures.
-- Do maintain keyboard access, reduced-motion behavior, responsive layouts, and WCAG AA contrast.
-- Do use the chartreuse signal sparingly so it retains meaning.
-- Don’t turn the product into a scrolling landing page or a grid of decorative metrics.
-- Don’t use gradient text, neon bloom on every element, or glassmorphism as the visual system.
-- Don’t hide essential navigation or replace familiar controls with novelty.
+## Rules (every screen, always)
+1. Skeleton loaders that match the final layout for anything that loads data (no layout shift). Skip them for near-instant loads.
+2. Semantic colors (success, warning, danger, info) from the table above. Never use color as the only signal; pair it with an icon or text.
+3. No clutter: no subtitle that restates a heading, no redundant helper text, no decorative dividers, no duplicate labels. If it isn't useful, remove it.
+4. Accessibility, WCAG 2.2 AA: 4.5:1 text contrast (3:1 for large text and controls), full keyboard navigation with visible focus, a label on every input, aria-labels on icon-only buttons, alt text on meaningful images, semantic HTML, targets at least 24×24px, prefers-reduced-motion respected.

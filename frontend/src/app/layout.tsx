@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Martian_Mono } from "next/font/google";
 import "./globals.css";
 
-const instrument = Instrument_Sans({
-  variable: "--font-instrument",
+const bricolage = Bricolage_Grotesque({
+  variable: "--font-bricolage",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  axes: ["opsz"],
 });
 
-const ibmPlex = IBM_Plex_Mono({
-  variable: "--font-ibm",
+const martian = Martian_Mono({
+  variable: "--font-martian",
   subsets: ["latin"],
-  weight: ["400", "500"],
+  axes: ["wdth"],
 });
 
 export const metadata: Metadata = {
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${instrument.variable} ${ibmPlex.variable} antialiased`}
+      className={`${bricolage.variable} ${martian.variable} antialiased`}
     >
       <body className="min-h-screen bg-page text-ink">{children}</body>
     </html>

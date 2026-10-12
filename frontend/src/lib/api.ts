@@ -1,8 +1,6 @@
 import type { HealthIssue, Note } from "@/types";
-import { layoutGraph as layoutVaultGraph } from "./graphLayout";
 
-export type { GraphCluster, GraphLayout } from "./graphLayout";
-export { folderCluster, isChatNote } from "./graphLayout";
+export { folderCluster, isChatNote } from "./vaultPaths";
 
 /**
  * Empty by default: the browser calls same-origin /api/..., and the Next.js
@@ -202,20 +200,6 @@ export function mapHealthIssues(data: BackendHealthData): HealthIssue[] {
   }
 
   return issues;
-}
-
-/** Client-side layout for graph nodes (API has no x/y). Caps for readability. */
-export function layoutGraph(
-  nodes: BackendGraphNode[],
-  edges: BackendGraphEdge[],
-  opts: {
-    width?: number;
-    height?: number;
-    maxNodes?: number;
-    includeChats?: boolean;
-  } = {},
-) {
-  return layoutVaultGraph(nodes, edges, opts);
 }
 
 /* ---------- endpoints ---------- */

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "source": "DESIGN.md",
-  "northStar": "The Night Atlas",
+  "northStar": "Observatory",
   "principles": [
     "Keep the vault—not the interface—the protagonist",
     "Use one continuous search-inspect-connect-ask loop",

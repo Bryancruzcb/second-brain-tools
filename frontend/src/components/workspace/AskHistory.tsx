@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { RotateCcw, X } from "lucide-react";
 import {
   ApiError,
   clearAskHistory,
@@ -8,21 +9,9 @@ import {
   fetchAskHistory,
   type AskHistoryEntry,
 } from "@/lib/api";
+import { askedAgo } from "@/lib/format";
 
 export type { AskHistoryEntry };
-
-function askedAgo(epochSeconds: number): string {
-  const diff = Math.max(0, Date.now() / 1000 - epochSeconds);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 7 * 86400) return `${Math.floor(diff / 86400)}d ago`;
-  return new Date(epochSeconds * 1000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "America/Los_Angeles",
-  });
-}
 
 /**
  * Past questions saved by the backend. Clicking one shows its saved answer
@@ -31,12 +20,14 @@ function askedAgo(epochSeconds: number): string {
 export function AskHistory({
   version,
   activeId,
+  nowMs,
   onSelect,
   onRerun,
 }: {
   /** bump to reload, e.g. after an Ask finishes */
   version: number;
   activeId: string | null;
+  nowMs: number;
   onSelect: (entry: AskHistoryEntry) => void;
   onRerun: (entry: AskHistoryEntry) => void;
 }) {
@@ -83,52 +74,48 @@ export function AskHistory({
   if (!entries.length && !error) return null;
 
   return (
-    <section className="mt-6" aria-label="Past questions">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-[12px] font-medium text-muted">Past questions</h3>
+    <section className="dock" aria-labelledby="past-h">
+      <div className="pane-head" style={{ padding: "14px 16px 6px" }}>
+        <h2 id="past-h" style={{ fontSize: 14 }}>
+          Past questions
+        </h2>
         {entries.length > 0 && (
-          <button type="button" className="btn btn-compact btn-ghost" onClick={() => void clearAll()}>
+          <button type="button" className="btn btn-quiet" onClick={() => void clearAll()}>
             Clear history
           </button>
         )}
       </div>
-      {error && <p className="mb-2 text-[12px] text-[var(--danger)]">{error}</p>}
-      <ul className="flex flex-col gap-1">
+      {error && (
+        <p className="palette-msg bad" role="alert">
+          {error}
+        </p>
+      )}
+      <ul style={{ listStyle: "none", margin: 0, padding: "0 8px 8px" }}>
         {entries.map((e) => {
           const active = e.id === activeId;
           return (
-            <li
-              key={e.id}
-              className={`flex items-center gap-2 rounded-[7px] border px-3 py-1.5 text-[13px] ${
-                active
-                  ? "border-[color-mix(in_srgb,var(--accent)_45%,var(--hairline))] bg-elevated"
-                  : "border-hairline"
-              }`}
-            >
+            <li key={e.id} className={`history-item${active ? " active" : ""}`}>
               <button
                 type="button"
-                className="focus-ring min-w-0 flex-1 truncate text-left text-ink/90"
+                className="q focus-ring"
                 title={e.question}
                 aria-pressed={active}
                 onClick={() => onSelect(e)}
               >
                 {e.question}
               </button>
-              <span className="shrink-0 text-[11px] text-muted">{askedAgo(e.asked_at)}</span>
-              <button
-                type="button"
-                className="btn btn-compact btn-ghost shrink-0"
-                onClick={() => onRerun(e)}
-              >
+              <span className="when mono num">{askedAgo(e.asked_at, nowMs)}</span>
+              <button type="button" className="btn btn-quiet" onClick={() => onRerun(e)}>
+                <RotateCcw className="icon" aria-hidden strokeWidth={2} />
                 Ask again
               </button>
               <button
                 type="button"
-                className="btn btn-compact btn-ghost shrink-0"
+                className="btn btn-quiet btn-icon"
                 aria-label={`Delete "${e.question}" from history`}
                 onClick={() => void remove(e.id)}
               >
-                ×
+                <X className="icon" aria-hidden strokeWidth={2} />
               </button>
             </li>
           );
